@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Keyboard
 } from 'react-native';
-import { searchTracks, PipedSearchResult } from '../services/musicApi';
+import { searchTracks, getSearchSuggestions, PipedSearchResult } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 
 export function SearchScreen() {
@@ -18,6 +18,9 @@ export function SearchScreen() {
   const [results, setResults] = useState<PipedSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const executeSearch = async (text: string) => {
@@ -36,14 +39,32 @@ export function SearchScreen() {
   const handleTextChange = (text: string) => {
     setQuery(text);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      executeSearch(text);
+    
+    if (!text.trim()) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    
+    debounceTimer.current = setTimeout(async () => {
+      const sugs = await getSearchSuggestions(text);
+      setSuggestions(sugs);
+      setShowSuggestions(true);
     }, 300);
   };
 
   const handleSearch = () => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    setShowSuggestions(false);
     executeSearch(query);
+    Keyboard.dismiss();
+  };
+
+  const handleSuggestionTap = (sug: string) => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    setQuery(sug);
+    setShowSuggestions(false);
+    executeSearch(sug);
     Keyboard.dismiss();
   };
 
@@ -113,6 +134,20 @@ export function SearchScreen() {
           returnKeyType="search"
           selectionColor="#ffffff"
         />
+        
+        {showSuggestions && suggestions.length > 0 && (
+          <View style={styles.suggestionsContainer}>
+            {suggestions.map((sug, index) => (
+              <TouchableOpacity 
+                key={index} 
+                style={styles.suggestionItem} 
+                onPress={() => handleSuggestionTap(sug)}
+              >
+                <Text style={styles.suggestionText}>{sug}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       {isLoading ? (
@@ -197,6 +232,29 @@ const styles = StyleSheet.create({
     color: '#aaaaaa',
     textAlign: 'center',
     marginTop: 40,
+    fontSize: 16,
+  },
+  suggestionsContainer: {
+    position: 'absolute',
+    top: 68,
+    left: 16,
+    right: 16,
+    backgroundColor: '#1e1e1e',
+    borderRadius: 8,
+    zIndex: 100,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#333333',
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333333',
+  },
+  suggestionText: {
+    color: '#ffffff',
     fontSize: 16,
   },
 });

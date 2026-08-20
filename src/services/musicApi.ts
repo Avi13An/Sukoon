@@ -59,24 +59,41 @@ const FALLBACK_RESULTS: PipedSearchResult[] = [
 
 let cachedInstances: string[] = [];
 
+async function fetchWithTimeout(url: string, options: any = {}, timeout: number = 4000): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+
 async function getHealthyInstances(): Promise<string[]> {
   if (cachedInstances.length > 0) return cachedInstances;
   
   try {
-    const res = await fetch(INVIDIOUS_INSTANCES_URL);
+    const res = await fetchWithTimeout(INVIDIOUS_INSTANCES_URL, {}, 4000);
     if (!res.ok) throw new Error('Failed to fetch instances');
     const data = await res.json();
     
     const instances = data
       .filter((item: any) => {
         const info = item[1];
-        return info.type === 'https' && 
+        return info && info.type === 'https' && 
                info.api === true && 
                info.cors === true && 
                info.monitor && 
                info.monitor.uptime >= 95.0; // High uptime filter
       })
-      .map((item: any) => item[1].uri);
+      .map((item: any) => {
+        const domain = item[0];
+        const info = item[1];
+        return info.uri || `https://${domain}`;
+      });
       
     if (instances.length > 0) {
       // Shuffle array to distribute load across healthy instances
@@ -136,7 +153,7 @@ async function fetchWithFailover(pathName: string, queryParams: string): Promise
   for (const instance of instances) {
     try {
       const url = `${instance}${pathName}?${queryParams}`;
-      const response = await fetch(url);
+      const response = await fetchWithTimeout(url, {}, 4000);
       
       if (!response.ok) {
         throw new Error(`HTTP Error ${response.status}`);
@@ -173,6 +190,34 @@ export async function searchTracks(query: string): Promise<PipedSearchResult[]> 
     );
     return FALLBACK_RESULTS;
   }
+}
+
+export async function getSearchSuggestions(query: string): Promise<string[]> {
+  if (!query.trim()) return [];
+  try {
+    const { data } = await fetchWithFailover('/api/v1/search/suggestions', `q=${encodeURIComponent(query)}`);
+    let suggestions: string[] = [];
+    if (data.suggestions && Array.isArray(data.suggestions)) {
+       suggestions = data.suggestions;
+    } else if (Array.isArray(data)) {
+       suggestions = data;
+    }
+    if (suggestions.length > 0) return suggestions;
+  } catch (error) {
+    console.warn('Invidious suggestions failed, falling back to Google', error);
+  }
+  
+  // Fast Fallback to Google YouTube suggestions
+  try {
+    const res = await fetchWithTimeout(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`, {}, 3000);
+    const json = await res.json();
+    if (Array.isArray(json) && Array.isArray(json[1])) {
+       return json[1];
+    }
+  } catch (fallbackError) {
+     console.error('All suggestion endpoints failed', fallbackError);
+  }
+  return [];
 }
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
