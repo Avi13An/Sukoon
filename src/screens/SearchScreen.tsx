@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -18,17 +18,40 @@ export function SearchScreen() {
   const [results, setResults] = useState<PipedSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const handleSearch = useCallback(async () => {
-    if (!query.trim()) return;
-    Keyboard.dismiss();
+  const executeSearch = async (text: string) => {
+    if (!text.trim()) {
+      setResults([]);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
-    setResults([]);
     
-    const searchResults = await searchTracks(query);
+    const searchResults = await searchTracks(text);
     setResults(searchResults);
     setIsLoading(false);
-  }, [query]);
+  };
+
+  const handleTextChange = (text: string) => {
+    setQuery(text);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      executeSearch(text);
+    }, 300);
+  };
+
+  const handleSearch = () => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    executeSearch(query);
+    Keyboard.dismiss();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
 
   const handlePlayTrack = async (item: PipedSearchResult) => {
     try {
@@ -85,7 +108,7 @@ export function SearchScreen() {
           placeholder="Search for music..."
           placeholderTextColor="#888888"
           value={query}
-          onChangeText={setQuery}
+          onChangeText={handleTextChange}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
           selectionColor="#ffffff"

@@ -1,6 +1,10 @@
 import { Alert } from 'react-native';
 
-const BASE_URL = 'https://saavn.sumit.co/api';
+const CANDIDATE_ENDPOINTS = [
+  'https://saavn.sumit.co',
+  'https://jiosaavn-api-sigma-sandy.vercel.app',
+  'https://jiosaavn-api-privatetesting.vercel.app'
+];
 
 export interface PipedSearchResult {
   url: string;
@@ -58,24 +62,36 @@ const FALLBACK_RESULTS: PipedSearchResult[] = [
 ];
 
 function mapJioSaavnToTrack(song: any): PipedSearchResult {
-  const images = song.image || [];
-  const bestImage = images.length > 0 ? images[images.length - 1].url : '';
+  let bestImage = '';
+  if (Array.isArray(song.image)) {
+    bestImage = song.image.length > 0 ? song.image[song.image.length - 1].url : '';
+  } else if (typeof song.image === 'string') {
+    bestImage = song.image;
+  }
   
-  const downloadUrls = song.downloadUrl || [];
-  const bestDownloadUrl = downloadUrls.length > 0 ? downloadUrls[downloadUrls.length - 1].url : '';
+  let bestDownloadUrl = '';
+  if (Array.isArray(song.downloadUrl)) {
+    bestDownloadUrl = song.downloadUrl.length > 0 ? song.downloadUrl[song.downloadUrl.length - 1].url : '';
+  } else if (typeof song.downloadUrl === 'string') {
+    bestDownloadUrl = song.downloadUrl;
+  } else if (Array.isArray(song.media_url)) {
+    bestDownloadUrl = song.media_url.length > 0 ? song.media_url[song.media_url.length - 1].url : '';
+  } else if (typeof song.media_url === 'string') {
+    bestDownloadUrl = song.media_url;
+  }
 
   return {
     url: `/watch?v=${song.id}`,
     type: 'stream',
-    title: song.name,
+    title: song.name || song.title || 'Unknown Title',
     thumbnail: bestImage,
-    uploaderName: song.primaryArtists || 'Unknown Artist',
+    uploaderName: song.primaryArtists || song.singers || 'Unknown Artist',
     uploaderUrl: '',
     uploaderAvatar: '',
     uploadedDate: song.year || 'Unknown',
     shortDescription: '',
-    duration: song.duration || 0,
-    views: song.playCount || 0,
+    duration: song.duration ? parseInt(song.duration, 10) : 0,
+    views: song.playCount ? parseInt(song.playCount, 10) : 0,
     uploaded: 0,
     uploaderVerified: true,
     isShort: false,
@@ -83,27 +99,72 @@ function mapJioSaavnToTrack(song: any): PipedSearchResult {
   };
 }
 
+async function fetchWithFailover(pathName: string, queryParams: string): Promise<any> {
+  let lastError: Error = new Error('No endpoints available');
+
+  for (const base of CANDIDATE_ENDPOINTS) {
+    const urlsToTry = [
+      `${base}/api${pathName}?${queryParams}`,
+      `${base}${pathName}?${queryParams}`
+    ];
+
+    for (const url of urlsToTry) {
+      try {
+        const response = await fetch(url);
+        
+        if (response.status === 404) {
+          continue; // Path variant incorrect, try next path
+        }
+        
+        if (!response.ok) {
+          throw new Error(`HTTP Error ${response.status}`);
+        }
+        
+        const json = await response.json();
+        
+        let results = null;
+        if (json.success !== false && json.data) {
+          results = json.data.results || json.data;
+        } else if (json.results) {
+          results = json.results;
+        } else if (Array.isArray(json)) {
+          results = json;
+        } else if (json.status === 'SUCCESS' || json.status === 'success') {
+          results = json.results || json.data;
+        }
+        
+        if (results && (Array.isArray(results) ? results.length > 0 : true)) {
+          return results;
+        }
+        
+        throw new Error('API returned empty results');
+        
+      } catch (error: any) {
+        lastError = error;
+        // If it's a 404, we let it loop to the next variation.
+        // Otherwise (429, 502, network error, empty results), break and try the next server instance.
+        if (!error.message.includes('404')) {
+          break;
+        }
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const response = await fetch(`${BASE_URL}/search/songs?query=${encodeURIComponent(query)}`);
-    if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
-    
-    const json = await response.json();
-    if (!json.success || !json.data || !json.data.results) {
-      throw new Error('API returned malformed or empty results');
+    const items = await fetchWithFailover('/search/songs', `query=${encodeURIComponent(query)}`);
+    if (!Array.isArray(items)) {
+      throw new Error('Results is not an array');
     }
-    
-    const items = json.data.results;
-    if (items.length === 0) {
-      throw new Error('No results found');
-    }
-    
     return items.map(mapJioSaavnToTrack);
   } catch (error: any) {
     console.error('Error searching tracks:', error);
     Alert.alert(
       'Search Failed', 
-      `Could not reach the music API (${error.message || 'Network Error'}). Falling back to mock results.`
+      `All endpoints failed (${error.message || 'Network Error'}). Falling back to mock results.`
     );
     return FALLBACK_RESULTS;
   }
@@ -111,16 +172,11 @@ export async function searchTracks(query: string): Promise<PipedSearchResult[]> 
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const response = await fetch(`${BASE_URL}/songs/${videoId}`);
-    if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
-    
-    const json = await response.json();
-    if (json.success && json.data && json.data.length > 0) {
-      const song = json.data[0];
-      const downloadUrls = song.downloadUrl || [];
-      if (downloadUrls.length > 0) {
-        return downloadUrls[downloadUrls.length - 1].url;
-      }
+    const items = await fetchWithFailover(`/songs/${videoId}`, '');
+    const song = Array.isArray(items) ? items[0] : items;
+    if (song) {
+      const parsed = mapJioSaavnToTrack(song);
+      return parsed.streamUrl || null;
     }
     return null;
   } catch (error) {
@@ -131,20 +187,11 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
 
 export async function getRelatedTracks(videoId: string): Promise<PipedSearchResult[]> {
   try {
-    const response = await fetch(`${BASE_URL}/songs/${videoId}/suggestions`);
-    if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
-    
-    const json = await response.json();
-    if (!json.success || !json.data) {
-      throw new Error('API returned malformed suggestions');
+    const items = await fetchWithFailover(`/songs/${videoId}/suggestions`, '');
+    if (!Array.isArray(items)) {
+      throw new Error('Results is not an array');
     }
-    
-    const related = json.data;
-    if (related.length === 0) {
-      throw new Error('API returned empty related streams array');
-    }
-    
-    return related.map(mapJioSaavnToTrack);
+    return items.map(mapJioSaavnToTrack);
   } catch (error: any) {
     console.error('Error getting related tracks:', error);
     // Silent fallback for home screen suggestions
