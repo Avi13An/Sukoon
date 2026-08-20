@@ -1,10 +1,6 @@
 import { Alert } from 'react-native';
 
-const CANDIDATE_ENDPOINTS = [
-  'https://saavn.sumit.co',
-  'https://jiosaavn-api-sigma-sandy.vercel.app',
-  'https://jiosaavn-api-privatetesting.vercel.app'
-];
+const INVIDIOUS_INSTANCES_URL = 'https://api.invidious.io/instances.json';
 
 export interface PipedSearchResult {
   url: string;
@@ -61,92 +57,104 @@ const FALLBACK_RESULTS: PipedSearchResult[] = [
   }
 ];
 
-function mapJioSaavnToTrack(song: any): PipedSearchResult {
-  let bestImage = '';
-  if (Array.isArray(song.image)) {
-    bestImage = song.image.length > 0 ? song.image[song.image.length - 1].url : '';
-  } else if (typeof song.image === 'string') {
-    bestImage = song.image;
+let cachedInstances: string[] = [];
+
+async function getHealthyInstances(): Promise<string[]> {
+  if (cachedInstances.length > 0) return cachedInstances;
+  
+  try {
+    const res = await fetch(INVIDIOUS_INSTANCES_URL);
+    if (!res.ok) throw new Error('Failed to fetch instances');
+    const data = await res.json();
+    
+    const instances = data
+      .filter((item: any) => {
+        const info = item[1];
+        return info.type === 'https' && 
+               info.api === true && 
+               info.cors === true && 
+               info.monitor && 
+               info.monitor.uptime >= 95.0; // High uptime filter
+      })
+      .map((item: any) => item[1].uri);
+      
+    if (instances.length > 0) {
+      // Shuffle array to distribute load across healthy instances
+      cachedInstances = instances.sort(() => 0.5 - Math.random());
+      return cachedInstances;
+    }
+    throw new Error('No healthy instances found');
+  } catch (err) {
+    console.error('Error fetching instances:', err);
+    return [
+      'https://invidious.nerdvpn.de',
+      'https://invidious.jing.rocks',
+      'https://inv.tux.pizza',
+      'https://invidious.lunar.icu'
+    ];
+  }
+}
+
+function mapInvidiousToTrack(item: any, instanceUri: string): PipedSearchResult {
+  const thumbnails = item.videoThumbnails || [];
+  let bestThumbnail = '';
+  if (thumbnails.length > 0) {
+    const sorted = [...thumbnails].sort((a, b) => b.width - a.width);
+    bestThumbnail = sorted[0].url;
+    // ensure absolute url
+    if (bestThumbnail.startsWith('/')) {
+      bestThumbnail = `${instanceUri}${bestThumbnail}`;
+    }
   }
   
-  let bestDownloadUrl = '';
-  if (Array.isArray(song.downloadUrl)) {
-    bestDownloadUrl = song.downloadUrl.length > 0 ? song.downloadUrl[song.downloadUrl.length - 1].url : '';
-  } else if (typeof song.downloadUrl === 'string') {
-    bestDownloadUrl = song.downloadUrl;
-  } else if (Array.isArray(song.media_url)) {
-    bestDownloadUrl = song.media_url.length > 0 ? song.media_url[song.media_url.length - 1].url : '';
-  } else if (typeof song.media_url === 'string') {
-    bestDownloadUrl = song.media_url;
-  }
+  // Construct audio stream URL dynamically via Invidious /latest_version endpoint (itag 140 = m4a)
+  const streamUrl = `${instanceUri}/latest_version?id=${item.videoId}&itag=140&local=true`;
 
   return {
-    url: `/watch?v=${song.id}`,
-    type: 'stream',
-    title: song.name || song.title || 'Unknown Title',
-    thumbnail: bestImage,
-    uploaderName: song.primaryArtists || song.singers || 'Unknown Artist',
-    uploaderUrl: '',
+    url: `/watch?v=${item.videoId}`,
+    type: item.type || 'video',
+    title: item.title || 'Unknown Title',
+    thumbnail: bestThumbnail,
+    uploaderName: item.author || 'Unknown Artist',
+    uploaderUrl: item.authorUrl || '',
     uploaderAvatar: '',
-    uploadedDate: song.year || 'Unknown',
-    shortDescription: '',
-    duration: song.duration ? parseInt(song.duration, 10) : 0,
-    views: song.playCount ? parseInt(song.playCount, 10) : 0,
+    uploadedDate: item.publishedText || 'Unknown',
+    shortDescription: item.description || '',
+    duration: item.lengthSeconds ? parseInt(item.lengthSeconds, 10) : 0,
+    views: item.viewCount ? parseInt(item.viewCount, 10) : 0,
     uploaded: 0,
-    uploaderVerified: true,
+    uploaderVerified: false,
     isShort: false,
-    streamUrl: bestDownloadUrl
+    streamUrl
   };
 }
 
-async function fetchWithFailover(pathName: string, queryParams: string): Promise<any> {
-  let lastError: Error = new Error('No endpoints available');
-
-  for (const base of CANDIDATE_ENDPOINTS) {
-    const urlsToTry = [
-      `${base}/api${pathName}?${queryParams}`,
-      `${base}${pathName}?${queryParams}`
-    ];
-
-    for (const url of urlsToTry) {
-      try {
-        const response = await fetch(url);
-        
-        if (response.status === 404) {
-          continue; // Path variant incorrect, try next path
-        }
-        
-        if (!response.ok) {
-          throw new Error(`HTTP Error ${response.status}`);
-        }
-        
-        const json = await response.json();
-        
-        let results = null;
-        if (json.success !== false && json.data) {
-          results = json.data.results || json.data;
-        } else if (json.results) {
-          results = json.results;
-        } else if (Array.isArray(json)) {
-          results = json;
-        } else if (json.status === 'SUCCESS' || json.status === 'success') {
-          results = json.results || json.data;
-        }
-        
-        if (results && (Array.isArray(results) ? results.length > 0 : true)) {
-          return results;
-        }
-        
-        throw new Error('API returned empty results');
-        
-      } catch (error: any) {
-        lastError = error;
-        // If it's a 404, we let it loop to the next variation.
-        // Otherwise (429, 502, network error, empty results), break and try the next server instance.
-        if (!error.message.includes('404')) {
-          break;
-        }
+async function fetchWithFailover(pathName: string, queryParams: string): Promise<{ data: any, instance: string }> {
+  const instances = await getHealthyInstances();
+  let lastError: Error = new Error('No instances available');
+  
+  for (const instance of instances) {
+    try {
+      const url = `${instance}${pathName}?${queryParams}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error ${response.status}`);
       }
+      
+      const data = await response.json();
+      
+      if (Array.isArray(data) && data.length > 0) {
+        return { data, instance };
+      } else if (data && !Array.isArray(data)) {
+        return { data, instance };
+      }
+      
+      throw new Error('API returned empty results');
+    } catch (error: any) {
+      console.warn(`Instance ${instance} failed: ${error.message}`);
+      lastError = error;
+      // Loop continues to test the next instance
     }
   }
   
@@ -155,16 +163,13 @@ async function fetchWithFailover(pathName: string, queryParams: string): Promise
 
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const items = await fetchWithFailover('/search/songs', `query=${encodeURIComponent(query)}`);
-    if (!Array.isArray(items)) {
-      throw new Error('Results is not an array');
-    }
-    return items.map(mapJioSaavnToTrack);
+    const { data: items, instance } = await fetchWithFailover('/api/v1/search', `q=${encodeURIComponent(query)}&type=video`);
+    return items.map((item: any) => mapInvidiousToTrack(item, instance));
   } catch (error: any) {
     console.error('Error searching tracks:', error);
     Alert.alert(
       'Search Failed', 
-      `All endpoints failed (${error.message || 'Network Error'}). Falling back to mock results.`
+      `All Invidious endpoints failed (${error.message || 'Network Error'}). Falling back to mock results.`
     );
     return FALLBACK_RESULTS;
   }
@@ -172,11 +177,9 @@ export async function searchTracks(query: string): Promise<PipedSearchResult[]> 
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const items = await fetchWithFailover(`/songs/${videoId}`, '');
-    const song = Array.isArray(items) ? items[0] : items;
-    if (song) {
-      const parsed = mapJioSaavnToTrack(song);
-      return parsed.streamUrl || null;
+    const instances = await getHealthyInstances();
+    if (instances.length > 0) {
+      return `${instances[0]}/latest_version?id=${videoId}&itag=140&local=true`;
     }
     return null;
   } catch (error) {
@@ -187,11 +190,12 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
 
 export async function getRelatedTracks(videoId: string): Promise<PipedSearchResult[]> {
   try {
-    const items = await fetchWithFailover(`/songs/${videoId}/suggestions`, '');
-    if (!Array.isArray(items)) {
-      throw new Error('Results is not an array');
+    const { data: item, instance } = await fetchWithFailover(`/api/v1/videos/${videoId}`, '');
+    const related = item.recommendedVideos || [];
+    if (related.length === 0) {
+      throw new Error('API returned empty recommended videos');
     }
-    return items.map(mapJioSaavnToTrack);
+    return related.map((r: any) => mapInvidiousToTrack(r, instance));
   } catch (error: any) {
     console.error('Error getting related tracks:', error);
     // Silent fallback for home screen suggestions

@@ -18,7 +18,7 @@ export function SearchScreen() {
   const [results, setResults] = useState<PipedSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const executeSearch = async (text: string) => {
     if (!text.trim()) {
