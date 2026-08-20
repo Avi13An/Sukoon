@@ -1,5 +1,6 @@
 {
   "expo": {
+    "newArchEnabled": false,
     "name": "Sukoon",
     "slug": "sukoon",
     "version": "1.0.0",
@@ -32,16 +33,6 @@
         "projectId": "776d3a4c-1c06-445b-abbb-68d04fca4d31"
       }
     },
-    "owner": "venomavan",
-    "plugins": [
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "newArchEnabled": false
-          }
-        }
-      ]
-    ]
+    "owner": "venomavan"
   }
 }
