@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import TrackPlayer, { Event, State } from 'react-native-track-player';
+import TrackPlayer, { Event } from '@rntp/player';
 
 let currentChannel: ReturnType<typeof supabase.channel> | null = null;
 let isHost = false;
@@ -39,19 +39,17 @@ export async function hostSyncSession(targetUsername: string) {
     }
   });
 
-  // Attach TrackPlayer listeners to broadcast
-  const playListener = TrackPlayer.addEventListener(Event.PlaybackState, async (event) => {
-    if (event.state === State.Playing) {
-      const position = await TrackPlayer.getProgress();
-      const track = await TrackPlayer.getActiveTrack();
+  const playListener = TrackPlayer.addEventListener(Event.IsPlayingChanged, async (event: any) => {
+    const position = TrackPlayer.getProgress();
+    if (event.playing) {
+      const track = TrackPlayer.getActiveMediaItem();
       broadcast('SYNC_PLAY', { position: position.position, track });
-    } else if (event.state === State.Paused) {
-      const position = await TrackPlayer.getProgress();
+    } else {
       broadcast('SYNC_PAUSE', { position: position.position });
     }
   });
 
-  const trackChangeListener = TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, async (event) => {
+  const trackChangeListener = TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
     if (event.track) {
       broadcast('SYNC_TRACK_CHANGE', { track: event.track });
     }
@@ -75,10 +73,10 @@ export async function joinSyncSession(hostUsername: string) {
   currentChannel
     .on('broadcast', { event: 'SYNC_PLAY' }, async ({ payload }) => {
       const { position, track } = payload;
-      const currentTrack = await TrackPlayer.getActiveTrack();
-      if (currentTrack?.id !== track?.id && track) {
-        await TrackPlayer.reset();
-        await TrackPlayer.add(track);
+      const currentTrack = TrackPlayer.getActiveMediaItem();
+      if ((currentTrack as any)?.id !== track?.id && track) {
+        TrackPlayer.clear();
+        TrackPlayer.setMediaItems([track]);
       }
       await TrackPlayer.seekTo(position);
       await TrackPlayer.play();
@@ -91,8 +89,8 @@ export async function joinSyncSession(hostUsername: string) {
     .on('broadcast', { event: 'SYNC_TRACK_CHANGE' }, async ({ payload }) => {
       const { track } = payload;
       if (track) {
-        await TrackPlayer.reset();
-        await TrackPlayer.add(track);
+        TrackPlayer.clear();
+        TrackPlayer.setMediaItems([track]);
         await TrackPlayer.play();
       }
     })

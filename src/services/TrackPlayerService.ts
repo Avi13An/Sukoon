@@ -1,36 +1,21 @@
-import TrackPlayer, { AppKilledPlaybackBehavior, Capability, Event, RepeatMode } from 'react-native-track-player';
+import TrackPlayer, { Event, RepeatMode, PlayerCommand } from '@rntp/player';
 import { getOfflineTracks, setLastPlayedTrack, TrackMetadata } from '../utils/storage';
 import { getAudioStream } from './musicApi';
 
 export async function setupPlayer() {
   let isSetup = false;
   try {
-    await TrackPlayer.getCurrentTrack();
+    TrackPlayer.getPlaybackState();
     isSetup = true;
   } catch {
-    await TrackPlayer.setupPlayer({
-      minBuffer: 50,
-      maxBuffer: 100,
-      playBuffer: 5,
-      backBuffer: 50,
-    });
-    await TrackPlayer.updateOptions({
-      android: {
-        appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
-      },
+    await TrackPlayer.setupPlayer();
+    TrackPlayer.setCommands({
       capabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.SkipToNext,
-        Capability.SkipToPrevious,
-        Capability.SeekTo,
-      ],
-      compactCapabilities: [
-        Capability.Play,
-        Capability.Pause,
-        Capability.SkipToNext,
-      ],
-      progressUpdateEventInterval: 2,
+        PlayerCommand.PlayPause,
+        PlayerCommand.Next,
+        PlayerCommand.Previous,
+        PlayerCommand.Seek,
+      ]
     });
 
     isSetup = true;
@@ -40,31 +25,24 @@ export async function setupPlayer() {
 }
 
 export async function addTracks(tracks: any[]) {
-  await TrackPlayer.add(tracks);
-  await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+  await TrackPlayer.setMediaItems(tracks);
+  TrackPlayer.setRepeatMode(RepeatMode.All);
 }
 
 export async function toggleLoopMode() {
-  const currentMode = await TrackPlayer.getRepeatMode();
+  const currentMode = TrackPlayer.getRepeatMode();
   let nextMode = RepeatMode.Off;
   
   if (currentMode === RepeatMode.Off) {
-    nextMode = RepeatMode.Track;
-  } else if (currentMode === RepeatMode.Track) {
-    nextMode = RepeatMode.Queue;
+    nextMode = RepeatMode.One;
+  } else if (currentMode === RepeatMode.One) {
+    nextMode = RepeatMode.All;
   } else {
     nextMode = RepeatMode.Off;
   }
   
-  await TrackPlayer.setRepeatMode(nextMode);
+  TrackPlayer.setRepeatMode(nextMode);
   return nextMode;
-}
-
-export async function playbackService() {
-  TrackPlayer.addEventListener(Event.RemotePlay, () => TrackPlayer.play());
-  TrackPlayer.addEventListener(Event.RemotePause, () => TrackPlayer.pause());
-  TrackPlayer.addEventListener(Event.RemoteNext, () => TrackPlayer.skipToNext());
-  TrackPlayer.addEventListener(Event.RemotePrevious, () => TrackPlayer.skipToPrevious());
 }
 
 export async function playTrack(metadata: TrackMetadata) {
@@ -83,15 +61,14 @@ export async function playTrack(metadata: TrackMetadata) {
       playUrl = stream;
     }
 
-    await TrackPlayer.reset();
-    await TrackPlayer.add({
-      id: metadata.id,
+    TrackPlayer.clear();
+    TrackPlayer.setMediaItems([{
       url: playUrl,
       title: metadata.title,
       artist: metadata.artist,
       artwork: metadata.artwork,
       duration: metadata.duration,
-    });
+    } as any]);
     
     setLastPlayedTrack(metadata);
     await TrackPlayer.play();

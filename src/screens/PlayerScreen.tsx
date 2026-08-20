@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput } from 'react-native';
-import TrackPlayer, { useActiveTrack, usePlaybackState, useProgress, State, RepeatMode } from 'react-native-track-player';
+import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
@@ -11,11 +11,11 @@ import { AudioSettingsModal } from '../components/AudioSettingsModal';
 const { width } = Dimensions.get('window');
 
 export function PlayerScreen({ navigation }: any) {
-  const track = useActiveTrack();
-  const playerState = usePlaybackState();
+  const track = useActiveMediaItem();
+  const isPlaying = useIsPlaying();
   const { position, duration } = useProgress(250);
 
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.Off);
+  const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
   const [isAudioSettingsVisible, setIsAudioSettingsVisible] = useState(false);
 
   const [showLyrics, setShowLyrics] = useState(false);
@@ -24,8 +24,6 @@ export function PlayerScreen({ navigation }: any) {
   const [syncedLines, setSyncedLines] = useState<SyncedLyricLine[]>([]);
   
   const scrollViewRef = useRef<ScrollView>(null);
-  
-  const isPlaying = playerState.state === State.Playing;
 
   useEffect(() => {
     if (showLyrics && track && !lyricsData && !lyricsLoading) {
@@ -34,7 +32,7 @@ export function PlayerScreen({ navigation }: any) {
   }, [showLyrics, track]);
 
   useEffect(() => {
-    TrackPlayer.getRepeatMode().then((mode) => setRepeatMode(mode));
+    setRepeatMode(TrackPlayer.getRepeatMode());
   }, []);
 
   const handleLoopToggle = async () => {
@@ -46,7 +44,7 @@ export function PlayerScreen({ navigation }: any) {
     if (!track?.title || !track?.artist) return;
     
     setLyricsLoading(true);
-    const data = await fetchLyrics(track.title, track.artist);
+    const data = await fetchLyrics((track as any).title, (track as any).artist);
     setLyricsData(data);
     
     if (data?.syncedLyrics) {
@@ -169,7 +167,7 @@ export function PlayerScreen({ navigation }: any) {
         </View>
       ) : (
         <View style={styles.mainPlayer}>
-          <Image source={{ uri: track.artwork || 'https://via.placeholder.com/400' }} style={styles.artworkLg} />
+          <Image source={{ uri: (track as any).artwork || 'https://via.placeholder.com/400' }} style={styles.artworkLg} />
           <View style={styles.trackInfoContainer}>
             <Text style={styles.titleLg} numberOfLines={2}>{track.title}</Text>
             <Text style={styles.artistLg} numberOfLines={1}>{track.artist}</Text>
@@ -189,7 +187,7 @@ export function PlayerScreen({ navigation }: any) {
         <View style={styles.buttonsRow}>
           <TouchableOpacity onPress={handleLoopToggle} style={styles.controlBtn}>
             <Ionicons 
-              name={repeatMode === RepeatMode.Track ? "repeat-outline" : "repeat"} 
+              name={repeatMode === RepeatMode.One ? "repeat-outline" : "repeat"} 
               size={24} 
               color={repeatMode === RepeatMode.Off ? "#888888" : "#00ffcc"} 
             />

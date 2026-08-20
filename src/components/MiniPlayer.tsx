@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
-import TrackPlayer, { useActiveTrack, usePlaybackState, State } from 'react-native-track-player';
+import TrackPlayer, { useActiveMediaItem, useIsPlaying } from '@rntp/player';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { subscribeToSyncStatus, disconnectSync } from '../services/syncService';
 
 export function MiniPlayer() {
-  const track = useActiveTrack();
-  const playerState = usePlaybackState();
+  const track = useActiveMediaItem();
+  const isPlaying = useIsPlaying();
   const navigation = useNavigation<any>();
 
   const [isSyncing, setIsSyncing] = useState(false);
@@ -24,8 +24,6 @@ export function MiniPlayer() {
   }, []);
 
   if (!track) return null;
-
-  const isPlaying = playerState.state === State.Playing;
 
   const togglePlayback = async () => {
     if (isPlaying) {
@@ -45,7 +43,7 @@ export function MiniPlayer() {
       activeOpacity={0.9} 
       onPress={() => navigation.navigate('Player')}
     >
-      <Image source={{ uri: track.artwork || 'https://via.placeholder.com/50' }} style={styles.artwork} />
+      <Image source={{ uri: (track as any).artwork || 'https://via.placeholder.com/50' }} style={styles.artwork} />
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
         <Text style={styles.artist} numberOfLines={1}>{track.artist}</Text>

@@ -1,4 +1,4 @@
-import TrackPlayer from 'react-native-track-player';
+import TrackPlayer from '@rntp/player';
 
 // Simulated Equalizer Presets for the AudioSettings UI
 export const EQ_PRESETS = ['Flat', 'Bass Boost', 'Acoustic', 'Vocal Boost'];
