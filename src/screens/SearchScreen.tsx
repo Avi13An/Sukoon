@@ -43,6 +43,7 @@ export function SearchScreen() {
         artist: item.uploaderName,
         artwork: item.thumbnail,
         duration: item.duration,
+        url: (item as any).streamUrl,
       });
     } catch (error) {
       console.error('Error playing track:', error);

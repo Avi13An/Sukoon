@@ -52,6 +52,10 @@ export async function playTrack(metadata: TrackMetadata) {
     
     let playUrl = offlineTrack?.localUri;
     
+    if (!playUrl && metadata.url) {
+      playUrl = metadata.url;
+    }
+    
     if (!playUrl) {
       const stream = await getAudioStream(metadata.id);
       if (!stream) {
