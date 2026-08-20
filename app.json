@@ -32,6 +32,16 @@
         "projectId": "776d3a4c-1c06-445b-abbb-68d04fca4d31"
       }
     },
-    "owner": "venomavan"
+    "owner": "venomavan",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": false
+          }
+        }
+      ]
+    ]
   }
 }
