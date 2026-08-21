@@ -111,16 +111,14 @@ export function SearchScreen() {
   };
 
   const handlePlayNow = async (item: PipedSearchResult) => {
+    // 1. INSTANTLY close the modal first to prevent UI lockup
     setSelectedTrack(null);
     setShowSyncInput(false);
     setSyncUsername('');
     
     try {
-      try {
-        await TrackPlayer.getPlaybackState();
-      } catch (e) {
-        await setupPlayer();
-      }
+      // 2. Guarantee the native player is awake using the bulletproof setupPlayer checker
+      await setupPlayer();
 
       const videoId = item.url.replace('/watch?v=', '');
       if (!item.streamUrl || item.streamUrl === '') {
@@ -130,8 +128,9 @@ export function SearchScreen() {
       setLoadingTrackId(videoId);
       
       const finalUrl = item.streamUrl || item.url;
-
-      await TrackPlayer.setMediaItems([{
+      
+      // 3. Map the track with the spoofed headers
+      const trackPayload = {
         id: videoId,
         url: finalUrl,
         title: item.title,
@@ -143,12 +142,14 @@ export function SearchScreen() {
           'Origin': 'https://www.jiosaavn.com',
           'Referer': 'https://www.jiosaavn.com/'
         }
-      } as any]);
+      };
 
+      // 4. Load and Play
+      await TrackPlayer.setMediaItems([trackPayload as any]);
       await TrackPlayer.play();
     } catch (error: any) {
       console.error('Error playing track:', error);
-      Alert.alert('Playback Error', `The track could not be played. Details: ${error.message}`);
+      Alert.alert('Playback Error', error?.message || "Failed to initialize player.");
     } finally {
       setLoadingTrackId(null);
     }

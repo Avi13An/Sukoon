@@ -5,7 +5,7 @@ import { getAudioStream } from './musicApi';
 export async function setupPlayer() {
   let isSetup = false;
   try {
-    TrackPlayer.getPlaybackState();
+    TrackPlayer.getActiveMediaItemIndex();
     isSetup = true;
   } catch {
     await TrackPlayer.setupPlayer({
