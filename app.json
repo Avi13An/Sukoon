@@ -26,23 +26,22 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "eas": {
-        "projectId": "05ad82db-89db-4ca0-b721-321170513f8f"
-      }
+      "eas": {}
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
       "url": "https://u.expo.dev/776d3a4c-1c06-445b-abbb-68d04fca4d31"
-    },
-    "owner": "venom1321"
+    }
   }
 }

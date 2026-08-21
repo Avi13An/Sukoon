@@ -129,7 +129,7 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
 async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
   const rawDecrypted = decryptMediaUrl(item.more_info?.encrypted_media_url || item.encrypted_media_url || '');
   const authUrl = await generateAuthToken(rawDecrypted);
-  const streamUrl = authUrl.replace('http://', 'https://');
+  const streamUrl = authUrl.replace('http://', 'https://') + '#.mp4';
   
   let thumbnail = item.image || '';
   if (thumbnail) {
@@ -215,7 +215,7 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
     if (data && data[videoId]) {
       const rawDecrypted = decryptMediaUrl(data[videoId].more_info?.encrypted_media_url || '');
       const authUrl = await generateAuthToken(rawDecrypted);
-      return authUrl.replace('http://', 'https://');
+      return authUrl.replace('http://', 'https://') + '#.mp4';
     }
     return null;
   } catch (error) {
