@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { searchTracks, getSearchSuggestions, PipedSearchResult } from '../services/musicApi';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
-import TrackPlayer from '@rntp/player';
+import TrackPlayer, { Event } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 
 export function SearchScreen() {
@@ -28,6 +28,13 @@ export function SearchScreen() {
   
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const sub = TrackPlayer.addEventListener(Event.PlaybackError, (event: any) => {
+      Alert.alert("Native Player Error", JSON.stringify(event));
+    });
+    return () => sub.remove();
+  }, []);
 
   const executeSearch = async (text: string) => {
     if (!text.trim()) {
@@ -111,14 +118,16 @@ export function SearchScreen() {
   };
 
   const handlePlayNow = async (item: PipedSearchResult) => {
-    // 1. INSTANTLY close the modal first to prevent UI lockup
-    setSelectedTrack(null);
+    // 1. Temporarily keep the modal OPEN for the Tracer Pipeline
     setShowSyncInput(false);
     setSyncUsername('');
     
     try {
+      Alert.alert("Step 1", "Button tapped successfully");
+      
       // 2. Guarantee the native player is awake using the bulletproof setupPlayer checker
       await setupPlayer();
+      Alert.alert("Step 2", "Player is ready");
 
       const videoId = item.url.replace('/watch?v=', '');
       if (!item.streamUrl || item.streamUrl === '') {
@@ -143,13 +152,18 @@ export function SearchScreen() {
           'Referer': 'https://www.jiosaavn.com/'
         }
       };
+      Alert.alert("Step 3", "Payload built successfully");
 
       // 4. Load and Play
       await TrackPlayer.setMediaItems([trackPayload as any]);
+      Alert.alert("Step 4", "Track loaded into engine");
+      
       await TrackPlayer.play();
+      Alert.alert("Step 5", "Play command executed");
+      
     } catch (error: any) {
       console.error('Error playing track:', error);
-      Alert.alert('Playback Error', error?.message || "Failed to initialize player.");
+      Alert.alert("Pipeline Crash", error?.message || JSON.stringify(error));
     } finally {
       setLoadingTrackId(null);
     }
