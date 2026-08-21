@@ -8,10 +8,14 @@ import {
   Image, 
   TouchableOpacity, 
   ActivityIndicator,
-  Keyboard
+  Keyboard,
+  Modal,
+  Alert
 } from 'react-native';
 import { searchTracks, getSearchSuggestions, PipedSearchResult } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
+import TrackPlayer from '@rntp/player';
+import { hostSyncSession, inviteToSync } from '../services/syncService';
 
 export function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -88,32 +92,70 @@ export function SearchScreen() {
     Keyboard.dismiss();
   };
 
+  const [selectedTrack, setSelectedTrack] = useState<PipedSearchResult | null>(null);
+  const [showSyncInput, setShowSyncInput] = useState(false);
+  const [syncUsername, setSyncUsername] = useState('');
+
   useEffect(() => {
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, []);
 
-  const handlePlayTrack = async (item: PipedSearchResult) => {
+  const openOptions = (item: PipedSearchResult) => {
+    setSelectedTrack(item);
+    setShowSyncInput(false);
+    setSyncUsername('');
+    Keyboard.dismiss();
+  };
+
+  const handlePlayNow = async (item: PipedSearchResult) => {
     try {
       const videoId = item.url.replace('/watch?v=', '');
-      if (!videoId) return;
+      if (!item.streamUrl || item.streamUrl === '') {
+        throw new Error("Invalid or empty stream URL");
+      }
 
       setLoadingTrackId(videoId);
       
-      await playTrack({
+      const trackPayload = {
         id: videoId,
+        url: item.streamUrl,
         title: item.title,
         artist: item.uploaderName,
         artwork: item.thumbnail,
         duration: item.duration,
-        url: (item as any).streamUrl,
-      });
+      };
+
+      await TrackPlayer.setMediaItems([trackPayload as any]);
+      await TrackPlayer.play();
+      setSelectedTrack(null);
     } catch (error) {
       console.error('Error playing track:', error);
+      Alert.alert('Playback Error', 'The track URL is invalid or could not be played.');
     } finally {
       setLoadingTrackId(null);
     }
+  };
+
+  const handleStartSync = async (item: PipedSearchResult) => {
+    if (!syncUsername.trim()) return;
+    const target = syncUsername.trim();
+    
+    // Start playing first to set the TrackPlayer item
+    await handlePlayNow(item);
+    
+    // Broadcast invite and begin hosting
+    hostSyncSession(target);
+    inviteToSync(target);
+    
+    setShowSyncInput(false);
+    setSyncUsername('');
+  };
+
+  const handleSaveToLibrary = () => {
+    Alert.alert('Saved', 'Saved to Library');
+    setSelectedTrack(null);
   };
 
   const renderItem = ({ item }: { item: PipedSearchResult }) => {
@@ -123,8 +165,9 @@ export function SearchScreen() {
     return (
       <TouchableOpacity 
         style={styles.resultItem} 
-        onPress={() => handlePlayTrack(item)}
-        disabled={loadingTrackId !== null}
+        onPress={() => openOptions(item)}
+        activeOpacity={0.7}
+        disabled={isTrackLoading}
       >
         <Image 
           source={{ uri: item.thumbnail || 'https://via.placeholder.com/150' }} 
@@ -187,6 +230,60 @@ export function SearchScreen() {
           }
         />
       )}
+
+      <Modal
+        visible={selectedTrack !== null}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setSelectedTrack(null)}
+      >
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedTrack(null)}>
+          <View style={styles.bottomSheet} onStartShouldSetResponder={() => true}>
+            {selectedTrack && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Image source={{ uri: selectedTrack.thumbnail || 'https://via.placeholder.com/150' }} style={styles.modalThumbnail} />
+                  <View style={styles.modalInfo}>
+                    <Text style={styles.modalTitle} numberOfLines={1}>{selectedTrack.title}</Text>
+                    <Text style={styles.modalArtist} numberOfLines={1}>{selectedTrack.uploaderName}</Text>
+                  </View>
+                </View>
+                
+                <TouchableOpacity style={styles.actionButton} onPress={() => handlePlayNow(selectedTrack)}>
+                  <Text style={styles.actionIcon}>🎵</Text>
+                  <Text style={styles.actionText}>Play Now</Text>
+                </TouchableOpacity>
+                
+                {showSyncInput ? (
+                  <View style={styles.syncInputContainer}>
+                     <TextInput 
+                        style={styles.syncInput} 
+                        placeholder="Friend's Username" 
+                        placeholderTextColor="#888" 
+                        value={syncUsername}
+                        onChangeText={setSyncUsername}
+                        autoCapitalize="none"
+                     />
+                     <TouchableOpacity style={styles.syncSubmitBtn} onPress={() => handleStartSync(selectedTrack)}>
+                       <Text style={styles.syncSubmitText}>Host</Text>
+                     </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.actionButton} onPress={() => setShowSyncInput(true)}>
+                    <Text style={styles.actionIcon}>👥</Text>
+                    <Text style={styles.actionText}>Start Co-Sync Party</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity style={styles.actionButton} onPress={handleSaveToLibrary}>
+                  <Text style={styles.actionIcon}>💾</Text>
+                  <Text style={styles.actionText}>Save to Library</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -276,5 +373,88 @@ const styles = StyleSheet.create({
   suggestionText: {
     color: '#ffffff',
     fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheet: {
+    backgroundColor: '#121212',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 24,
+    minHeight: 250,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#333333',
+    paddingBottom: 16,
+  },
+  modalThumbnail: {
+    width: 60,
+    height: 60,
+    borderRadius: 6,
+    backgroundColor: '#333333',
+  },
+  modalInfo: {
+    flex: 1,
+    marginLeft: 16,
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  modalArtist: {
+    color: '#aaaaaa',
+    fontSize: 14,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  actionIcon: {
+    fontSize: 20,
+    marginRight: 16,
+  },
+  actionText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  syncInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  syncInput: {
+    flex: 1,
+    backgroundColor: '#1e1e1e',
+    color: '#ffffff',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+  syncSubmitBtn: {
+    backgroundColor: '#00ffcc',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  syncSubmitText: {
+    color: '#000000',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
