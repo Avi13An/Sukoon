@@ -71,10 +71,11 @@ function decryptMediaUrl(encryptedUrl: string): string {
       padding: CryptoJS.pad.Pkcs7,
     });
     let url = decrypted.toString(CryptoJS.enc.Utf8);
-    // Upgrade to 320kbps
+    // Upgrade to 320kbps and strictly enforce HTTPS to bypass Android Cleartext restrictions
     url = url.replace('_96.mp4', '_320.mp4')
              .replace('_160.mp4', '_320.mp4')
-             .replace('_96.m4a', '_320.m4a');
+             .replace('_96.m4a', '_320.m4a')
+             .replace('http://', 'https://');
     return url;
   } catch (e) {
     console.error('Decryption failed', e);
