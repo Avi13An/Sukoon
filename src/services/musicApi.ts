@@ -72,13 +72,26 @@ function decryptMediaUrl(encryptedUrl: string): string {
       mode: CryptoJS.mode.ECB,
       padding: CryptoJS.pad.Pkcs7,
     });
-    let url = decrypted.toString(CryptoJS.enc.Utf8);
-    // Strictly enforce HTTPS to bypass Android Cleartext restrictions without forcing missing bitrates
-    url = url.replace('http://', 'https://');
-    return url;
+    return decrypted.toString(CryptoJS.enc.Utf8);
   } catch (e) {
     console.error('Decryption failed', e);
     return '';
+  }
+}
+
+async function generateAuthToken(decryptedUrl: string): Promise<string> {
+  if (!decryptedUrl) return '';
+  try {
+    const url = `https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${encodeURIComponent(decryptedUrl)}&bitrate=128&api_version=4&_format=json&ctx=web6dot0`;
+    const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
+    const json = await res.json();
+    if (json && json.auth_url) {
+      return json.auth_url;
+    }
+    return decryptedUrl;
+  } catch (error) {
+    console.error('Auth token fetch failed:', error);
+    return decryptedUrl;
   }
 }
 
@@ -113,8 +126,11 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
   }
 }
 
-function mapJioSaavnToTrack(item: any): PipedSearchResult {
-  const streamUrl = decryptMediaUrl(item.more_info?.encrypted_media_url || item.encrypted_media_url || '');
+async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
+  const rawDecrypted = decryptMediaUrl(item.more_info?.encrypted_media_url || item.encrypted_media_url || '');
+  const authUrl = await generateAuthToken(rawDecrypted);
+  const streamUrl = authUrl.replace('http://', 'https://');
+  
   let thumbnail = item.image || '';
   if (thumbnail) {
     thumbnail = thumbnail.replace('150x150', '500x500');
@@ -148,7 +164,7 @@ export async function searchTracks(query: string): Promise<PipedSearchResult[]> 
     const data = await response.json();
     
     if (data.results && Array.isArray(data.results)) {
-      return data.results.map(mapJioSaavnToTrack);
+      return await Promise.all(data.results.map(mapJioSaavnToTrack));
     }
     throw new Error('API returned empty results');
   } catch (error: any) {
@@ -197,7 +213,9 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
     const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     const data = await res.json();
     if (data && data[videoId]) {
-      return decryptMediaUrl(data[videoId].more_info?.encrypted_media_url || '');
+      const rawDecrypted = decryptMediaUrl(data[videoId].more_info?.encrypted_media_url || '');
+      const authUrl = await generateAuthToken(rawDecrypted);
+      return authUrl.replace('http://', 'https://');
     }
     return null;
   } catch (error) {
@@ -212,7 +230,7 @@ export async function getRelatedTracks(videoId: string): Promise<PipedSearchResu
     const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     const data = await res.json();
     if (Array.isArray(data)) {
-      return data.map(mapJioSaavnToTrack);
+      return await Promise.all(data.map(mapJioSaavnToTrack));
     }
     throw new Error('API returned empty recommended videos');
   } catch (error: any) {

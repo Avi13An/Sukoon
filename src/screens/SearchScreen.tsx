@@ -129,9 +129,12 @@ export function SearchScreen() {
 
       setLoadingTrackId(videoId);
       
+      const finalUrl = item.streamUrl || item.url;
+      Alert.alert("Debug URL", finalUrl.substring(0, 50) + "...");
+
       await TrackPlayer.setMediaItems([{
         id: videoId,
-        url: item.streamUrl || item.url,
+        url: finalUrl,
         title: item.title,
         artist: item.uploaderName,
         artwork: item.thumbnail,
