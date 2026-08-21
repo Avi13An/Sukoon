@@ -79,22 +79,6 @@ function decryptMediaUrl(encryptedUrl: string): string {
   }
 }
 
-async function generateAuthToken(decryptedUrl: string): Promise<string> {
-  if (!decryptedUrl) return '';
-  try {
-    const url = `https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${encodeURIComponent(decryptedUrl)}&bitrate=128&api_version=4&_format=json&ctx=web6dot0`;
-    const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
-    const json = await res.json();
-    if (json && json.auth_url) {
-      return json.auth_url;
-    }
-    return decryptedUrl;
-  } catch (error) {
-    console.error('Auth token fetch failed:', error);
-    return decryptedUrl;
-  }
-}
-
 function decodeEntities(text: string): string {
   if (!text) return '';
   return text.replace(/&quot;/g, '"')
@@ -128,8 +112,7 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
 
 async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
   const rawDecrypted = decryptMediaUrl(item.more_info?.encrypted_media_url || item.encrypted_media_url || '');
-  const authUrl = await generateAuthToken(rawDecrypted);
-  const streamUrl = authUrl.replace('http://', 'https://') + '#.mp4';
+  const streamUrl = rawDecrypted.replace('http://', 'https://') + '#.mp4';
   
   let thumbnail = item.image || '';
   if (thumbnail) {
@@ -214,8 +197,7 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
     const data = await res.json();
     if (data && data[videoId]) {
       const rawDecrypted = decryptMediaUrl(data[videoId].more_info?.encrypted_media_url || '');
-      const authUrl = await generateAuthToken(rawDecrypted);
-      return authUrl.replace('http://', 'https://') + '#.mp4';
+      return rawDecrypted.replace('http://', 'https://') + '#.mp4';
     }
     return null;
   } catch (error) {

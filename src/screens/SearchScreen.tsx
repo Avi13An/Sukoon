@@ -118,16 +118,13 @@ export function SearchScreen() {
   };
 
   const handlePlayNow = async (item: PipedSearchResult) => {
-    // 1. Temporarily keep the modal OPEN for the Tracer Pipeline
+    setSelectedTrack(null);
     setShowSyncInput(false);
     setSyncUsername('');
     
     try {
-      Alert.alert("Step 1", "Button tapped successfully");
-      
-      // 2. Guarantee the native player is awake using the bulletproof setupPlayer checker
       await setupPlayer();
-      Alert.alert("Step 2", "Player is ready");
+      await TrackPlayer.clear(); // Flush dead buffers
 
       const videoId = item.url.replace('/watch?v=', '');
       if (!item.streamUrl || item.streamUrl === '') {
@@ -136,34 +133,19 @@ export function SearchScreen() {
 
       setLoadingTrackId(videoId);
       
-      const finalUrl = item.streamUrl || item.url;
-      
-      // 3. Map the track with the spoofed headers
       const trackPayload = {
         id: videoId,
-        url: finalUrl,
+        url: item.streamUrl || item.url,
         title: item.title,
         artist: item.uploaderName,
         artwork: item.thumbnail,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Origin': 'https://www.jiosaavn.com',
-          'Referer': 'https://www.jiosaavn.com/'
-        }
       };
-      Alert.alert("Step 3", "Payload built successfully");
 
-      // 4. Load and Play
       await TrackPlayer.setMediaItems([trackPayload as any]);
-      Alert.alert("Step 4", "Track loaded into engine");
-      
       await TrackPlayer.play();
-      Alert.alert("Step 5", "Play command executed");
-      
     } catch (error: any) {
       console.error('Error playing track:', error);
-      Alert.alert("Pipeline Crash", error?.message || JSON.stringify(error));
+      Alert.alert('Playback Error', error?.message || "Failed to play.");
     } finally {
       setLoadingTrackId(null);
     }
