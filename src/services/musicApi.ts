@@ -66,7 +66,9 @@ const DES_KEY = CryptoJS.enc.Utf8.parse('38346591');
 function decryptMediaUrl(encryptedUrl: string): string {
   if (!encryptedUrl) return '';
   try {
-    const decrypted = CryptoJS.DES.decrypt(encryptedUrl, DES_KEY, {
+    const decrypted = CryptoJS.DES.decrypt({
+      ciphertext: CryptoJS.enc.Base64.parse(encryptedUrl)
+    } as any, DES_KEY, {
       mode: CryptoJS.mode.ECB,
       padding: CryptoJS.pad.Pkcs7,
     });

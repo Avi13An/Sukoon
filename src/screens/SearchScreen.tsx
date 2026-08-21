@@ -119,16 +119,14 @@ export function SearchScreen() {
 
       setLoadingTrackId(videoId);
       
-      const trackPayload = {
+      await TrackPlayer.setMediaItems([{
         id: videoId,
-        url: item.streamUrl,
+        url: item.streamUrl || item.url,
         title: item.title,
         artist: item.uploaderName,
         artwork: item.thumbnail,
-        duration: item.duration,
-      };
+      } as any]);
 
-      await TrackPlayer.setMediaItems([trackPayload as any]);
       await TrackPlayer.play();
       setSelectedTrack(null);
     } catch (error: any) {
