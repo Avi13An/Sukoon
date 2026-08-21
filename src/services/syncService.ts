@@ -50,8 +50,9 @@ export async function hostSyncSession(targetUsername: string) {
   });
 
   const trackChangeListener = TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
-    if (event.track) {
-      broadcast('SYNC_TRACK_CHANGE', { track: event.track });
+    const track = TrackPlayer.getActiveMediaItem();
+    if (track) {
+      broadcast('SYNC_TRACK_CHANGE', { track });
     }
   });
 
@@ -74,7 +75,7 @@ export async function joinSyncSession(hostUsername: string) {
     .on('broadcast', { event: 'SYNC_PLAY' }, async ({ payload }) => {
       const { position, track } = payload;
       const currentTrack = TrackPlayer.getActiveMediaItem();
-      if ((currentTrack as any)?.id !== track?.id && track) {
+      if ((currentTrack as any)?.url !== track?.url && track) {
         TrackPlayer.clear();
         TrackPlayer.setMediaItems([track]);
       }

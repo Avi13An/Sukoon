@@ -1,6 +1,5 @@
 import { Alert } from 'react-native';
-
-const INVIDIOUS_INSTANCES_URL = 'https://api.invidious.io/instances.json';
+import CryptoJS from 'crypto-js';
 
 export interface PipedSearchResult {
   url: string;
@@ -17,7 +16,7 @@ export interface PipedSearchResult {
   uploaded: number;
   uploaderVerified: boolean;
   isShort: boolean;
-  streamUrl?: string; // Added to pass direct download URL
+  streamUrl?: string;
 }
 
 const FALLBACK_RESULTS: PipedSearchResult[] = [
@@ -57,11 +56,53 @@ const FALLBACK_RESULTS: PipedSearchResult[] = [
   }
 ];
 
-let cachedInstances: string[] = [];
+const COMMON_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+  'Accept': 'application/json, text/plain, */*',
+};
+
+const DES_KEY = CryptoJS.enc.Utf8.parse('38346591');
+
+function decryptMediaUrl(encryptedUrl: string): string {
+  if (!encryptedUrl) return '';
+  try {
+    const decrypted = CryptoJS.DES.decrypt(encryptedUrl, DES_KEY, {
+      mode: CryptoJS.mode.ECB,
+      padding: CryptoJS.pad.Pkcs7,
+    });
+    let url = decrypted.toString(CryptoJS.enc.Utf8);
+    // Upgrade to 320kbps
+    url = url.replace('_96.mp4', '_320.mp4')
+             .replace('_160.mp4', '_320.mp4')
+             .replace('_96.m4a', '_320.m4a');
+    return url;
+  } catch (e) {
+    console.error('Decryption failed', e);
+    return '';
+  }
+}
+
+function decodeEntities(text: string): string {
+  if (!text) return '';
+  return text.replace(/&quot;/g, '"')
+             .replace(/&amp;/g, '&')
+             .replace(/&#039;/g, "'")
+             .replace(/&lt;/g, '<')
+             .replace(/&gt;/g, '>');
+}
 
 async function fetchWithTimeout(url: string, options: any = {}, timeout: number = 4000): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
+  
+  if (options.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      options.signal.addEventListener('abort', () => controller.abort());
+    }
+  }
+
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
@@ -72,73 +113,25 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
   }
 }
 
-async function getHealthyInstances(): Promise<string[]> {
-  if (cachedInstances.length > 0) return cachedInstances;
-  
-  try {
-    const res = await fetchWithTimeout(INVIDIOUS_INSTANCES_URL, {}, 4000);
-    if (!res.ok) throw new Error('Failed to fetch instances');
-    const data = await res.json();
-    
-    const instances = data
-      .filter((item: any) => {
-        const info = item[1];
-        return info && info.type === 'https' && 
-               info.api === true && 
-               info.cors === true && 
-               info.monitor && 
-               info.monitor.uptime >= 95.0; // High uptime filter
-      })
-      .map((item: any) => {
-        const domain = item[0];
-        const info = item[1];
-        return info.uri || `https://${domain}`;
-      });
-      
-    if (instances.length > 0) {
-      // Shuffle array to distribute load across healthy instances
-      cachedInstances = instances.sort(() => 0.5 - Math.random());
-      return cachedInstances;
-    }
-    throw new Error('No healthy instances found');
-  } catch (err) {
-    console.error('Error fetching instances:', err);
-    return [
-      'https://invidious.nerdvpn.de',
-      'https://invidious.jing.rocks',
-      'https://inv.tux.pizza',
-      'https://invidious.lunar.icu'
-    ];
-  }
-}
-
-function mapInvidiousToTrack(item: any, instanceUri: string): PipedSearchResult {
-  const thumbnails = item.videoThumbnails || [];
-  let bestThumbnail = '';
-  if (thumbnails.length > 0) {
-    const sorted = [...thumbnails].sort((a, b) => b.width - a.width);
-    bestThumbnail = sorted[0].url;
-    // ensure absolute url
-    if (bestThumbnail.startsWith('/')) {
-      bestThumbnail = `${instanceUri}${bestThumbnail}`;
-    }
+function mapJioSaavnToTrack(item: any): PipedSearchResult {
+  const streamUrl = decryptMediaUrl(item.more_info?.encrypted_media_url || item.encrypted_media_url || '');
+  let thumbnail = item.image || '';
+  if (thumbnail) {
+    thumbnail = thumbnail.replace('150x150', '500x500');
   }
   
-  // Construct audio stream URL dynamically via Invidious /latest_version endpoint (itag 140 = m4a)
-  const streamUrl = `${instanceUri}/latest_version?id=${item.videoId}&itag=140&local=true`;
-
   return {
-    url: `/watch?v=${item.videoId}`,
-    type: item.type || 'video',
-    title: item.title || 'Unknown Title',
-    thumbnail: bestThumbnail,
-    uploaderName: item.author || 'Unknown Artist',
-    uploaderUrl: item.authorUrl || '',
+    url: `/watch?v=${item.id}`,
+    type: 'stream',
+    title: decodeEntities(item.title || item.name || 'Unknown Title'),
+    thumbnail,
+    uploaderName: decodeEntities(item.more_info?.singers || item.subtitle || 'Unknown Artist'),
+    uploaderUrl: '',
     uploaderAvatar: '',
-    uploadedDate: item.publishedText || 'Unknown',
-    shortDescription: item.description || '',
-    duration: item.lengthSeconds ? parseInt(item.lengthSeconds, 10) : 0,
-    views: item.viewCount ? parseInt(item.viewCount, 10) : 0,
+    uploadedDate: item.year || 'Unknown',
+    shortDescription: '',
+    duration: item.more_info?.duration ? parseInt(item.more_info.duration, 10) : 0,
+    views: item.play_count ? parseInt(item.play_count, 10) : 0,
     uploaded: 0,
     uploaderVerified: false,
     isShort: false,
@@ -146,75 +139,53 @@ function mapInvidiousToTrack(item: any, instanceUri: string): PipedSearchResult 
   };
 }
 
-async function fetchWithFailover(pathName: string, queryParams: string): Promise<{ data: any, instance: string }> {
-  const instances = await getHealthyInstances();
-  let lastError: Error = new Error('No instances available');
-  
-  for (const instance of instances) {
-    try {
-      const url = `${instance}${pathName}?${queryParams}`;
-      const response = await fetchWithTimeout(url, {}, 4000);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (Array.isArray(data) && data.length > 0) {
-        return { data, instance };
-      } else if (data && !Array.isArray(data)) {
-        return { data, instance };
-      }
-      
-      throw new Error('API returned empty results');
-    } catch (error: any) {
-      console.warn(`Instance ${instance} failed: ${error.message}`);
-      lastError = error;
-      // Loop continues to test the next instance
-    }
-  }
-  
-  throw lastError;
-}
-
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const { data: items, instance } = await fetchWithFailover('/api/v1/search', `q=${encodeURIComponent(query)}&type=video`);
-    return items.map((item: any) => mapInvidiousToTrack(item, instance));
+    const url = `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(query)}&n=20&p=1&api_version=4&_format=json&_marker=0&ctx=web6dot0`;
+    const response = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
+    
+    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+    const data = await response.json();
+    
+    if (data.results && Array.isArray(data.results)) {
+      return data.results.map(mapJioSaavnToTrack);
+    }
+    throw new Error('API returned empty results');
   } catch (error: any) {
     console.error('Error searching tracks:', error);
     Alert.alert(
       'Search Failed', 
-      `All Invidious endpoints failed (${error.message || 'Network Error'}). Falling back to mock results.`
+      `Direct engine failed (${error.message || 'Network Error'}). Falling back to mock results.`
     );
     return FALLBACK_RESULTS;
   }
 }
 
-export async function getSearchSuggestions(query: string): Promise<string[]> {
+export async function getSearchSuggestions(query: string, signal?: AbortSignal): Promise<string[]> {
   if (!query.trim()) return [];
   try {
-    const { data } = await fetchWithFailover('/api/v1/search/suggestions', `q=${encodeURIComponent(query)}`);
+    const url = `https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=${encodeURIComponent(query)}&_format=json&_marker=0&ctx=web6dot0`;
+    const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS, signal }, 3000);
+    const data = await res.json();
+    
     let suggestions: string[] = [];
-    if (data.suggestions && Array.isArray(data.suggestions)) {
-       suggestions = data.suggestions;
-    } else if (Array.isArray(data)) {
-       suggestions = data;
+    if (data.songs && Array.isArray(data.songs.data)) {
+       suggestions = data.songs.data.map((s: any) => decodeEntities(s.title));
     }
     if (suggestions.length > 0) return suggestions;
-  } catch (error) {
-    console.warn('Invidious suggestions failed, falling back to Google', error);
+  } catch (error: any) {
+    if (error.name === 'AbortError') throw error;
+    console.warn('Direct suggestions failed, falling back to Google', error);
   }
   
-  // Fast Fallback to Google YouTube suggestions
   try {
-    const res = await fetchWithTimeout(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`, {}, 3000);
+    const res = await fetchWithTimeout(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`, { signal }, 3000);
     const json = await res.json();
     if (Array.isArray(json) && Array.isArray(json[1])) {
        return json[1];
     }
-  } catch (fallbackError) {
+  } catch (fallbackError: any) {
+     if (fallbackError.name === 'AbortError') throw fallbackError;
      console.error('All suggestion endpoints failed', fallbackError);
   }
   return [];
@@ -222,9 +193,11 @@ export async function getSearchSuggestions(query: string): Promise<string[]> {
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const instances = await getHealthyInstances();
-    if (instances.length > 0) {
-      return `${instances[0]}/latest_version?id=${videoId}&itag=140&local=true`;
+    const url = `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${videoId}&_format=json&_marker=0&ctx=web6dot0`;
+    const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
+    const data = await res.json();
+    if (data && data[videoId]) {
+      return decryptMediaUrl(data[videoId].more_info?.encrypted_media_url || '');
     }
     return null;
   } catch (error) {
@@ -235,15 +208,15 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
 
 export async function getRelatedTracks(videoId: string): Promise<PipedSearchResult[]> {
   try {
-    const { data: item, instance } = await fetchWithFailover(`/api/v1/videos/${videoId}`, '');
-    const related = item.recommendedVideos || [];
-    if (related.length === 0) {
-      throw new Error('API returned empty recommended videos');
+    const url = `https://www.jiosaavn.com/api.php?__call=reco.getreco&pid=${videoId}&_format=json&_marker=0&ctx=web6dot0`;
+    const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      return data.map(mapJioSaavnToTrack);
     }
-    return related.map((r: any) => mapInvidiousToTrack(r, instance));
+    throw new Error('API returned empty recommended videos');
   } catch (error: any) {
     console.error('Error getting related tracks:', error);
-    // Silent fallback for home screen suggestions
     return FALLBACK_RESULTS;
   }
 }

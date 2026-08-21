@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { subscribeToSharedPlaylists } from './src/services/cloudPlaylistService';
 import { getMyUsername } from './src/utils/storage';
+import { SyncPromptModal } from './src/components/SyncPromptModal';
 
 export default function App() {
   const [isPlayerReady, setIsPlayerReady] = useState(false);
@@ -35,6 +36,7 @@ export default function App() {
     <SafeAreaProvider style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       <MainNavigator />
+      <SyncPromptModal />
     </SafeAreaProvider>
   );
 }

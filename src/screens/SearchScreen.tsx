@@ -22,6 +22,7 @@ export function SearchScreen() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const executeSearch = async (text: string) => {
     if (!text.trim()) {
@@ -43,18 +44,36 @@ export function SearchScreen() {
     if (!text.trim()) {
       setSuggestions([]);
       setShowSuggestions(false);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
       return;
     }
     
     debounceTimer.current = setTimeout(async () => {
-      const sugs = await getSearchSuggestions(text);
-      setSuggestions(sugs);
-      setShowSuggestions(true);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      
+      try {
+        const sugs = await getSearchSuggestions(text, controller.signal);
+        if (!controller.signal.aborted) {
+          setSuggestions(sugs);
+          setShowSuggestions(true);
+        }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          console.error('Error fetching suggestions:', error);
+        }
+      }
     }, 300);
   };
 
   const handleSearch = () => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     setShowSuggestions(false);
     executeSearch(query);
     Keyboard.dismiss();
@@ -62,6 +81,7 @@ export function SearchScreen() {
 
   const handleSuggestionTap = (sug: string) => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     setQuery(sug);
     setShowSuggestions(false);
     executeSearch(sug);
