@@ -78,6 +78,12 @@ export async function playTrack(metadata: TrackMetadata) {
       artist: metadata.artist,
       artwork: metadata.artwork,
       duration: metadata.duration,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Origin': 'https://www.jiosaavn.com',
+        'Referer': 'https://www.jiosaavn.com/'
+      }
     } as any]);
     
     setLastPlayedTrack(metadata);

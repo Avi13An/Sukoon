@@ -130,7 +130,6 @@ export function SearchScreen() {
       setLoadingTrackId(videoId);
       
       const finalUrl = item.streamUrl || item.url;
-      Alert.alert("Debug URL", finalUrl.substring(0, 50) + "...");
 
       await TrackPlayer.setMediaItems([{
         id: videoId,
@@ -138,6 +137,12 @@ export function SearchScreen() {
         title: item.title,
         artist: item.uploaderName,
         artwork: item.thumbnail,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Origin': 'https://www.jiosaavn.com',
+          'Referer': 'https://www.jiosaavn.com/'
+        }
       } as any]);
 
       await TrackPlayer.play();
