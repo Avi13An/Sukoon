@@ -8,14 +8,20 @@ export async function setupPlayer() {
     TrackPlayer.getPlaybackState();
     isSetup = true;
   } catch {
-    await TrackPlayer.setupPlayer();
+    await TrackPlayer.setupPlayer({
+      android: {
+        taskRemovedBehavior: 'stop'
+      }
+    });
+    
     TrackPlayer.setCommands({
       capabilities: [
         PlayerCommand.PlayPause,
         PlayerCommand.Next,
         PlayerCommand.Previous,
         PlayerCommand.Seek,
-      ]
+      ],
+      handling: 'hybrid' // Required to fire JS background events on V5
     });
 
     isSetup = true;

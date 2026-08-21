@@ -7,6 +7,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { subscribeToSharedPlaylists } from './src/services/cloudPlaylistService';
 import { getMyUsername } from './src/utils/storage';
 import { SyncPromptModal } from './src/components/SyncPromptModal';
+import TrackPlayer from '@rntp/player';
+
+TrackPlayer.registerBackgroundEventHandler(() => require('./src/services/playbackService').default);
 
 export default function App() {
   const [isPlayerReady, setIsPlayerReady] = useState(false);
