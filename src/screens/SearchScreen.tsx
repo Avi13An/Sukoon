@@ -7,14 +7,14 @@ import {
   FlatList, 
   Image, 
   TouchableOpacity, 
-  TouchableWithoutFeedback,
+  Pressable,
   ActivityIndicator,
   Keyboard,
   Modal,
   Alert
 } from 'react-native';
 import { searchTracks, getSearchSuggestions, PipedSearchResult } from '../services/musicApi';
-import { playTrack } from '../services/TrackPlayerService';
+import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 
@@ -111,7 +111,17 @@ export function SearchScreen() {
   };
 
   const handlePlayNow = async (item: PipedSearchResult) => {
+    setSelectedTrack(null);
+    setShowSyncInput(false);
+    setSyncUsername('');
+    
     try {
+      try {
+        await TrackPlayer.getPlaybackState();
+      } catch (e) {
+        await setupPlayer();
+      }
+
       const videoId = item.url.replace('/watch?v=', '');
       if (!item.streamUrl || item.streamUrl === '') {
         throw new Error("Invalid or empty stream URL");
@@ -128,7 +138,6 @@ export function SearchScreen() {
       } as any]);
 
       await TrackPlayer.play();
-      setSelectedTrack(null);
     } catch (error: any) {
       console.error('Error playing track:', error);
       Alert.alert('Playback Error', `The track could not be played. Details: ${error.message}`);
@@ -141,15 +150,16 @@ export function SearchScreen() {
     if (!syncUsername.trim()) return;
     const target = syncUsername.trim();
     
-    // Start playing first to set the TrackPlayer item
-    await handlePlayNow(item);
+    setSelectedTrack(null);
+    setShowSyncInput(false);
+    setSyncUsername('');
     
     // Broadcast invite and begin hosting
     hostSyncSession(target);
     inviteToSync(target);
     
-    setShowSyncInput(false);
-    setSyncUsername('');
+    // Start playing first to set the TrackPlayer item
+    await handlePlayNow(item);
   };
 
   const handleSaveToLibrary = () => {
@@ -237,52 +247,50 @@ export function SearchScreen() {
         onRequestClose={() => setSelectedTrack(null)}
       >
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedTrack(null)}>
-          <TouchableWithoutFeedback>
-            <View style={styles.bottomSheet}>
-              {selectedTrack && (
-                <>
-                  <View style={styles.modalHeader}>
-                    <Image source={{ uri: selectedTrack.thumbnail || 'https://via.placeholder.com/150' }} style={styles.modalThumbnail} />
-                    <View style={styles.modalInfo}>
-                      <Text style={styles.modalTitle} numberOfLines={1}>{selectedTrack.title}</Text>
-                      <Text style={styles.modalArtist} numberOfLines={1}>{selectedTrack.uploaderName}</Text>
-                    </View>
+          <View style={styles.bottomSheet}>
+            {selectedTrack && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Image source={{ uri: selectedTrack.thumbnail || 'https://via.placeholder.com/150' }} style={styles.modalThumbnail} />
+                  <View style={styles.modalInfo}>
+                    <Text style={styles.modalTitle} numberOfLines={1}>{selectedTrack.title}</Text>
+                    <Text style={styles.modalArtist} numberOfLines={1}>{selectedTrack.uploaderName}</Text>
                   </View>
-                  
-                  <TouchableOpacity style={styles.actionButton} onPress={() => handlePlayNow(selectedTrack)}>
-                    <Text style={styles.actionIcon}>🎵</Text>
-                    <Text style={styles.actionText}>Play Now</Text>
-                  </TouchableOpacity>
-                  
-                  {showSyncInput ? (
-                    <View style={styles.syncInputContainer}>
-                       <TextInput 
-                          style={styles.syncInput} 
-                          placeholder="Friend's Username" 
-                          placeholderTextColor="#888" 
-                          value={syncUsername}
-                          onChangeText={setSyncUsername}
-                          autoCapitalize="none"
-                       />
-                       <TouchableOpacity style={styles.syncSubmitBtn} onPress={() => handleStartSync(selectedTrack)}>
-                         <Text style={styles.syncSubmitText}>Host</Text>
-                       </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity style={styles.actionButton} onPress={() => setShowSyncInput(true)}>
-                      <Text style={styles.actionIcon}>👥</Text>
-                      <Text style={styles.actionText}>Start Co-Sync Party</Text>
-                    </TouchableOpacity>
-                  )}
+                </View>
+                
+                <Pressable style={styles.actionButton} onPress={() => handlePlayNow(selectedTrack)}>
+                  <Text style={styles.actionIcon}>🎵</Text>
+                  <Text style={styles.actionText}>Play Now</Text>
+                </Pressable>
+                
+                {showSyncInput ? (
+                  <View style={styles.syncInputContainer}>
+                     <TextInput 
+                        style={styles.syncInput} 
+                        placeholder="Friend's Username" 
+                        placeholderTextColor="#888" 
+                        value={syncUsername}
+                        onChangeText={setSyncUsername}
+                        autoCapitalize="none"
+                     />
+                     <Pressable style={styles.syncSubmitBtn} onPress={() => handleStartSync(selectedTrack)}>
+                       <Text style={styles.syncSubmitText}>Host</Text>
+                     </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={styles.actionButton} onPress={() => setShowSyncInput(true)}>
+                    <Text style={styles.actionIcon}>👥</Text>
+                    <Text style={styles.actionText}>Start Co-Sync Party</Text>
+                  </Pressable>
+                )}
 
-                  <TouchableOpacity style={styles.actionButton} onPress={handleSaveToLibrary}>
-                    <Text style={styles.actionIcon}>💾</Text>
-                    <Text style={styles.actionText}>Save to Library</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </TouchableWithoutFeedback>
+                <Pressable style={styles.actionButton} onPress={handleSaveToLibrary}>
+                  <Text style={styles.actionIcon}>💾</Text>
+                  <Text style={styles.actionText}>Save to Library</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
         </TouchableOpacity>
       </Modal>
     </View>
