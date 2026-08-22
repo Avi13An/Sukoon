@@ -1,5 +1,4 @@
 import { Alert } from 'react-native';
-import CryptoJS from 'crypto-js';
 
 export interface PipedSearchResult {
   url: string;
@@ -61,41 +60,6 @@ const COMMON_HEADERS = {
   'Accept': 'application/json, text/plain, */*',
 };
 
-const DES_KEY = CryptoJS.enc.Utf8.parse('38346591');
-
-function decryptMediaUrl(encryptedUrl: string): string {
-  if (!encryptedUrl) return '';
-  try {
-    const decrypted = CryptoJS.DES.decrypt({
-      ciphertext: CryptoJS.enc.Base64.parse(encryptedUrl)
-    } as any, DES_KEY, {
-      mode: CryptoJS.mode.ECB,
-      padding: CryptoJS.pad.Pkcs7,
-    });
-    let cleanUrl = decrypted.toString(CryptoJS.enc.Utf8).replace(/\0/g, '').trim();
-    return cleanUrl.replace('http://', 'https://');
-  } catch (e) {
-    console.error('Decryption failed', e);
-    return '';
-  }
-}
-
-async function generateAuthToken(decryptedUrl: string): Promise<string> {
-  if (!decryptedUrl) return '';
-  try {
-    const url = `https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${encodeURIComponent(decryptedUrl)}&bitrate=128&api_version=4&_format=json&ctx=web6dot0`;
-    const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
-    const json = await res.json();
-    if (json && json.auth_url) {
-      return json.auth_url.replace('http://', 'https://');
-    }
-    return decryptedUrl;
-  } catch (error) {
-    console.error('Auth token fetch failed:', error);
-    return decryptedUrl;
-  }
-}
-
 function decodeEntities(text: string): string {
   if (!text) return '';
   return text.replace(/&quot;/g, '"')
@@ -128,43 +92,38 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
 }
 
 async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
-  const rawDecrypted = decryptMediaUrl(item.more_info?.encrypted_media_url || item.encrypted_media_url || '');
-  const streamUrl = await generateAuthToken(rawDecrypted);
-  
-  let thumbnail = item.image || '';
-  if (thumbnail) {
-    thumbnail = thumbnail.replace('150x150', '500x500');
-  }
+  const highQuality = item.downloadUrl?.find((d: any) => d.quality === '320kbps') || item.downloadUrl?.[0] || { url: '' };
+  const imageUrl = item.image?.find((i: any) => i.quality === '500x500') || item.image?.[0] || { link: '' };
   
   return {
     url: `/watch?v=${item.id}`,
     type: 'stream',
-    title: decodeEntities(item.title || item.name || 'Unknown Title'),
-    thumbnail,
-    uploaderName: decodeEntities(item.more_info?.singers || item.subtitle || 'Unknown Artist'),
+    title: decodeEntities(item.name || item.title || 'Unknown Title'),
+    thumbnail: imageUrl.url || imageUrl.link || '',
+    uploaderName: decodeEntities(item.primaryArtists || item.subtitle || 'Unknown Artist'),
     uploaderUrl: '',
     uploaderAvatar: '',
     uploadedDate: item.year || 'Unknown',
     shortDescription: '',
-    duration: item.more_info?.duration ? parseInt(item.more_info.duration, 10) : 0,
-    views: item.play_count ? parseInt(item.play_count, 10) : 0,
+    duration: item.duration ? parseInt(item.duration, 10) : 0,
+    views: item.playCount ? parseInt(item.playCount, 10) : 0,
     uploaded: 0,
     uploaderVerified: false,
     isShort: false,
-    streamUrl
+    streamUrl: highQuality.url || highQuality.link || ''
   };
 }
 
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const url = `https://www.jiosaavn.com/api.php?__call=search.getResults&q=${encodeURIComponent(query)}&n=20&p=1&api_version=4&_format=json&_marker=0&ctx=web6dot0`;
+    const url = `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(query)}`;
     const response = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     
     if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
     const data = await response.json();
     
-    if (data.results && Array.isArray(data.results)) {
-      return await Promise.all(data.results.map(mapJioSaavnToTrack));
+    if (data.success && data.data && Array.isArray(data.data.results)) {
+      return await Promise.all(data.data.results.map(mapJioSaavnToTrack));
     }
     throw new Error('API returned empty results');
   } catch (error: any) {
@@ -209,12 +168,12 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const url = `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${videoId}&_format=json&_marker=0&ctx=web6dot0`;
+    const url = `https://saavn.sumit.co/api/songs?id=${videoId}`;
     const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     const data = await res.json();
-    if (data && data[videoId]) {
-      const rawDecrypted = decryptMediaUrl(data[videoId].more_info?.encrypted_media_url || '');
-      return await generateAuthToken(rawDecrypted);
+    if (data.success && data.data && data.data[0]) {
+      const highQuality = data.data[0].downloadUrl?.find((d: any) => d.quality === '320kbps') || data.data[0].downloadUrl?.[0];
+      return highQuality?.url || highQuality?.link || null;
     }
     return null;
   } catch (error) {
@@ -225,11 +184,11 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
 
 export async function getRelatedTracks(videoId: string): Promise<PipedSearchResult[]> {
   try {
-    const url = `https://www.jiosaavn.com/api.php?__call=reco.getreco&pid=${videoId}&_format=json&_marker=0&ctx=web6dot0`;
+    const url = `https://saavn.sumit.co/api/songs/${videoId}/suggestions`;
     const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     const data = await res.json();
-    if (Array.isArray(data)) {
-      return await Promise.all(data.map(mapJioSaavnToTrack));
+    if (data.success && data.data && Array.isArray(data.data)) {
+      return await Promise.all(data.data.map(mapJioSaavnToTrack));
     }
     throw new Error('API returned empty recommended videos');
   } catch (error: any) {
