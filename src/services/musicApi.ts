@@ -116,7 +116,7 @@ async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
 
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const url = `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(query)}`;
+    const url = `https://jiosaavn-api-4njl.onrender.com/api/search/songs?query=${encodeURIComponent(query)}`;
     const response = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     
     if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
@@ -168,7 +168,7 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const url = `https://saavn.sumit.co/api/songs?id=${videoId}`;
+    const url = `https://jiosaavn-api-4njl.onrender.com/api/songs?id=${videoId}`;
     const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     const data = await res.json();
     if (data.success && data.data && data.data[0]) {
@@ -184,7 +184,7 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
 
 export async function getRelatedTracks(videoId: string): Promise<PipedSearchResult[]> {
   try {
-    const url = `https://saavn.sumit.co/api/songs/${videoId}/suggestions`;
+    const url = `https://jiosaavn-api-4njl.onrender.com/api/songs/${videoId}/suggestions`;
     const res = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     const data = await res.json();
     if (data.success && data.data && Array.isArray(data.data)) {
