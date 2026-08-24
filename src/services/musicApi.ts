@@ -95,12 +95,16 @@ async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
   const highQuality = item.downloadUrl?.find((d: any) => d.quality === '320kbps') || item.downloadUrl?.[0] || { url: '' };
   const imageUrl = item.image?.find((i: any) => i.quality === '500x500') || item.image?.[0] || { link: '' };
   
+  const artistName = item.artists?.primary?.map((a: any) => a.name).join(', ') || item.primaryArtists || item.subtitle || 'Unknown Artist';
+  const rawStreamUrl = highQuality.url || highQuality.link || '';
+  const finalStreamUrl = rawStreamUrl.replace('http://', 'https://');
+  
   return {
     url: `/watch?v=${item.id}`,
     type: 'stream',
     title: decodeEntities(item.name || item.title || 'Unknown Title'),
     thumbnail: imageUrl.url || imageUrl.link || '',
-    uploaderName: decodeEntities(item.primaryArtists || item.subtitle || 'Unknown Artist'),
+    uploaderName: decodeEntities(artistName),
     uploaderUrl: '',
     uploaderAvatar: '',
     uploadedDate: item.year || 'Unknown',
@@ -110,7 +114,7 @@ async function mapJioSaavnToTrack(item: any): Promise<PipedSearchResult> {
     uploaded: 0,
     uploaderVerified: false,
     isShort: false,
-    streamUrl: highQuality.url || highQuality.link || ''
+    streamUrl: finalStreamUrl
   };
 }
 
@@ -173,7 +177,8 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
     const data = await res.json();
     if (data.success && data.data && data.data[0]) {
       const highQuality = data.data[0].downloadUrl?.find((d: any) => d.quality === '320kbps') || data.data[0].downloadUrl?.[0];
-      return highQuality?.url || highQuality?.link || null;
+      const rawUrl = highQuality?.url || highQuality?.link || '';
+      return rawUrl ? rawUrl.replace('http://', 'https://') : null;
     }
     return null;
   } catch (error) {
