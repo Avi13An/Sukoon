@@ -64,12 +64,43 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
   }
 }
 
+export const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.syncpundit.io',
+  'https://pipedapi.tokhmi.xyz'
+];
+
+export async function fetchWithFallback(endpoint: string, options: any = {}): Promise<Response> {
+  let lastError: Error = new Error("No instances available");
+  
+  for (const baseUrl of PIPED_INSTANCES) {
+    try {
+      const url = `${baseUrl}${endpoint}`;
+      const response = await fetchWithTimeout(url, options);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error ${response.status}`);
+      }
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("API returned invalid data (likely HTML error)");
+      }
+      
+      return response;
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Instance ${baseUrl} failed:`, err.message);
+    }
+  }
+  
+  throw lastError;
+}
+
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const url = `https://pipedapi.nosebs.ru/search?q=${encodeURIComponent(query)}&filter=music_songs`;
-    const response = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
-    
-    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+    const endpoint = `/search?q=${encodeURIComponent(query)}&filter=music_songs`;
+    const response = await fetchWithFallback(endpoint, { headers: COMMON_HEADERS });
     const data = await response.json();
     
     if (data.items && Array.isArray(data.items)) {
@@ -103,7 +134,7 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const streamRes = await fetch(`https://pipedapi.nosebs.ru/streams/${videoId}`);
+    const streamRes = await fetchWithFallback(`/streams/${videoId}`, { headers: COMMON_HEADERS });
     const streamData = await streamRes.json();
     const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
     return audioStream?.url || null;

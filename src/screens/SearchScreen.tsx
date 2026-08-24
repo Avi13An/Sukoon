@@ -13,7 +13,7 @@ import {
   Modal,
   Alert
 } from 'react-native';
-import { searchTracks, getSearchSuggestions, PipedSearchResult } from '../services/musicApi';
+import { searchTracks, getSearchSuggestions, PipedSearchResult, fetchWithFallback } from '../services/musicApi';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer, { Event } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
@@ -129,13 +129,7 @@ export function SearchScreen() {
       const videoId = item.url.replace('/watch?v=', '');
       setLoadingTrackId(videoId);
       
-      const streamRes = await fetch(`https://pipedapi.nosebs.ru/streams/${videoId}`);
-      
-      const contentType = streamRes.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("API is currently unavailable or returned invalid data.");
-      }
-
+      const streamRes = await fetchWithFallback(`/streams/${videoId}`);
       const streamData = await streamRes.json();
       
       if (streamData.error) {
