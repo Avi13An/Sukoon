@@ -127,15 +127,20 @@ export function SearchScreen() {
       await TrackPlayer.clear(); // Flush dead buffers
 
       const videoId = item.url.replace('/watch?v=', '');
-      if (!item.streamUrl || item.streamUrl === '') {
-        throw new Error("Invalid or empty stream URL");
-      }
-
       setLoadingTrackId(videoId);
+      
+      const streamRes = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+      const streamData = await streamRes.json();
+      
+      const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
+      
+      if (!audioStream?.url) {
+        throw new Error("Audio stream not found");
+      }
       
       const trackPayload = {
         id: videoId,
-        url: item.streamUrl || item.url,
+        url: audioStream.url,
         title: item.title,
         artist: item.uploaderName,
         artwork: item.thumbnail,
@@ -145,7 +150,7 @@ export function SearchScreen() {
       await TrackPlayer.play();
     } catch (error: any) {
       console.error('Error playing track:', error);
-      Alert.alert('Playback Error', error?.message || "Failed to play.");
+      Alert.alert('Playback Error', error?.message || "Failed to load audio stream.");
     } finally {
       setLoadingTrackId(null);
     }
