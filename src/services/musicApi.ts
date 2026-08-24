@@ -65,43 +65,41 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
 }
 
 export const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://pipedapi.syncpundit.io',
-  'https://pipedapi.tokhmi.xyz'
+  'https://pipedapi.moomoo.me',
+  'https://piped-api.garudalinux.org',
+  'https://api-piped.mha.fi',
+  'https://pipedapi.rivo.lol',
+  'https://pipedapi.kavin.rocks'
 ];
 
-export async function fetchWithFallback(endpoint: string, options: any = {}): Promise<Response> {
-  let lastError: Error = new Error("No instances available");
-  
+export async function fetchWithFallback(endpoint: string, options: any = {}): Promise<any> {
+  let lastError = null;
   for (const baseUrl of PIPED_INSTANCES) {
     try {
       const url = `${baseUrl}${endpoint}`;
       const response = await fetchWithTimeout(url, options);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error ${response.status}`);
-      }
+      if (!response.ok) continue; // Skip 500/525 errors
       
       const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("API returned invalid data (likely HTML error)");
-      }
-      
-      return response;
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`Instance ${baseUrl} failed:`, err.message);
+      if (!contentType || !contentType.includes("application/json")) continue; // Skip HTML Cloudflare errors
+
+      const data = await response.json();
+      if (data.error) continue; // Skip API-level errors
+
+      return data; // Success!
+    } catch (e: any) {
+      lastError = e;
+      console.log(`Node ${baseUrl} failed. Bypassing...`);
+      continue; // Crucial: Intercept the SSL/DNS error and skip to the next node
     }
   }
-  
-  throw lastError;
+  throw new Error(`All network nodes offline. Last error: ${lastError?.message || 'Unknown'}`);
 }
 
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
     const endpoint = `/search?q=${encodeURIComponent(query)}&filter=music_songs`;
-    const response = await fetchWithFallback(endpoint, { headers: COMMON_HEADERS });
-    const data = await response.json();
+    const data = await fetchWithFallback(endpoint, { headers: COMMON_HEADERS });
     
     if (data.items && Array.isArray(data.items)) {
       return data.items;
@@ -134,8 +132,7 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const streamRes = await fetchWithFallback(`/streams/${videoId}`, { headers: COMMON_HEADERS });
-    const streamData = await streamRes.json();
+    const streamData = await fetchWithFallback(`/streams/${videoId}`, { headers: COMMON_HEADERS });
     const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
     return audioStream?.url || null;
   } catch (error) {

@@ -129,8 +129,7 @@ export function SearchScreen() {
       const videoId = item.url.replace('/watch?v=', '');
       setLoadingTrackId(videoId);
       
-      const streamRes = await fetchWithFallback(`/streams/${videoId}`);
-      const streamData = await streamRes.json();
+      const streamData = await fetchWithFallback(`/streams/${videoId}`);
       
       if (streamData.error) {
         throw new Error(streamData.error);
