@@ -66,7 +66,7 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
 
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
   try {
-    const url = `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(query)}&filter=music_songs`;
+    const url = `https://pipedapi.nosebs.ru/search?q=${encodeURIComponent(query)}&filter=music_songs`;
     const response = await fetchWithTimeout(url, { headers: COMMON_HEADERS });
     
     if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
@@ -103,7 +103,7 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const streamRes = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+    const streamRes = await fetch(`https://pipedapi.nosebs.ru/streams/${videoId}`);
     const streamData = await streamRes.json();
     const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
     return audioStream?.url || null;

@@ -129,13 +129,23 @@ export function SearchScreen() {
       const videoId = item.url.replace('/watch?v=', '');
       setLoadingTrackId(videoId);
       
-      const streamRes = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+      const streamRes = await fetch(`https://pipedapi.nosebs.ru/streams/${videoId}`);
+      
+      const contentType = streamRes.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("API is currently unavailable or returned invalid data.");
+      }
+
       const streamData = await streamRes.json();
+      
+      if (streamData.error) {
+        throw new Error(streamData.error);
+      }
       
       const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
       
       if (!audioStream?.url) {
-        throw new Error("Audio stream not found");
+        throw new Error("Audio stream not found for this track.");
       }
       
       const trackPayload = {
