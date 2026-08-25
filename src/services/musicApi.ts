@@ -56,8 +56,12 @@ export async function fetchWithFallback(endpoint: string): Promise<any> {
   for (const baseUrl of INVIDIOUS_INSTANCES) {
     try {
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      // No spoofed headers needed because these nodes don't use Cloudflare
-      const response = await fetchWithTimeout(`${baseUrl}${cleanEndpoint}`);
+      const targetUrl = `${baseUrl}${cleanEndpoint}`;
+      
+      // Wrap the target URL in the AllOrigins proxy to bypass ISP DNS blocks
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+      
+      const response = await fetchWithTimeout(proxyUrl);
       
       if (!response.ok) continue; 
       
@@ -67,11 +71,11 @@ export async function fetchWithFallback(endpoint: string): Promise<any> {
       return data; 
     } catch (e: any) {
       lastError = e;
-      console.log(`Node ${baseUrl} failed. Bypassing...`);
+      console.log(`Proxy failed for node ${baseUrl}. Bypassing...`);
       continue; 
     }
   }
-  throw new Error(`All network nodes offline or blocked. Last error: ${lastError?.message || 'Unknown'}`);
+  throw new Error(`All proxy tunnels failed. Last error: ${lastError?.message || 'Unknown'}`);
 }
 
 export async function searchTracks(query: string): Promise<TrackMetadata[]> {
