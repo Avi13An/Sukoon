@@ -13,14 +13,15 @@ import {
   Modal,
   Alert
 } from 'react-native';
-import { searchTracks, getSearchSuggestions, PipedSearchResult, fetchWithFallback } from '../services/musicApi';
+import { searchTracks, getSearchSuggestions, fetchWithFallback } from '../services/musicApi';
+import { TrackMetadata } from '../utils/storage';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer, { Event } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 
 export function SearchScreen() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<PipedSearchResult[]>([]);
+  const [results, setResults] = useState<TrackMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -100,7 +101,7 @@ export function SearchScreen() {
     Keyboard.dismiss();
   };
 
-  const [selectedTrack, setSelectedTrack] = useState<PipedSearchResult | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<TrackMetadata | null>(null);
   const [showSyncInput, setShowSyncInput] = useState(false);
   const [syncUsername, setSyncUsername] = useState('');
 
@@ -110,14 +111,14 @@ export function SearchScreen() {
     };
   }, []);
 
-  const openOptions = (item: PipedSearchResult) => {
+  const openOptions = (item: TrackMetadata) => {
     setSelectedTrack(item);
     setShowSyncInput(false);
     setSyncUsername('');
     Keyboard.dismiss();
   };
 
-  const handlePlayNow = async (item: PipedSearchResult) => {
+  const handlePlayNow = async (track: TrackMetadata) => {
     setSelectedTrack(null);
     setShowSyncInput(false);
     setSyncUsername('');
@@ -126,27 +127,27 @@ export function SearchScreen() {
       await setupPlayer();
       await TrackPlayer.clear(); // Flush dead buffers
 
-      const videoId = item.url.replace('/watch?v=', '');
-      setLoadingTrackId(videoId);
+      setLoadingTrackId(track.id);
       
-      const streamData = await fetchWithFallback(`/streams/${videoId}`);
+      const streamData = await fetchWithFallback(`/api/v1/videos/${track.id}`);
       
       if (streamData.error) {
         throw new Error(streamData.error);
       }
       
-      const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
+      // Extract the best M4A/MP4 audio stream
+      const audioStream = streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio/mp4') || s.type?.includes('audio/m4a')) || streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio'));
       
       if (!audioStream?.url) {
         throw new Error("Audio stream not found for this track.");
       }
       
       const trackPayload = {
-        id: videoId,
+        id: track.id,
         url: audioStream.url,
-        title: item.title,
-        artist: item.uploaderName,
-        artwork: item.thumbnail,
+        title: track.title,
+        artist: track.artist,
+        artwork: track.artwork,
       };
 
       await TrackPlayer.setMediaItems([trackPayload as any]);
@@ -159,7 +160,7 @@ export function SearchScreen() {
     }
   };
 
-  const handleStartSync = async (item: PipedSearchResult) => {
+  const handleStartSync = async (item: TrackMetadata) => {
     if (!syncUsername.trim()) return;
     const target = syncUsername.trim();
     
@@ -180,9 +181,8 @@ export function SearchScreen() {
     setSelectedTrack(null);
   };
 
-  const renderItem = ({ item }: { item: PipedSearchResult }) => {
-    const videoId = item.url.replace('/watch?v=', '');
-    const isTrackLoading = loadingTrackId === videoId;
+  const renderItem = ({ item }: { item: TrackMetadata }) => {
+    const isTrackLoading = loadingTrackId === item.id;
 
     return (
       <TouchableOpacity 
@@ -192,12 +192,12 @@ export function SearchScreen() {
         disabled={isTrackLoading}
       >
         <Image 
-          source={{ uri: item.thumbnail || 'https://via.placeholder.com/150' }} 
+          source={{ uri: item.artwork || 'https://via.placeholder.com/150' }} 
           style={styles.thumbnail} 
         />
         <View style={styles.resultInfo}>
           <Text style={styles.titleText} numberOfLines={1}>{item.title}</Text>
-          <Text style={styles.artistText} numberOfLines={1}>{item.uploaderName}</Text>
+          <Text style={styles.artistText} numberOfLines={1}>{item.artist}</Text>
         </View>
         {isTrackLoading && (
           <ActivityIndicator color="#ffffff" style={styles.loader} />
@@ -211,29 +211,32 @@ export function SearchScreen() {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search for music..."
-          placeholderTextColor="#888888"
+          placeholder="Search songs, artists..."
+          placeholderTextColor="#888"
           value={query}
-          onChangeText={handleTextChange}
+          onChangeText={setQuery}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
-          selectionColor="#ffffff"
         />
-        
-        {showSuggestions && suggestions.length > 0 && (
-          <View style={styles.suggestionsContainer}>
-            {suggestions.map((sug, index) => (
-              <TouchableOpacity 
-                key={index} 
-                style={styles.suggestionItem} 
-                onPress={() => handleSuggestionTap(sug)}
-              >
-                <Text style={styles.suggestionText}>{sug}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
       </View>
+      
+      {query.length > 0 && suggestions.length > 0 && results.length === 0 && !isLoading && (
+        <View style={styles.suggestionsContainer}>
+          {suggestions.map((suggestion, index) => (
+            <TouchableOpacity 
+              key={index} 
+              style={styles.suggestionItem}
+              onPress={() => {
+                setQuery(suggestion);
+                setSuggestions([]);
+                Keyboard.dismiss();
+              }}
+            >
+              <Text style={styles.suggestionText}>{suggestion}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {isLoading ? (
         <View style={styles.centerContainer}>
@@ -242,7 +245,7 @@ export function SearchScreen() {
       ) : (
         <FlatList
           data={results}
-          keyExtractor={(item) => item.url}
+          keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
@@ -264,10 +267,10 @@ export function SearchScreen() {
             {selectedTrack && (
               <>
                 <View style={styles.modalHeader}>
-                  <Image source={{ uri: selectedTrack.thumbnail || 'https://via.placeholder.com/150' }} style={styles.modalThumbnail} />
+                  <Image source={{ uri: selectedTrack.artwork || 'https://via.placeholder.com/150' }} style={styles.modalThumbnail} />
                   <View style={styles.modalInfo}>
                     <Text style={styles.modalTitle} numberOfLines={1}>{selectedTrack.title}</Text>
-                    <Text style={styles.modalArtist} numberOfLines={1}>{selectedTrack.uploaderName}</Text>
+                    <Text style={styles.modalArtist} numberOfLines={1}>{selectedTrack.artist}</Text>
                   </View>
                 </View>
                 

@@ -1,39 +1,19 @@
 import { Alert } from 'react-native';
 
-export interface PipedSearchResult {
-  url: string;
-  type: string;
-  title: string;
-  thumbnail: string;
-  uploaderName: string;
-  uploaderUrl: string;
-  uploaderAvatar: string;
-  uploadedDate: string;
-  shortDescription: string;
-  duration: number;
-  views: number;
-  uploaded: number;
-  uploaderVerified: boolean;
-  isShort: boolean;
-  streamUrl?: string;
-}
+import { TrackMetadata } from '../utils/storage';
 
-const FALLBACK_RESULTS: PipedSearchResult[] = [
+const FALLBACK_RESULTS: TrackMetadata[] = [
   {
-    url: '/watch?v=dQw4w9WgXcQ',
-    type: 'stream',
+    id: 'dQw4w9WgXcQ',
     title: 'Never Gonna Give You Up (Fallback)',
-    thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
-    uploaderName: 'Rick Astley',
-    uploaderUrl: '',
-    uploaderAvatar: '',
-    uploadedDate: '12 years ago',
-    shortDescription: 'Fallback mock result due to API failure.',
-    duration: 212,
-    views: 1000000000,
-    uploaded: 1256342400000,
-    uploaderVerified: true,
-    isShort: false,
+    artist: 'Rick Astley',
+    artwork: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+  },
+  {
+    id: 'kJQP7kiw5Fk',
+    title: 'Despacito (Fallback)',
+    artist: 'Luis Fonsi',
+    artwork: 'https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg',
   }
 ];
 
@@ -64,34 +44,23 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
   }
 }
 
-export const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://pipedapi.smnz.de',
-  'https://pipedapi.adminforge.de',
-  'https://pipedapi.syncpundit.io'
+export const INVIDIOUS_INSTANCES = [
+  'https://invidious.fdn.fr',
+  'https://inv.tux.pizza',
+  'https://invidious.perennialte.ch',
+  'https://invidious.nerdvpn.de'
 ];
 
-export async function fetchWithFallback(endpoint: string, options: any = {}): Promise<any> {
+export async function fetchWithFallback(endpoint: string): Promise<any> {
   let lastError = null;
-  for (const baseUrl of PIPED_INSTANCES) {
+  for (const baseUrl of INVIDIOUS_INSTANCES) {
     try {
-      // Clean the endpoint to prevent double-slash routing errors
       const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      
-      const response = await fetchWithTimeout(`${baseUrl}${cleanEndpoint}`, {
-        ...options,
-        headers: {
-          ...options.headers,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json'
-        }
-      });
+      // No spoofed headers needed because these nodes don't use Cloudflare
+      const response = await fetchWithTimeout(`${baseUrl}${cleanEndpoint}`);
       
       if (!response.ok) continue; 
       
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) continue; 
-
       const data = await response.json();
       if (data.error) continue; 
 
@@ -105,14 +74,20 @@ export async function fetchWithFallback(endpoint: string, options: any = {}): Pr
   throw new Error(`All network nodes offline or blocked. Last error: ${lastError?.message || 'Unknown'}`);
 }
 
-export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
+export async function searchTracks(query: string): Promise<TrackMetadata[]> {
   try {
-    const endpoint = `/search?q=${encodeURIComponent(query)}&filter=music_songs`;
-    const data = await fetchWithFallback(endpoint, { headers: COMMON_HEADERS });
+    const data = await fetchWithFallback(`/api/v1/search?q=${encodeURIComponent(query)}`);
     
-    if (data.items && Array.isArray(data.items)) {
-      return data.items;
+    if (Array.isArray(data)) {
+      // Filter for videos to avoid channels/playlists
+      return data.filter((item: any) => item.type === 'video').map((item: any) => ({
+        id: item.videoId,
+        title: item.title,
+        artist: item.author,
+        artwork: item.videoThumbnails?.find((t: any) => t.quality === 'high')?.url || item.videoThumbnails?.[0]?.url || '',
+      }));
     }
+    
     throw new Error('API returned empty results');
   } catch (error: any) {
     console.error('Error searching tracks:', error);
@@ -141,8 +116,8 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
 
 export async function getAudioStream(videoId: string): Promise<string | null> {
   try {
-    const streamData = await fetchWithFallback(`/streams/${videoId}`, { headers: COMMON_HEADERS });
-    const audioStream = streamData.audioStreams?.find((s: any) => s.format === 'M4A' || s.mimeType.includes('mp4a')) || streamData.audioStreams?.[0];
+    const streamData = await fetchWithFallback(`/api/v1/videos/${videoId}`);
+    const audioStream = streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio/mp4') || s.type?.includes('audio/m4a')) || streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio'));
     return audioStream?.url || null;
   } catch (error) {
     console.error('Error getting audio stream:', error);
@@ -150,6 +125,6 @@ export async function getAudioStream(videoId: string): Promise<string | null> {
   }
 }
 
-export async function getRelatedTracks(videoId: string): Promise<PipedSearchResult[]> {
+export async function getRelatedTracks(videoId: string): Promise<TrackMetadata[]> {
   return FALLBACK_RESULTS;
 }

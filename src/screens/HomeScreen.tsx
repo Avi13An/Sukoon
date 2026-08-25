@@ -2,12 +2,12 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getLastPlayedTrack, TrackMetadata } from '../utils/storage';
-import { getRelatedTracks, PipedSearchResult } from '../services/musicApi';
+import { getRelatedTracks } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 
 export function HomeScreen() {
   const [lastPlayed, setLastPlayed] = useState<TrackMetadata | null>(null);
-  const [recommendations, setRecommendations] = useState<PipedSearchResult[]>([]);
+  const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useFocusEffect(
@@ -27,15 +27,12 @@ export function HomeScreen() {
     setIsLoading(false);
   };
 
-  const handlePlayTrack = async (item: PipedSearchResult) => {
-    const videoId = item.url.replace('/watch?v=', '');
-    if (!videoId) return;
-
+  const handlePlayTrack = async (item: TrackMetadata) => {
     await playTrack({
-      id: videoId,
+      id: item.id,
       title: item.title,
-      artist: item.uploaderName,
-      artwork: item.thumbnail,
+      artist: item.artist,
+      artwork: item.artwork,
       duration: item.duration,
     });
   };
@@ -43,19 +40,19 @@ export function HomeScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Home</Text>
-
-      {lastPlayed && (
+      
+      {isLoading ? (
+        <ActivityIndicator color="#ffffff" style={styles.loader} />
+      ) : (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Based on last played</Text>
-          <Text style={styles.subtitle}>Because you listened to {lastPlayed.title}</Text>
-          
-          {isLoading ? (
-            <ActivityIndicator color="#ffffff" style={styles.loader} />
+          <Text style={styles.sectionTitle}>Recommended For You</Text>
+          {recommendations.length === 0 ? (
+            <Text style={styles.subtitle}>No recommendations available right now.</Text>
           ) : (
             <FlatList
               horizontal
               data={recommendations}
-              keyExtractor={(item) => item.url}
+              keyExtractor={(item) => item.id}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
               renderItem={({ item }) => (
@@ -64,9 +61,9 @@ export function HomeScreen() {
                   activeOpacity={0.8}
                   onPress={() => handlePlayTrack(item)}
                 >
-                  <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
+                  <Image source={{ uri: item.artwork }} style={styles.thumbnail} />
                   <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-                  <Text style={styles.cardArtist} numberOfLines={1}>{item.uploaderName}</Text>
+                  <Text style={styles.cardArtist} numberOfLines={1}>{item.artist}</Text>
                 </TouchableOpacity>
               )}
             />
