@@ -65,35 +65,44 @@ async function fetchWithTimeout(url: string, options: any = {}, timeout: number 
 }
 
 export const PIPED_INSTANCES = [
-  'https://pipedapi.moomoo.me',
-  'https://piped-api.garudalinux.org',
-  'https://api-piped.mha.fi',
-  'https://pipedapi.rivo.lol',
-  'https://pipedapi.kavin.rocks'
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.smnz.de',
+  'https://pipedapi.adminforge.de',
+  'https://pipedapi.syncpundit.io'
 ];
 
 export async function fetchWithFallback(endpoint: string, options: any = {}): Promise<any> {
   let lastError = null;
   for (const baseUrl of PIPED_INSTANCES) {
     try {
-      const url = `${baseUrl}${endpoint}`;
-      const response = await fetchWithTimeout(url, options);
-      if (!response.ok) continue; // Skip 500/525 errors
+      // Clean the endpoint to prevent double-slash routing errors
+      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      
+      const response = await fetchWithTimeout(`${baseUrl}${cleanEndpoint}`, {
+        ...options,
+        headers: {
+          ...options.headers,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!response.ok) continue; 
       
       const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) continue; // Skip HTML Cloudflare errors
+      if (!contentType || !contentType.includes("application/json")) continue; 
 
       const data = await response.json();
-      if (data.error) continue; // Skip API-level errors
+      if (data.error) continue; 
 
-      return data; // Success!
+      return data; 
     } catch (e: any) {
       lastError = e;
       console.log(`Node ${baseUrl} failed. Bypassing...`);
-      continue; // Crucial: Intercept the SSL/DNS error and skip to the next node
+      continue; 
     }
   }
-  throw new Error(`All network nodes offline. Last error: ${lastError?.message || 'Unknown'}`);
+  throw new Error(`All network nodes offline or blocked. Last error: ${lastError?.message || 'Unknown'}`);
 }
 
 export async function searchTracks(query: string): Promise<PipedSearchResult[]> {
