@@ -1,5 +1,5 @@
 import { Alert } from 'react-native';
-import { TrackMetadata } from '../utils/storage';
+import { TrackMetadata, getListenHistory } from '../utils/storage';
 
 const API_BASE = 'https://sukoon-api.vercel.app';
 
@@ -188,17 +188,72 @@ export const getAudioStream = async (id: string): Promise<string | null> => {
 };
 
 export async function getSearchSuggestions(query: string, signal?: AbortSignal): Promise<string[]> {
-  if (!query.trim()) return [];
+  if (!query || query.trim().length < 2) return [];
   try {
-    const res = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`, { signal });
+    const res = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query.trim())}`, { signal });
+    if (!res.ok) return [];
     const json = await res.json();
-    if (Array.isArray(json) && Array.isArray(json[1])) return json[1];
+    if (Array.isArray(json) && Array.isArray(json[1])) {
+      return (json[1] as any[]).filter(item => typeof item === 'string');
+    }
   } catch (e: any) {
     if (e.name !== 'AbortError') console.error('Suggestion failed', e);
   }
   return [];
 }
 
-export async function getRelatedTracks(videoId: string): Promise<TrackMetadata[]> {
+export async function getRecommendedTracks(): Promise<TrackMetadata[]> {
+  try {
+    const history = getListenHistory();
+    if (history && history.length > 0) {
+      // Pick up to 2 unique recent artists
+      const uniqueArtists: string[] = [];
+      for (const track of history) {
+        const artist = track.artist?.trim();
+        if (artist && artist !== 'Unknown Artist' && !uniqueArtists.includes(artist)) {
+          uniqueArtists.push(artist);
+        }
+        if (uniqueArtists.length >= 2) break;
+      }
+
+      if (uniqueArtists.length > 0) {
+        const collectedTracks: TrackMetadata[] = [];
+        for (const artist of uniqueArtists) {
+          const songs = await searchTracks(`${artist} top songs`);
+          if (Array.isArray(songs) && songs.length > 0) {
+            collectedTracks.push(...songs.slice(0, 5));
+          }
+        }
+
+        if (collectedTracks.length > 0) {
+          // Deduplicate by ID
+          const seen = new Set<string>();
+          const deduped: TrackMetadata[] = [];
+          for (const track of collectedTracks) {
+            if (track?.id && !seen.has(track.id)) {
+              seen.add(track.id);
+              deduped.push(track);
+            }
+          }
+          if (deduped.length > 0) {
+            return deduped;
+          }
+        }
+      }
+    }
+
+    // Default recommendations for fresh installs or when no history matches
+    const fallbackResults = await searchTracks('Bollywood acoustic hits');
+    if (Array.isArray(fallbackResults) && fallbackResults.length > 0) {
+      return fallbackResults;
+    }
+  } catch (error) {
+    console.error('Error fetching recommended tracks:', error);
+  }
   return FALLBACK_RESULTS;
 }
+
+export async function getRelatedTracks(videoId: string): Promise<TrackMetadata[]> {
+  return getRecommendedTracks();
+}
+

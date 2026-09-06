@@ -1,9 +1,91 @@
-import TrackPlayer, { Event, RepeatMode, PlayerCommand } from '@rntp/player';
+import TrackPlayer, { Event, RepeatMode, PlayerCommand, PlaybackState } from '@rntp/player';
 import { Alert } from 'react-native';
-import { getOfflineTracks, setLastPlayedTrack, TrackMetadata } from '../utils/storage';
-import { getAudioStream } from './musicApi';
+import { 
+  getOfflineTracks, 
+  setLastPlayedTrack, 
+  getLastPlayedTrack, 
+  saveListenHistory, 
+  getListenHistory, 
+  getEqualizerSettings, 
+  TrackMetadata 
+} from '../utils/storage';
+import { getAudioStream, searchTracks } from './musicApi';
 
 let isPlayerSetup = false;
+let isListenersAttached = false;
+let isResolvingAutoplay = false;
+let autoplayQueue: TrackMetadata[] = [];
+
+export async function prefetchAutoplayQueue(currentTrack: TrackMetadata) {
+  try {
+    const history = getListenHistory();
+    const historyIds = new Set(history.map(t => t.id));
+    historyIds.add(currentTrack.id);
+
+    const query = currentTrack.artist && currentTrack.artist !== 'Unknown Artist'
+      ? `${currentTrack.artist} hits`
+      : `${currentTrack.title} radio`;
+
+    const candidates = await searchTracks(query);
+    if (Array.isArray(candidates) && candidates.length > 0) {
+      const freshCandidates = candidates.filter(t => t?.id && !historyIds.has(t.id));
+      autoplayQueue = freshCandidates.slice(0, 4);
+      console.log(`[Autoplay] Prefetched ${autoplayQueue.length} candidate tracks`);
+    }
+  } catch (err) {
+    console.error('[Autoplay] Error prefetching autoplay queue:', err);
+  }
+}
+
+export async function handleAutoplayTransition() {
+  if (isResolvingAutoplay) return;
+
+  const repeatMode = TrackPlayer.getRepeatMode();
+  if (repeatMode !== RepeatMode.Off) {
+    console.log('[Autoplay] Repeat mode active, skipping autoplay');
+    return;
+  }
+
+  isResolvingAutoplay = true;
+  try {
+    let nextTrack: TrackMetadata | undefined = autoplayQueue.shift();
+
+    if (!nextTrack) {
+      const lastTrack = getLastPlayedTrack();
+      if (lastTrack) {
+        const history = getListenHistory();
+        const historyIds = new Set(history.map(t => t.id));
+        historyIds.add(lastTrack.id);
+
+        const query = lastTrack.artist && lastTrack.artist !== 'Unknown Artist'
+          ? `${lastTrack.artist} hits`
+          : `${lastTrack.title} radio`;
+
+        const candidates = await searchTracks(query);
+        const fresh = Array.isArray(candidates) ? candidates.filter(t => t?.id && !historyIds.has(t.id)) : [];
+        if (fresh.length > 0) {
+          nextTrack = fresh[0];
+          autoplayQueue = fresh.slice(1, 4);
+        }
+      }
+    }
+
+    if (nextTrack) {
+      console.log(`[Autoplay] Playing next track: ${nextTrack.title} by ${nextTrack.artist}`);
+      const resolvedUrl = await getAudioStream(nextTrack.id);
+      if (resolvedUrl) {
+        await playTrack({
+          ...nextTrack,
+          url: resolvedUrl,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[Autoplay] Transition error:', err);
+  } finally {
+    isResolvingAutoplay = false;
+  }
+}
 
 export async function setupPlayer(): Promise<boolean> {
   if (isPlayerSetup) return true;
@@ -24,6 +106,30 @@ export async function setupPlayer(): Promise<boolean> {
       handling: 'hybrid' // Required to fire JS background events on V5
     });
 
+    if (!isListenersAttached) {
+      TrackPlayer.addEventListener(Event.PlaybackStateChanged, async (event: any) => {
+        if (event?.state === PlaybackState.Ended || event?.state === 'ended') {
+          console.log('[TrackPlayerService] PlaybackState.Ended detected, triggering autoplay...');
+          await handleAutoplayTransition();
+        }
+      });
+
+      TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
+        if (event?.item === null && event?.index === -1) {
+          console.log('[TrackPlayerService] MediaItemTransition ended, triggering autoplay...');
+          await handleAutoplayTransition();
+        }
+      });
+
+      const queueEndedEvent = (Event as any).PlaybackQueueEnded || 'event.playback-queue-ended';
+      TrackPlayer.addEventListener(queueEndedEvent as any, async () => {
+        console.log('[TrackPlayerService] PlaybackQueueEnded detected, triggering autoplay...');
+        await handleAutoplayTransition();
+      });
+
+      isListenersAttached = true;
+    }
+
     isPlayerSetup = true;
     // Allow Android MediaController async connection to finish
     await new Promise((r) => setTimeout(r, 150));
@@ -35,6 +141,14 @@ export async function setupPlayer(): Promise<boolean> {
     }
     console.error('setupPlayer initialization error:', e);
     return false;
+  }
+}
+
+export async function applySoundBoost(boostPercent: number) {
+  const clamped = Math.max(0, Math.min(100, boostPercent));
+  const gainMultiplier = 1.0 + (clamped / 100) * 0.2; // provides subtle headroom boost
+  if (typeof TrackPlayer.setVolume === 'function') {
+    await TrackPlayer.setVolume(Math.min(1.2, gainMultiplier));
   }
 }
 
@@ -108,6 +222,7 @@ export async function playTrack(metadata: TrackMetadata) {
       title: metadata.title || 'Unknown Title',
       artist: metadata.artist || 'Unknown Artist',
       artwork: metadata.artwork || undefined,
+      artworkUrl: metadata.artwork || undefined,
       duration: metadata.duration,
       headers: {
         'User-Agent': matchedUA,
@@ -152,7 +267,13 @@ export async function playTrack(metadata: TrackMetadata) {
     }
     
     setLastPlayedTrack(metadata);
-    if (typeof TrackPlayer.setVolume === 'function') {
+    saveListenHistory(metadata);
+    prefetchAutoplayQueue(metadata).catch(() => {});
+    
+    const eqSettings = getEqualizerSettings();
+    if (eqSettings.enabled && eqSettings.soundBoost > 0) {
+      await applySoundBoost(eqSettings.soundBoost);
+    } else if (typeof TrackPlayer.setVolume === 'function') {
       await TrackPlayer.setVolume(1.0);
     }
 
@@ -162,7 +283,7 @@ export async function playTrack(metadata: TrackMetadata) {
       await TrackPlayer.play();
     }
   } catch (error: any) {
-    Alert.alert('TrackPlayer Service Error', error?.message || JSON.stringify(error));
+    console.error('[TrackPlayerService] playTrack error:', error);
     throw error;
   }
 }

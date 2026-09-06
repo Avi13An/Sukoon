@@ -1,8 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, PanResponder } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Dimensions, 
+  PanResponder, 
+  ScrollView, 
+  Switch,
+  Platform 
+} from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { EQ_PRESETS, getEqualizerPreset, setEqualizerPreset, getLoudnessGain, setLoudnessEnhancer } from '../services/audioEnhancerService';
+import { 
+  EqualizerSettings, 
+  EqualizerPresetName, 
+  getEqualizerSettings 
+} from '../utils/storage';
+import { 
+  EQ_PRESETS, 
+  setEqualizerPreset, 
+  updateEqualizerBand, 
+  updateBassBoost, 
+  updateSoundBoost, 
+  toggleEqualizer, 
+  openSystemEqualizer 
+} from '../services/audioEnhancerService';
 
 const { height, width } = Dimensions.get('window');
 
@@ -11,45 +34,84 @@ interface Props {
   onClose: () => void;
 }
 
+const BAND_FREQUENCIES = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz'];
+const BAND_HEIGHT = 120;
+
 export function AudioSettingsModal({ visible, onClose }: Props) {
-  const [activePreset, setActivePreset] = useState(getEqualizerPreset());
-  const [gain, setGain] = useState(getLoudnessGain());
-  
+  const [settings, setSettings] = useState<EqualizerSettings>(getEqualizerSettings());
   const translateY = useSharedValue(height);
 
   useEffect(() => {
     if (visible) {
-      translateY.value = withSpring(0, { damping: 15, stiffness: 90 });
+      setSettings(getEqualizerSettings());
+      translateY.value = withSpring(0, { damping: 18, stiffness: 100 });
     } else {
-      translateY.value = withTiming(height, { duration: 300 });
+      translateY.value = withTiming(height, { duration: 250 });
     }
   }, [visible]);
 
-  const handlePresetSelect = (preset: string) => {
-    setActivePreset(preset);
-    setEqualizerPreset(preset);
+  const handleToggle = async (val: boolean) => {
+    const updated = await toggleEqualizer(val);
+    setSettings({ ...updated });
   };
 
-  // Build a simple custom pan responder for the Gain Slider
-  // Range: 1.0 to 3.0
-  const sliderWidth = width - 80;
-  const SLIDER_MIN = 1.0;
-  const SLIDER_MAX = 3.0;
+  const handlePresetSelect = async (preset: EqualizerPresetName) => {
+    const updated = await setEqualizerPreset(preset);
+    setSettings({ ...updated });
+  };
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onPanResponderMove: (evt, gestureState) => {
-      let newX = gestureState.moveX - 40; // 40 is the padding left
-      if (newX < 0) newX = 0;
-      if (newX > sliderWidth) newX = sliderWidth;
-      
-      const newGain = SLIDER_MIN + ((newX / sliderWidth) * (SLIDER_MAX - SLIDER_MIN));
-      setGain(newGain);
-    },
-    onPanResponderRelease: () => {
-      setLoudnessEnhancer(gain);
-    }
-  });
+  const handleBandChange = async (freq: string, val: number) => {
+    const updated = await updateEqualizerBand(freq, val);
+    setSettings({ ...updated });
+  };
+
+  const handleBassBoostChange = async (val: number) => {
+    const updated = await updateBassBoost(val);
+    setSettings({ ...updated });
+  };
+
+  const handleSoundBoostChange = async (val: number) => {
+    const updated = await updateSoundBoost(val);
+    setSettings({ ...updated });
+  };
+
+  // PanResponder for Bass Boost Slider
+  const bassSliderWidth = useRef(width - 64);
+  const bassPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (bassSliderWidth.current || 1)) * 100)));
+        handleBassBoostChange(percent);
+      },
+      onPanResponderMove: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (bassSliderWidth.current || 1)) * 100)));
+        handleBassBoostChange(percent);
+      },
+    })
+  ).current;
+
+  // PanResponder for Sound Boost Slider
+  const soundSliderWidth = useRef(width - 64);
+  const soundPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (soundSliderWidth.current || 1)) * 100)));
+        handleSoundBoostChange(percent);
+      },
+      onPanResponderMove: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (soundSliderWidth.current || 1)) * 100)));
+        handleSoundBoostChange(percent);
+      },
+    })
+  ).current;
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -67,52 +129,149 @@ export function AudioSettingsModal({ visible, onClose }: Props) {
         <View style={styles.handle} />
         
         <View style={styles.header}>
-          <Text style={styles.title}>Audio Settings</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <Ionicons name="close" size={24} color="#ffffff" />
+          <View>
+            <Text style={styles.title}>Audio Equalizer</Text>
+            <Text style={styles.subtitle}>DSP Acoustic Engine & Headroom Boost</Text>
+          </View>
+          <View style={styles.headerControls}>
+            <Switch 
+              value={settings.enabled} 
+              onValueChange={handleToggle}
+              trackColor={{ false: '#333333', true: '#00cc99' }}
+              thumbColor={settings.enabled ? '#00ffcc' : '#888888'}
+            />
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={24} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          {/* Preset Selector Chips */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Presets</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetScroll}>
+              {EQ_PRESETS.map((preset) => {
+                const isActive = settings.preset === preset;
+                return (
+                  <TouchableOpacity 
+                    key={preset} 
+                    style={[styles.presetChip, isActive && styles.presetChipActive]}
+                    onPress={() => handlePresetSelect(preset)}
+                    disabled={!settings.enabled}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.presetChipText, isActive && styles.presetChipTextActive]}>
+                      {preset}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* 5-Band Graphic Equalizer */}
+          <View style={[styles.section, !settings.enabled && styles.disabledSection]}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Graphic Equalizer (dB)</Text>
+              <Text style={styles.rangeLabel}>-10dB to +10dB</Text>
+            </View>
+
+            <View style={styles.bandsContainer}>
+              {BAND_FREQUENCIES.map((freq) => {
+                const dbValue = settings.bands[freq] ?? 0;
+                // Ratio from bottom: (-10dB = 0, 0dB = 0.5, +10dB = 1.0)
+                const ratio = (dbValue + 10) / 20;
+                const fillHeight = Math.max(4, ratio * BAND_HEIGHT);
+
+                return (
+                  <View key={freq} style={styles.bandColumn}>
+                    <Text style={styles.bandDbText}>
+                      {dbValue > 0 ? `+${dbValue}` : `${dbValue}`}
+                    </Text>
+                    
+                    <View 
+                      style={styles.bandTrackContainer}
+                      onTouchStart={(e) => {
+                        if (!settings.enabled) return;
+                        const touchY = e.nativeEvent.locationY;
+                        const r = Math.max(0, Math.min(1, (BAND_HEIGHT - touchY) / BAND_HEIGHT));
+                        const val = Math.round(-10 + r * 20);
+                        handleBandChange(freq, val);
+                      }}
+                      onTouchMove={(e) => {
+                        if (!settings.enabled) return;
+                        const touchY = e.nativeEvent.locationY;
+                        const r = Math.max(0, Math.min(1, (BAND_HEIGHT - touchY) / BAND_HEIGHT));
+                        const val = Math.round(-10 + r * 20);
+                        handleBandChange(freq, val);
+                      }}
+                    >
+                      {/* Zero dB midline marker */}
+                      <View style={styles.zeroLine} />
+                      <View style={styles.bandTrack} />
+                      <View style={[styles.bandFill, { height: fillHeight }]} />
+                      <View style={[styles.bandThumb, { bottom: fillHeight - 8 }]} />
+                    </View>
+
+                    <Text style={styles.bandFreqText}>{freq}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Bass Boost Slider */}
+          <View style={[styles.section, !settings.enabled && styles.disabledSection]}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Bass Boost</Text>
+              <Text style={styles.accentValue}>{settings.bassBoost}%</Text>
+            </View>
+            
+            <View 
+              style={styles.horizontalSliderContainer} 
+              onLayout={(e) => { bassSliderWidth.current = e.nativeEvent.layout.width; }}
+              {...(settings.enabled ? bassPanResponder.panHandlers : {})}
+            >
+              <View style={styles.horizontalSliderTrack} />
+              <View style={[styles.horizontalSliderFill, { width: `${settings.bassBoost}%` }]} />
+              <View style={[styles.horizontalSliderThumb, { left: `${settings.bassBoost}%` }]} />
+            </View>
+          </View>
+
+          {/* Sound Boost (Headroom Gain) */}
+          <View style={[styles.section, !settings.enabled && styles.disabledSection]}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Sound Boost (Headroom Amplification)</Text>
+              <Text style={styles.accentValue}>+{Math.round(settings.soundBoost * 0.2)}% Gain</Text>
+            </View>
+            
+            <View 
+              style={styles.horizontalSliderContainer} 
+              onLayout={(e) => { soundSliderWidth.current = e.nativeEvent.layout.width; }}
+              {...(settings.enabled ? soundPanResponder.panHandlers : {})}
+            >
+              <View style={styles.horizontalSliderTrack} />
+              <View style={[styles.horizontalSliderFill, { width: `${settings.soundBoost}%` }]} />
+              <View style={[styles.horizontalSliderThumb, { left: `${settings.soundBoost}%` }]} />
+            </View>
+            <Text style={styles.disclaimerText}>
+              Amplifies digital headroom. Keeps audio crisp without distortion.
+            </Text>
+          </View>
+
+          {/* Android Hardware Equalizer Bridge */}
+          <TouchableOpacity 
+            style={styles.systemEqBtn} 
+            onPress={openSystemEqualizer}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="hardware-chip-outline" size={20} color="#00ffcc" />
+            <Text style={styles.systemEqBtnText}>Open System Equalizer / Dolby Atmos</Text>
           </TouchableOpacity>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Equalizer Preset</Text>
-          <View style={styles.presetGrid}>
-            {EQ_PRESETS.map((preset) => (
-              <TouchableOpacity 
-                key={preset} 
-                style={[styles.presetBtn, activePreset === preset && styles.presetBtnActive]}
-                onPress={() => handlePresetSelect(preset)}
-              >
-                <Text style={[styles.presetText, activePreset === preset && styles.presetTextActive]}>{preset}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.enhancerHeader}>
-            <Text style={styles.sectionTitle}>Sound Enhancer (Amplifier)</Text>
-            <Text style={styles.gainText}>x{gain.toFixed(1)}</Text>
-          </View>
-          
-          <View style={styles.sliderContainer} {...panResponder.panHandlers}>
-            <View style={styles.sliderTrack} />
-            <View 
-              style={[
-                styles.sliderFill, 
-                { width: `${((gain - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100}%` }
-              ]} 
-            />
-            <View 
-              style={[
-                styles.sliderThumb, 
-                { left: `${((gain - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100}%` }
-              ]} 
-            />
-          </View>
-          <Text style={styles.enhancerDisclaimer}>
-            Pushes volume beyond hardware maximum. May cause audio clipping on some tracks.
-          </Text>
-        </View>
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
 
       </Animated.View>
     </View>
@@ -129,114 +288,223 @@ const styles = StyleSheet.create({
   backdrop: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
   },
   modal: {
-    backgroundColor: '#121212',
+    backgroundColor: '#141416',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
-    minHeight: 400,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    maxHeight: height * 0.85,
     borderTopWidth: 1,
-    borderColor: '#222222',
+    borderColor: '#26262a',
   },
   handle: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#333333',
-    borderRadius: 2,
+    width: 44,
+    height: 5,
+    backgroundColor: '#333338',
+    borderRadius: 3,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 20,
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   title: {
     color: '#ffffff',
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
+  },
+  subtitle: {
+    color: '#888888',
+    fontSize: 12,
+    marginTop: 2,
   },
   closeBtn: {
     padding: 4,
   },
+  scrollContent: {
+    paddingBottom: 24,
+  },
   section: {
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  disabledSection: {
+    opacity: 0.35,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
   },
   sectionTitle: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 16,
-  },
-  presetGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  presetBtn: {
-    width: '48%',
-    backgroundColor: '#000000',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#333333',
-  },
-  presetBtnActive: {
-    backgroundColor: '#ffffff',
-    borderColor: '#ffffff',
-  },
-  presetText: {
-    color: '#aaaaaa',
+    fontSize: 15,
     fontWeight: '600',
   },
-  presetTextActive: {
-    color: '#000000',
+  rangeLabel: {
+    color: '#777777',
+    fontSize: 12,
   },
-  enhancerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  gainText: {
+  accentValue: {
     color: '#00ffcc',
+    fontSize: 14,
     fontWeight: 'bold',
   },
-  sliderContainer: {
-    height: 40,
+  presetScroll: {
+    paddingVertical: 4,
+    gap: 8,
+  },
+  presetChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: '#1f1f24',
+    borderWidth: 1,
+    borderColor: '#2f2f36',
+  },
+  presetChipActive: {
+    backgroundColor: '#00ffcc',
+    borderColor: '#00ffcc',
+  },
+  presetChipText: {
+    color: '#aaaaaa',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  presetChipTextActive: {
+    color: '#000000',
+    fontWeight: 'bold',
+  },
+  bandsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#0d0d0f',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#222226',
+  },
+  bandColumn: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  bandDbText: {
+    color: '#00ffcc',
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 8,
+    height: 16,
+  },
+  bandTrackContainer: {
+    width: 32,
+    height: BAND_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    position: 'relative',
+  },
+  zeroLine: {
+    position: 'absolute',
+    top: BAND_HEIGHT / 2,
+    left: 2,
+    right: 2,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    zIndex: 1,
+  },
+  bandTrack: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 6,
+    backgroundColor: '#222228',
+    borderRadius: 3,
+  },
+  bandFill: {
+    position: 'absolute',
+    bottom: 0,
+    width: 6,
+    backgroundColor: '#00ffcc',
+    borderRadius: 3,
+  },
+  bandThumb: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#00ffcc',
+    zIndex: 5,
+  },
+  bandFreqText: {
+    color: '#888888',
+    fontSize: 11,
+    marginTop: 8,
+  },
+  horizontalSliderContainer: {
+    height: 36,
     justifyContent: 'center',
     position: 'relative',
-    marginBottom: 8,
   },
-  sliderTrack: {
-    height: 4,
-    backgroundColor: '#333333',
-    borderRadius: 2,
+  horizontalSliderTrack: {
+    height: 6,
+    backgroundColor: '#222228',
+    borderRadius: 3,
     width: '100%',
   },
-  sliderFill: {
+  horizontalSliderFill: {
     position: 'absolute',
-    height: 4,
+    height: 6,
     backgroundColor: '#00ffcc',
-    borderRadius: 2,
+    borderRadius: 3,
     left: 0,
   },
-  sliderThumb: {
+  horizontalSliderThumb: {
     position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#ffffff',
-    marginLeft: -10, // center the thumb
+    borderWidth: 2,
+    borderColor: '#00ffcc',
+    marginLeft: -9,
   },
-  enhancerDisclaimer: {
+  disclaimerText: {
     color: '#666666',
     fontSize: 12,
+    marginTop: 4,
+  },
+  systemEqBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1b1b20',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2e2e36',
+    gap: 8,
     marginTop: 8,
-  }
+  },
+  systemEqBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  bottomSpacer: {
+    height: 24,
+  },
 });
+

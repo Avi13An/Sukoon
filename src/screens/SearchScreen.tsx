@@ -14,10 +14,11 @@ import {
   Alert
 } from 'react-native';
 import { searchTracks, getSearchSuggestions, getAudioStream } from '../services/musicApi';
-import { TrackMetadata } from '../utils/storage';
+import { TrackMetadata, getRecentSearches, saveRecentSearch, clearRecentSearches } from '../utils/storage';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer, { Event, PlaybackState } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
+import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 
 export function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -26,9 +27,15 @@ export function SearchScreen() {
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [isInputFocused, setIsInputFocused] = useState(false);
   
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    setRecentSearches(getRecentSearches());
+  }, []);
 
   useEffect(() => {
     const errSub = TrackPlayer.addEventListener(Event.PlaybackError, (error: any) => {
@@ -40,16 +47,11 @@ export function SearchScreen() {
       ((Event as any).PlaybackState || Event.PlaybackStateChanged) as any,
       (event: any) => {
         console.log('[NATIVE STATE CHANGED]:', event);
-        const state = event?.state !== undefined ? event.state : event;
-        Alert.alert('Playback State Transition', `State: ${JSON.stringify(state)}`);
       }
     );
 
     const playingSub = TrackPlayer.addEventListener(Event.IsPlayingChanged, (event: any) => {
       console.log('[TRACKPLAYER IS_PLAYING]:', event?.playing);
-      if (event?.playing) {
-        Alert.alert('Playback State', 'State: Playing audio stream!');
-      }
     });
 
     return () => {
@@ -60,23 +62,39 @@ export function SearchScreen() {
   }, []);
 
   const executeSearch = async (text: string) => {
-    if (!text.trim()) {
+    const trimmed = text.trim();
+    if (!trimmed) {
       setResults([]);
       setIsLoading(false);
       return;
     }
+    const updated = saveRecentSearch(trimmed);
+    setRecentSearches(updated);
     setIsLoading(true);
+    setShowSuggestions(false);
     
-    const searchResults = await searchTracks(text);
+    const searchResults = await searchTracks(trimmed);
     setResults(searchResults);
     setIsLoading(false);
+  };
+
+  const handleClearRecent = () => {
+    clearRecentSearches();
+    setRecentSearches([]);
+  };
+
+  const handleRecentTap = (term: string) => {
+    setQuery(term);
+    setShowSuggestions(false);
+    executeSearch(term);
+    Keyboard.dismiss();
   };
 
   const handleTextChange = (text: string) => {
     setQuery(text);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     
-    if (!text.trim()) {
+    if (!text.trim() || text.trim().length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
       if (abortControllerRef.current) {
@@ -96,7 +114,7 @@ export function SearchScreen() {
         const sugs = await getSearchSuggestions(text, controller.signal);
         if (!controller.signal.aborted) {
           setSuggestions(sugs);
-          setShowSuggestions(true);
+          setShowSuggestions(sugs.length > 0);
         }
       } catch (error: any) {
         if (error.name !== 'AbortError') {
@@ -124,6 +142,7 @@ export function SearchScreen() {
   };
 
   const [selectedTrack, setSelectedTrack] = useState<TrackMetadata | null>(null);
+  const [playlistModalTrack, setPlaylistModalTrack] = useState<TrackMetadata | null>(null);
   const [showSyncInput, setShowSyncInput] = useState(false);
   const [syncUsername, setSyncUsername] = useState('');
 
@@ -141,7 +160,6 @@ export function SearchScreen() {
   };
 
   const handlePlayNow = async (track: TrackMetadata) => {
-    Alert.alert('Starting Playback', `Resolving ${track.title}...`);
     setSelectedTrack(null);
     setShowSyncInput(false);
     setSyncUsername('');
@@ -177,28 +195,10 @@ export function SearchScreen() {
         return;
       }
 
-      Alert.alert('Stream Resolved', `URL: ${resolvedUrl.slice(0, 45)}...\nPassing to Player...`);
-
       await playTrack({
         ...track,
         url: resolvedUrl
       });
-
-      const queue = await TrackPlayer.getQueue();
-      const state = await TrackPlayer.getPlaybackState();
-      const activeItem = typeof (TrackPlayer as any).getActiveMediaItem === 'function'
-        ? await (TrackPlayer as any).getActiveMediaItem()
-        : null;
-      Alert.alert(
-        'Player Diagnostic',
-        `State: ${JSON.stringify(state)}\n` +
-        `Queue Count: ${queue.length}\n` +
-        `Active Item: ${activeItem?.title || queue[0]?.title || 'NONE'}\n` +
-        `hasLoad: ${typeof (TrackPlayer as any).load}\n` +
-        `hasSetMediaItem: ${typeof (TrackPlayer as any).setMediaItem}\n` +
-        `hasSetMediaItems: ${typeof (TrackPlayer as any).setMediaItems}\n` +
-        `hasAddMediaItem: ${typeof (TrackPlayer as any).addMediaItem}`
-      );
     } catch (err: any) {
       console.error('Playback Error:', err);
       Alert.alert('Playback Execution Error', `${err?.name}: ${err?.message}`);
@@ -261,30 +261,48 @@ export function SearchScreen() {
           placeholder="Search songs, artists..."
           placeholderTextColor="#888"
           value={query}
-          onChangeText={setQuery}
+          onChangeText={handleTextChange}
+          onFocus={() => setIsInputFocused(true)}
           onSubmitEditing={handleSearch}
           returnKeyType="search"
         />
-        <Text style={{ color: '#1DB954', fontSize: 11, textAlign: 'center', marginTop: 6 }}>
-          Sukoon v2.5 (Audio Engine Wired)
-        </Text>
       </View>
       
-      {query.length > 0 && suggestions.length > 0 && results.length === 0 && !isLoading && (
+      {query.trim().length >= 2 && showSuggestions && suggestions.length > 0 && (
         <View style={styles.suggestionsContainer}>
-          {suggestions.map((suggestion, index) => (
+          {suggestions.slice(0, 8).map((suggestion, index) => (
             <TouchableOpacity 
               key={index} 
               style={styles.suggestionItem}
-              onPress={() => {
-                setQuery(suggestion);
-                setSuggestions([]);
-                Keyboard.dismiss();
-              }}
+              onPress={() => handleSuggestionTap(suggestion)}
             >
-              <Text style={styles.suggestionText}>{suggestion}</Text>
+              <Text style={styles.suggestionIcon}>🔍</Text>
+              <Text style={styles.suggestionText} numberOfLines={1}>{suggestion}</Text>
             </TouchableOpacity>
           ))}
+        </View>
+      )}
+
+      {!query.trim() && recentSearches.length > 0 && results.length === 0 && !isLoading && (
+        <View style={styles.recentSection}>
+          <View style={styles.recentHeader}>
+            <Text style={styles.recentTitle}>Recent Searches</Text>
+            <TouchableOpacity onPress={handleClearRecent} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.clearText}>Clear All</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.recentList}>
+            {recentSearches.map((term, index) => (
+              <TouchableOpacity
+                key={`${term}-${index}`}
+                style={styles.recentItem}
+                onPress={() => handleRecentTap(term)}
+              >
+                <Text style={styles.recentIcon}>🕒</Text>
+                <Text style={styles.recentItemText} numberOfLines={1}>{term}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
 
@@ -350,6 +368,18 @@ export function SearchScreen() {
                   </Pressable>
                 )}
 
+                <Pressable 
+                  style={styles.actionButton} 
+                  onPress={() => {
+                    const trackToAdd = selectedTrack;
+                    setSelectedTrack(null);
+                    setPlaylistModalTrack(trackToAdd);
+                  }}
+                >
+                  <Text style={styles.actionIcon}>➕</Text>
+                  <Text style={styles.actionText}>Add to Playlist</Text>
+                </Pressable>
+
                 <Pressable style={styles.actionButton} onPress={handleSaveToLibrary}>
                   <Text style={styles.actionIcon}>💾</Text>
                   <Text style={styles.actionText}>Save to Library</Text>
@@ -359,9 +389,16 @@ export function SearchScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <AddToPlaylistModal 
+        visible={playlistModalTrack !== null} 
+        track={playlistModalTrack} 
+        onClose={() => setPlaylistModalTrack(null)} 
+      />
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -428,26 +465,74 @@ const styles = StyleSheet.create({
   },
   suggestionsContainer: {
     position: 'absolute',
-    top: 88,
+    top: 76,
     left: 16,
     right: 16,
-    backgroundColor: '#1e1e1e',
-    borderRadius: 8,
-    zIndex: 100,
-    elevation: 5,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 10,
+    zIndex: 1000,
+    elevation: 10,
     borderWidth: 1,
     borderColor: '#333333',
-    maxHeight: 200,
+    maxHeight: 280,
+    overflow: 'hidden',
   },
   suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#333333',
+    borderBottomColor: '#2c2c2e',
+  },
+  suggestionIcon: {
+    fontSize: 14,
+    marginRight: 12,
+    color: '#888888',
   },
   suggestionText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 15,
+    flex: 1,
+  },
+  recentSection: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  recentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  recentTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  clearText: {
+    color: '#ff5252',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  recentList: {
+    marginTop: 4,
+  },
+  recentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#222222',
+  },
+  recentIcon: {
+    fontSize: 15,
+    marginRight: 12,
+  },
+  recentItemText: {
+    color: '#e0e0e0',
+    fontSize: 15,
+    flex: 1,
   },
   modalOverlay: {
     flex: 1,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, PanResponder } from 'react-native';
 import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse } from '../services/lyricsService';
@@ -7,6 +7,8 @@ import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { toggleLoopMode } from '../services/TrackPlayerService';
 import { AudioSettingsModal } from '../components/AudioSettingsModal';
+import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { TrackMetadata } from '../utils/storage';
 
 const { width } = Dimensions.get('window');
 
@@ -15,8 +17,52 @@ export function PlayerScreen({ navigation }: any) {
   const isPlaying = useIsPlaying();
   const { position, duration } = useProgress(250);
 
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubPosition, setScrubPosition] = useState(0);
+  const progressBarWidth = useRef(1);
+
+  const effectiveDuration = duration > 0 ? duration : ((track as any)?.duration || 0);
+  const displayPosition = isScrubbing ? scrubPosition : position;
+  const progressPercent = effectiveDuration > 0 
+    ? Math.min(100, Math.max(0, (displayPosition / effectiveDuration) * 100)) 
+    : 0;
+
+  const handleSeek = async (newPos: number) => {
+    const clamped = Math.max(0, Math.min(newPos, effectiveDuration));
+    await TrackPlayer.seekTo(clamped);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        setIsScrubbing(true);
+        const touchX = evt.nativeEvent.locationX;
+        const ratio = Math.max(0, Math.min(touchX / (progressBarWidth.current || 1), 1));
+        setScrubPosition(ratio * effectiveDuration);
+      },
+      onPanResponderMove: (evt) => {
+        const touchX = evt.nativeEvent.locationX;
+        const ratio = Math.max(0, Math.min(touchX / (progressBarWidth.current || 1), 1));
+        setScrubPosition(ratio * effectiveDuration);
+      },
+      onPanResponderRelease: async (evt) => {
+        const touchX = evt.nativeEvent.locationX;
+        const ratio = Math.max(0, Math.min(touchX / (progressBarWidth.current || 1), 1));
+        const seekTime = ratio * effectiveDuration;
+        setIsScrubbing(false);
+        await handleSeek(seekTime);
+      },
+      onPanResponderTerminate: () => {
+        setIsScrubbing(false);
+      }
+    })
+  ).current;
+
   const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
   const [isAudioSettingsVisible, setIsAudioSettingsVisible] = useState(false);
+  const [isPlaylistModalVisible, setIsPlaylistModalVisible] = useState(false);
 
   const [showLyrics, setShowLyrics] = useState(false);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -110,6 +156,13 @@ export function PlayerScreen({ navigation }: any) {
     );
   }
 
+  const artworkUri = 
+    (track as any)?.artwork || 
+    (track as any)?.artworkUrl || 
+    (track as any)?.thumbnail || 
+    (typeof (track as any)?.url === 'object' ? (track as any)?.url?.artwork : undefined) ||
+    'https://via.placeholder.com/400x400.png?text=Sukoon';
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -167,7 +220,11 @@ export function PlayerScreen({ navigation }: any) {
         </View>
       ) : (
         <View style={styles.mainPlayer}>
-          <Image source={{ uri: (track as any).artwork || 'https://via.placeholder.com/400' }} style={styles.artworkLg} />
+          <Image 
+            source={{ uri: artworkUri }} 
+            style={styles.artworkLg} 
+            resizeMode="cover" 
+          />
           <View style={styles.trackInfoContainer}>
             <Text style={styles.titleLg} numberOfLines={2}>{track.title}</Text>
             <Text style={styles.artistLg} numberOfLines={1}>{track.artist}</Text>
@@ -177,11 +234,18 @@ export function PlayerScreen({ navigation }: any) {
 
       <View style={styles.controlsContainer}>
         <View style={styles.progressRow}>
-          <Text style={styles.timeText}>{formatTime(position)}</Text>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${duration > 0 ? (position / duration) * 100 : 0}%` }]} />
+          <Text style={styles.timeText}>{formatTime(displayPosition)}</Text>
+          <View 
+            style={styles.progressBarTouchable}
+            onLayout={(e) => { progressBarWidth.current = e.nativeEvent.layout.width; }}
+            {...panResponder.panHandlers}
+          >
+            <View style={styles.progressBarBg}>
+              <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+              <View style={[styles.progressThumb, { left: `${progressPercent}%` }]} />
+            </View>
           </View>
-          <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          <Text style={styles.timeText}>{formatTime(effectiveDuration)}</Text>
         </View>
 
         <View style={styles.buttonsRow}>
@@ -201,7 +265,9 @@ export function PlayerScreen({ navigation }: any) {
           <TouchableOpacity onPress={skipNext} style={styles.controlBtn}>
             <Ionicons name="play-skip-forward" size={36} color="#ffffff" />
           </TouchableOpacity>
-          <View style={{ width: 56 }} /> 
+          <TouchableOpacity onPress={() => setIsPlaylistModalVisible(true)} style={styles.controlBtn}>
+            <Ionicons name="musical-notes-outline" size={24} color="#ffffff" />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -230,9 +296,22 @@ export function PlayerScreen({ navigation }: any) {
       )}
 
       <AudioSettingsModal visible={isAudioSettingsVisible} onClose={() => setIsAudioSettingsVisible(false)} />
+      
+      <AddToPlaylistModal
+        visible={isPlaylistModalVisible}
+        track={track ? {
+          id: (track as any).id || (track as any).mediaId || '',
+          title: track.title || 'Unknown Title',
+          artist: track.artist || 'Unknown Artist',
+          artwork: artworkUri,
+          duration: effectiveDuration,
+        } : null}
+        onClose={() => setIsPlaylistModalVisible(false)}
+      />
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -311,20 +390,40 @@ const styles = StyleSheet.create({
   timeText: {
     color: '#aaaaaa',
     fontSize: 12,
-    width: 40,
+    width: 44,
     textAlign: 'center',
   },
-  progressBarBg: {
+  progressBarTouchable: {
     flex: 1,
+    height: 32,
+    justifyContent: 'center',
+    marginHorizontal: 8,
+  },
+  progressBarBg: {
     height: 4,
     backgroundColor: '#333333',
     borderRadius: 2,
-    marginHorizontal: 12,
+    position: 'relative',
+    justifyContent: 'center',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#00ffcc',
     borderRadius: 2,
+  },
+  progressThumb: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#ffffff',
+    marginLeft: -6,
+    top: -4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    elevation: 3,
   },
   buttonsRow: {
     flexDirection: 'row',

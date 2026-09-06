@@ -1,5 +1,16 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Dimensions, TextInput, Alert } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Image, 
+  TouchableOpacity, 
+  Dimensions, 
+  TextInput, 
+  Alert 
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, { 
   useSharedValue, 
   useAnimatedScrollHandler, 
@@ -7,23 +18,54 @@ import Animated, {
   interpolate, 
   Extrapolation 
 } from 'react-native-reanimated';
-import { Playlist, TrackMetadata } from '../utils/storage';
-import { playTrack } from '../services/TrackPlayerService';
+import { 
+  Playlist, 
+  TrackMetadata, 
+  getCustomPlaylists, 
+  removeTrackFromPlaylist, 
+  getOfflineTracks 
+} from '../utils/storage';
+import { playTrack, addTracks } from '../services/TrackPlayerService';
 import { downloadPlaylistTracks } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
 
 const { width } = Dimensions.get('window');
-const HEADER_MAX_HEIGHT = width;
-const HEADER_MIN_HEIGHT = 100;
+const HEADER_MAX_HEIGHT = width * 0.85;
+const HEADER_MIN_HEIGHT = 90;
 
-// This would typically come from navigation route parameters
 interface PlaylistScreenProps {
   route: any;
   navigation: any;
 }
 
 export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
-  const { playlist } = route.params;
+  const initialPlaylist: Playlist = route.params?.playlist || {
+    id: 'unknown',
+    name: 'Playlist',
+    createdAt: Date.now(),
+    tracks: [],
+  };
+  const playlistId = route.params?.playlistId || initialPlaylist.id;
+  const [playlist, setPlaylist] = useState<Playlist>(initialPlaylist);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (playlistId === 'downloads') {
+        const offlineDict = getOfflineTracks();
+        setPlaylist({
+          id: 'downloads',
+          name: 'Downloaded Tracks',
+          createdAt: Date.now(),
+          tracks: Object.values(offlineDict),
+        });
+      } else if (playlistId) {
+        const found = getCustomPlaylists().find(p => p.id === playlistId);
+        if (found) {
+          setPlaylist(found);
+        }
+      }
+    }, [playlistId])
+  );
   
   const scrollY = useSharedValue(0);
 
@@ -54,21 +96,36 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   const [shareUsername, setShareUsername] = useState('');
   const [isShareModalVisible, setIsShareModalVisible] = useState(false);
 
+  const handlePlayAll = async () => {
+    if (!playlist.tracks || playlist.tracks.length === 0) {
+      Alert.alert('Empty Playlist', 'No tracks in this playlist to play.');
+      return;
+    }
+
+    await playTrack(playlist.tracks[0]);
+    if (playlist.tracks.length > 1) {
+      addTracks(playlist.tracks.slice(1)).catch(() => {});
+    }
+  };
+
   const handleDownloadAll = () => {
     if (playlist.tracks.length > 0) {
       downloadPlaylistTracks(playlist.tracks);
+      Alert.alert('Downloading', `Started downloading ${playlist.tracks.length} tracks.`);
+    } else {
+      Alert.alert('Empty Playlist', 'No tracks to download.');
     }
   };
 
   const handleShare = async () => {
     if (!shareUsername.trim()) return;
     try {
-      await import('../services/cloudPlaylistService').then(m => m.sharePlaylist(playlist, shareUsername.trim()));
+      await sharePlaylist(playlist, shareUsername.trim());
       setIsShareModalVisible(false);
       setShareUsername('');
-      import('react-native').then(m => m.Alert.alert('Success', 'Playlist shared successfully!'));
+      Alert.alert('Success', 'Playlist shared successfully!');
     } catch (e: any) {
-      import('react-native').then(m => m.Alert.alert('Error', e.message));
+      Alert.alert('Error', e?.message || 'Failed to share playlist');
     }
   };
 
@@ -76,44 +133,118 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     playTrack(track);
   };
 
+  const handleRemoveTrack = (track: TrackMetadata) => {
+    Alert.alert(
+      'Remove Track',
+      `Remove "${track.title}" from "${playlist.name}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            if (playlistId !== 'downloads') {
+              removeTrackFromPlaylist(playlist.id, track.id);
+            }
+            setPlaylist(prev => ({
+              ...prev,
+              tracks: prev.tracks.filter(t => t.id !== track.id)
+            }));
+          }
+        }
+      ]
+    );
+  };
+
+  const createdDateStr = playlist.createdAt 
+    ? new Date(playlist.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : null;
+
   const renderItem = ({ item }: { item: TrackMetadata }) => (
-    <TouchableOpacity style={styles.trackItem} onPress={() => handlePlayTrack(item)}>
-      <Image source={{ uri: item.artwork || 'https://via.placeholder.com/50' }} style={styles.trackImage} />
-      <View style={styles.trackInfo}>
-        <Text style={styles.trackTitle} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
-      </View>
-    </TouchableOpacity>
+    <View style={styles.trackItem}>
+      <TouchableOpacity 
+        style={styles.trackMainTouch} 
+        onPress={() => handlePlayTrack(item)}
+        activeOpacity={0.7}
+      >
+        <Image 
+          source={{ uri: item.artwork || 'https://via.placeholder.com/50' }} 
+          style={styles.trackImage} 
+        />
+        <View style={styles.trackInfo}>
+          <Text style={styles.trackTitle} numberOfLines={1}>{item.title}</Text>
+          <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity 
+        style={styles.removeBtn} 
+        onPress={() => handleRemoveTrack(item)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="trash-outline" size={18} color="#ff5252" />
+      </TouchableOpacity>
+    </View>
   );
 
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.header, animatedHeaderStyle]}>
-        <Animated.Image 
-          source={{ uri: playlist.coverImage || 'https://via.placeholder.com/400' }} 
-          style={[styles.headerImage, animatedImageStyle]} 
-        />
+        {playlist.coverImage ? (
+          <Animated.Image 
+            source={{ uri: playlist.coverImage }} 
+            style={[styles.headerImage, animatedImageStyle]} 
+          />
+        ) : (
+          <Animated.View style={[styles.headerPlaceholder, animatedImageStyle]}>
+            <Ionicons name="musical-notes" size={80} color="#333333" />
+          </Animated.View>
+        )}
         <View style={styles.headerOverlay}>
-          <Text style={styles.playlistName}>{playlist.name}</Text>
-          <Text style={styles.trackCount}>{playlist.tracks.length} Tracks</Text>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#ffffff" />
+          </TouchableOpacity>
+          <Text style={styles.playlistName} numberOfLines={1}>{playlist.name}</Text>
+          {playlist.description ? (
+            <Text style={styles.playlistDesc} numberOfLines={2}>{playlist.description}</Text>
+          ) : null}
+          <Text style={styles.trackCount}>
+            {playlist.tracks.length} {playlist.tracks.length === 1 ? 'Track' : 'Tracks'}
+            {createdDateStr ? ` • Created ${createdDateStr}` : ''}
+          </Text>
         </View>
       </Animated.View>
 
       <Animated.FlatList
         data={playlist.tracks}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${item.id}-${index}`}
         renderItem={renderItem}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.listHeader}>
-            <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadAll}>
-              <Text style={styles.downloadBtnText}>Download All</Text>
+            <TouchableOpacity style={styles.playAllBtn} onPress={handlePlayAll} activeOpacity={0.8}>
+              <Ionicons name="play" size={20} color="#000000" />
+              <Text style={styles.playAllBtnText}>Play All</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.shareBtn} onPress={() => setIsShareModalVisible(true)}>
-              <Text style={styles.shareBtnText}>Share Playlist</Text>
-            </TouchableOpacity>
+
+            <View style={styles.secondaryActions}>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={handleDownloadAll} activeOpacity={0.7}>
+                <Ionicons name="arrow-down-circle-outline" size={18} color="#ffffff" />
+                <Text style={styles.secondaryBtnText}>Download</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setIsShareModalVisible(true)} activeOpacity={0.7}>
+                <Ionicons name="share-social-outline" size={18} color="#ffffff" />
+                <Text style={styles.secondaryBtnText}>Share</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="musical-note-outline" size={48} color="#444444" />
+            <Text style={styles.emptyText}>No tracks in this playlist yet.</Text>
+            <Text style={styles.emptySubtext}>Search for songs and tap "Add to Playlist" to add them here!</Text>
           </View>
         }
       />
@@ -146,69 +277,6 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  modalContainer: {
-    width: '80%',
-    backgroundColor: '#121212',
-    borderRadius: 8,
-    padding: 20,
-  },
-  modalTitle: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  modalInput: {
-    backgroundColor: '#000000',
-    color: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#333333',
-    borderRadius: 4,
-    padding: 12,
-    marginBottom: 16,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  modalCancel: {
-    padding: 10,
-    marginRight: 10,
-  },
-  modalCancelText: {
-    color: '#aaaaaa',
-  },
-  modalSubmit: {
-    padding: 10,
-    backgroundColor: '#ffffff',
-    borderRadius: 4,
-  },
-  modalSubmitText: {
-    color: '#000000',
-    fontWeight: 'bold',
-  },
-  shareBtn: {
-    backgroundColor: '#121212',
-    paddingVertical: 12,
-    borderRadius: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#333333',
-    marginTop: 10,
-  },
-  shareBtnText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
   container: {
     flex: 1,
     backgroundColor: '#000000',
@@ -219,7 +287,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: '#121214',
     overflow: 'hidden',
   },
   headerImage: {
@@ -231,58 +299,116 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  headerPlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#16161a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
     padding: 16,
   },
+  backBtn: {
+    position: 'absolute',
+    top: 44,
+    left: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   playlistName: {
     color: '#ffffff',
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  playlistDesc: {
+    color: '#cccccc',
+    fontSize: 13,
+    marginBottom: 6,
   },
   trackCount: {
     color: '#aaaaaa',
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
   },
   listContent: {
-    paddingTop: HEADER_MAX_HEIGHT,
-    paddingBottom: 20,
+    paddingTop: HEADER_MAX_HEIGHT + 10,
+    paddingBottom: 40,
     paddingHorizontal: 16,
   },
   listHeader: {
-    paddingVertical: 16,
+    paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#222222',
     marginBottom: 16,
+    gap: 12,
   },
-  downloadBtn: {
-    backgroundColor: '#ffffff',
-    paddingVertical: 12,
-    borderRadius: 24,
+  playAllBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00ffcc',
+    paddingVertical: 13,
+    borderRadius: 24,
+    gap: 8,
   },
-  downloadBtnText: {
+  playAllBtnText: {
     color: '#000000',
     fontSize: 16,
     fontWeight: 'bold',
   },
+  secondaryActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  secondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#161618',
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#26262a',
+    gap: 6,
+  },
+  secondaryBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   trackItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingVertical: 4,
+  },
+  trackMainTouch: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   trackImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 4,
-    backgroundColor: '#121212',
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: '#18181a',
   },
   trackInfo: {
     flex: 1,
@@ -291,11 +417,93 @@ const styles = StyleSheet.create({
   },
   trackTitle: {
     color: '#ffffff',
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 15,
+    fontWeight: '500',
+    marginBottom: 3,
   },
   trackArtist: {
+    color: '#888888',
+    fontSize: 13,
+  },
+  removeBtn: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 50,
+  },
+  emptyText: {
     color: '#aaaaaa',
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '500',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    color: '#666666',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 6,
+    paddingHorizontal: 20,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    padding: 20,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#161618',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#28282c',
+  },
+  modalTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  modalInput: {
+    backgroundColor: '#0c0c0e',
+    color: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#28282c',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    fontSize: 15,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalCancel: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  modalCancelText: {
+    color: '#aaaaaa',
+    fontSize: 15,
+  },
+  modalSubmit: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    backgroundColor: '#00ffcc',
+    borderRadius: 8,
+  },
+  modalSubmitText: {
+    color: '#000000',
+    fontWeight: 'bold',
+    fontSize: 15,
   },
 });
+

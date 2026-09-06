@@ -37,13 +37,19 @@ export function MiniPlayer() {
     disconnectSync();
   };
 
+  const artworkUri = 
+    (track as any)?.artwork || 
+    (track as any)?.artworkUrl || 
+    (track as any)?.thumbnail || 
+    'https://via.placeholder.com/50';
+
   return (
     <TouchableOpacity 
       style={styles.container} 
       activeOpacity={0.9} 
       onPress={() => navigation.navigate('Player')}
     >
-      <Image source={{ uri: (track as any).artwork || 'https://via.placeholder.com/50' }} style={styles.artwork} />
+      <Image source={{ uri: artworkUri }} style={styles.artwork} />
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
         <Text style={styles.artist} numberOfLines={1}>{track.artist}</Text>
