@@ -57,12 +57,32 @@ export const resolveAudioStreamDirect = async (videoId: string): Promise<string 
     const formats = data.streamingData?.formats || [];
     const adaptive = data.streamingData?.adaptiveFormats || [];
 
-    const f18 = formats.find((f: any) => f.itag === 18 && f.url) || formats.find((f: any) => f.url);
+    // 1. Progressive format (itag 18 has combined video+audio with direct URL)
+    const f18 = formats.find((f: any) => f.itag === 18 && typeof f.url === 'string') || 
+                formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
     if (f18?.url) return f18.url;
 
-    const audio = adaptive.find((f: any) => f.itag === 140 && f.url) ||
-                  adaptive.find((f: any) => f.mimeType?.includes('audio') && f.url);
-    if (audio?.url) return audio.url;
+    // 2. Adaptive audio formats (itag 140 is AAC 128kbps, or any audio/mp4 / audio stream)
+    const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string');
+    if (a140?.url) return a140.url;
+
+    const audioMp4 = adaptive.find((f: any) => f.mimeType?.includes('audio/mp4') && typeof f.url === 'string');
+    if (audioMp4?.url) return audioMp4.url;
+
+    const anyAudio = adaptive.find((f: any) => f.mimeType?.includes('audio') && typeof f.url === 'string' && f.url.startsWith('http'));
+    if (anyAudio?.url) return anyAudio.url;
+
+    // 3. Fallback: check if URL is encoded in cipher parameters
+    const cipherItem = formats.find((f: any) => f.cipher || f.signatureCipher) ||
+                       adaptive.find((f: any) => (f.mimeType?.includes('audio') || f.itag === 140) && (f.cipher || f.signatureCipher));
+    if (cipherItem) {
+      const cipherStr = cipherItem.url || cipherItem.cipher || cipherItem.signatureCipher;
+      if (cipherStr && cipherStr.includes('url=')) {
+        const params = new URLSearchParams(cipherStr);
+        const extracted = params.get('url');
+        if (extracted && extracted.startsWith('http')) return decodeURIComponent(extracted);
+      }
+    }
   } catch (e) {
     console.error('Direct player resolution error:', e);
   }
@@ -75,7 +95,10 @@ export const getAudioStream = async (id: string): Promise<string | null> => {
     const res = await fetch(`${API_BASE}/stream?id=${id}`);
     if (res.ok) {
       const data = await res.json();
-      if (data.url) return data.url;
+      const directUrl = typeof data === 'string' ? data : data?.url;
+      if (typeof directUrl === 'string' && directUrl.startsWith('http')) {
+        return directUrl;
+      }
     }
   } catch (err) {
     console.warn('Backend stream fetch failed, falling back to direct resolver:', err);
@@ -85,7 +108,9 @@ export const getAudioStream = async (id: string): Promise<string | null> => {
   // Mobile devices on residential / cellular IPs (Jio/Airtel/Wi-Fi) are not blocked by Google
   try {
     const directUrl = await resolveAudioStreamDirect(id);
-    if (directUrl) return directUrl;
+    if (typeof directUrl === 'string' && directUrl.startsWith('http')) {
+      return directUrl;
+    }
   } catch (err) {
     console.error('Direct audio resolution failed:', err);
   }

@@ -5,26 +5,38 @@ import { getAudioStream } from './musicApi';
 export async function setupPlayer() {
   let isSetup = false;
   try {
-    TrackPlayer.getActiveMediaItemIndex();
+    if (typeof (TrackPlayer as any).getActiveTrack === 'function') {
+      await (TrackPlayer as any).getActiveTrack();
+    } else if (typeof TrackPlayer.getActiveMediaItemIndex === 'function') {
+      TrackPlayer.getActiveMediaItemIndex();
+    }
     isSetup = true;
   } catch {
-    await TrackPlayer.setupPlayer({
-      android: {
-        taskRemovedBehavior: 'stop'
-      }
-    });
-    
-    TrackPlayer.setCommands({
-      capabilities: [
-        PlayerCommand.PlayPause,
-        PlayerCommand.Next,
-        PlayerCommand.Previous,
-        PlayerCommand.Seek,
-      ],
-      handling: 'hybrid' // Required to fire JS background events on V5
-    });
+    try {
+      await TrackPlayer.setupPlayer({
+        android: {
+          taskRemovedBehavior: 'stop'
+        }
+      });
+      
+      TrackPlayer.setCommands({
+        capabilities: [
+          PlayerCommand.PlayPause,
+          PlayerCommand.Next,
+          PlayerCommand.Previous,
+          PlayerCommand.Seek,
+        ],
+        handling: 'hybrid' // Required to fire JS background events on V5
+      });
 
-    isSetup = true;
+      isSetup = true;
+    } catch (e: any) {
+      if (e?.message?.includes('already set up')) {
+        isSetup = true;
+      } else {
+        console.error('setupPlayer initialization error:', e);
+      }
+    }
   } finally {
     return isSetup;
   }
@@ -71,14 +83,28 @@ export async function playTrack(metadata: TrackMetadata) {
       playUrl = stream;
     }
 
-    TrackPlayer.clear();
-    TrackPlayer.setMediaItems([{
+    try {
+      await TrackPlayer.clear();
+    } catch {}
+
+    const payload = {
+      id: metadata.id,
+      mediaId: metadata.id,
       url: playUrl,
       title: metadata.title,
       artist: metadata.artist,
       artwork: metadata.artwork,
+      artworkUrl: metadata.artwork,
       duration: metadata.duration,
-    } as any]);
+    };
+
+    if (typeof (TrackPlayer as any).add === 'function') {
+      await (TrackPlayer as any).add(payload);
+    } else if (typeof TrackPlayer.setMediaItems === 'function') {
+      await TrackPlayer.setMediaItems([payload as any]);
+    } else if (typeof (TrackPlayer as any).addMediaItem === 'function') {
+      await (TrackPlayer as any).addMediaItem(payload as any);
+    }
     
     setLastPlayedTrack(metadata);
     await TrackPlayer.play();

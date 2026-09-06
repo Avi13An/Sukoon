@@ -124,30 +124,62 @@ export function SearchScreen() {
     setSyncUsername('');
     
     try {
-      await setupPlayer();
-      await TrackPlayer.clear(); // Flush dead buffers
-
       setLoadingTrackId(track.id);
+
+      // Defensive player readiness check
+      try {
+        if (typeof (TrackPlayer as any).getActiveTrack === 'function') {
+          await (TrackPlayer as any).getActiveTrack();
+        } else if (typeof TrackPlayer.getActiveMediaItemIndex === 'function') {
+          TrackPlayer.getActiveMediaItemIndex();
+        }
+      } catch {
+        await setupPlayer();
+      }
+
+      // Flush dead buffers
+      try {
+        await TrackPlayer.clear();
+      } catch (clearErr) {
+        console.warn('TrackPlayer.clear error (non-fatal):', clearErr);
+      }
+
+      const streamResult = await getAudioStream(track.id);
+
+      // Handle both string and { url: string } formats defensively
+      let resolvedUrl: string | null = null;
+      if (typeof streamResult === 'string') {
+        resolvedUrl = streamResult;
+      } else if (streamResult && typeof (streamResult as any).url === 'string') {
+        resolvedUrl = (streamResult as any).url;
+      }
       
-      const streamUrl = await getAudioStream(track.id);
-      
-      if (!streamUrl) {
-        throw new Error("Audio stream not found for this track.");
+      if (!resolvedUrl || !resolvedUrl.startsWith('http')) {
+        throw new Error(`Audio stream not found for track "${track.title || track.id}".`);
       }
       
       const trackPayload = {
         id: track.id,
-        url: streamUrl,
-        title: track.title,
-        artist: track.artist,
-        artwork: track.artwork,
+        mediaId: track.id,
+        url: resolvedUrl,
+        title: track.title || 'Unknown Title',
+        artist: track.artist || 'Unknown Artist',
+        artwork: track.artwork || undefined,
+        artworkUrl: track.artwork || undefined,
       };
 
-      await TrackPlayer.setMediaItems([trackPayload as any]);
+      if (typeof (TrackPlayer as any).add === 'function') {
+        await (TrackPlayer as any).add(trackPayload);
+      } else if (typeof TrackPlayer.setMediaItems === 'function') {
+        await TrackPlayer.setMediaItems([trackPayload as any]);
+      } else if (typeof (TrackPlayer as any).addMediaItem === 'function') {
+        await (TrackPlayer as any).addMediaItem(trackPayload as any);
+      }
+
       await TrackPlayer.play();
-    } catch (error: any) {
-      console.error('Error playing track:', error);
-      Alert.alert('Playback Error', error?.message || "Failed to load audio stream.");
+    } catch (err: any) {
+      console.error('Playback Error:', err);
+      Alert.alert('Playback Error', err?.message || JSON.stringify(err));
     } finally {
       setLoadingTrackId(null);
     }
