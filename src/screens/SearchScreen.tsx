@@ -186,12 +186,18 @@ export function SearchScreen() {
 
       const queue = await TrackPlayer.getQueue();
       const state = await TrackPlayer.getPlaybackState();
+      const activeItem = typeof (TrackPlayer as any).getActiveMediaItem === 'function'
+        ? await (TrackPlayer as any).getActiveMediaItem()
+        : null;
       Alert.alert(
         'Player Diagnostic',
         `State: ${JSON.stringify(state)}\n` +
         `Queue Count: ${queue.length}\n` +
-        `Current Track: ${queue[0]?.title || 'NONE'}\n` +
-        `URL Type: ${typeof (queue[0] as any)?.url}`
+        `Active Item: ${activeItem?.title || queue[0]?.title || 'NONE'}\n` +
+        `hasLoad: ${typeof (TrackPlayer as any).load}\n` +
+        `hasSetMediaItem: ${typeof (TrackPlayer as any).setMediaItem}\n` +
+        `hasSetMediaItems: ${typeof (TrackPlayer as any).setMediaItems}\n` +
+        `hasAddMediaItem: ${typeof (TrackPlayer as any).addMediaItem}`
       );
     } catch (err: any) {
       console.error('Playback Error:', err);

@@ -3,45 +3,49 @@ import { Alert } from 'react-native';
 import { getOfflineTracks, setLastPlayedTrack, TrackMetadata } from '../utils/storage';
 import { getAudioStream } from './musicApi';
 
-export async function setupPlayer() {
-  let isSetup = false;
-  try {
-    if (typeof (TrackPlayer as any).getActiveTrack === 'function') {
-      await (TrackPlayer as any).getActiveTrack();
-    } else if (typeof TrackPlayer.getActiveMediaItemIndex === 'function') {
-      TrackPlayer.getActiveMediaItemIndex();
-    }
-    isSetup = true;
-  } catch {
-    try {
-      await TrackPlayer.setupPlayer({
-        android: {
-          taskRemovedBehavior: 'stop'
-        }
-      });
-      
-      TrackPlayer.setCommands({
-        capabilities: [
-          PlayerCommand.PlayPause,
-          PlayerCommand.Next,
-          PlayerCommand.Previous,
-          PlayerCommand.Seek,
-        ],
-        handling: 'hybrid' // Required to fire JS background events on V5
-      });
+let isPlayerSetup = false;
 
-      isSetup = true;
-    } catch (e: any) {
-      if (e?.message?.includes('already set up')) {
-        isSetup = true;
-      } else {
-        console.error('setupPlayer initialization error:', e);
+export async function setupPlayer(): Promise<boolean> {
+  if (isPlayerSetup) return true;
+  try {
+    TrackPlayer.setupPlayer({
+      android: {
+        taskRemovedBehavior: 'stop'
       }
+    });
+
+    TrackPlayer.setCommands({
+      capabilities: [
+        PlayerCommand.PlayPause,
+        PlayerCommand.Next,
+        PlayerCommand.Previous,
+        PlayerCommand.Seek,
+      ],
+      handling: 'hybrid' // Required to fire JS background events on V5
+    });
+
+    isPlayerSetup = true;
+    // Allow Android MediaController async connection to finish
+    await new Promise((r) => setTimeout(r, 150));
+    return true;
+  } catch (e: any) {
+    if (e?.message?.includes('already set up') || e?.message?.includes('Already set up')) {
+      isPlayerSetup = true;
+      return true;
     }
-  } finally {
-    return isSetup;
+    console.error('setupPlayer initialization error:', e);
+    return false;
   }
 }
+
+export const load = (TrackPlayer as any).load;
+export const setMediaItem = (TrackPlayer as any).setMediaItem;
+export const setMediaItems = (TrackPlayer as any).setMediaItems;
+export const addMediaItem = (TrackPlayer as any).addMediaItem;
+export const play = (TrackPlayer as any).play;
+export const getPlaybackState = (TrackPlayer as any).getPlaybackState;
+export const getActiveMediaItem = (TrackPlayer as any).getActiveMediaItem;
+export const getQueue = (TrackPlayer as any).getQueue;
 
 export async function addTracks(tracks: any[]) {
   await TrackPlayer.setMediaItems(tracks);
@@ -111,27 +115,52 @@ export async function playTrack(metadata: TrackMetadata) {
       }
     };
 
-    if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+    if (typeof load === 'function') {
+      await load(trackPayload);
+    } else if (typeof (TrackPlayer as any).load === 'function') {
+      await (TrackPlayer as any).load(trackPayload);
+    } else if (typeof setMediaItem === 'function') {
+      await setMediaItem(trackPayload);
+    } else if (typeof (TrackPlayer as any).setMediaItem === 'function') {
+      await (TrackPlayer as any).setMediaItem(trackPayload);
+    } else if (typeof setMediaItems === 'function') {
+      await setMediaItems([trackPayload]);
+    } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
       await (TrackPlayer as any).setMediaItems([trackPayload]);
+    } else if (typeof addMediaItem === 'function') {
+      await addMediaItem(trackPayload);
+    } else if (typeof (TrackPlayer as any).addMediaItem === 'function') {
+      await (TrackPlayer as any).addMediaItem(trackPayload);
     } else if (typeof (TrackPlayer as any).add === 'function') {
       await (TrackPlayer as any).add(trackPayload);
     }
     
-    // Check if queue actually accepted it
-    const q = await TrackPlayer.getQueue();
-    if (q.length === 0 && typeof (TrackPlayer as any).add === 'function') {
-      await (TrackPlayer as any).add([trackPayload]);
-    }
-    
+    // Allow Android main looper to process queue insertion
+    await new Promise((r) => setTimeout(r, 50));
+
+    const activeItem = typeof getActiveMediaItem === 'function' 
+      ? await getActiveMediaItem() 
+      : typeof (TrackPlayer as any).getActiveMediaItem === 'function'
+        ? await (TrackPlayer as any).getActiveMediaItem()
+        : null;
+    console.log('[LOADED ACTIVE ITEM]:', activeItem);
+
     if (typeof (TrackPlayer as any).prepare === 'function') {
       try { await (TrackPlayer as any).prepare(); } catch {}
+    } else if (typeof (TrackPlayer as any).retry === 'function') {
+      try { await (TrackPlayer as any).retry(); } catch {}
     }
     
     setLastPlayedTrack(metadata);
     if (typeof TrackPlayer.setVolume === 'function') {
       await TrackPlayer.setVolume(1.0);
     }
-    await TrackPlayer.play();
+
+    if (typeof play === 'function') {
+      await play();
+    } else {
+      await TrackPlayer.play();
+    }
   } catch (error: any) {
     Alert.alert('TrackPlayer Service Error', error?.message || JSON.stringify(error));
     throw error;
