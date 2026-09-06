@@ -13,7 +13,7 @@ import {
   Modal,
   Alert
 } from 'react-native';
-import { searchTracks, getSearchSuggestions, fetchWithFallback } from '../services/musicApi';
+import { searchTracks, getSearchSuggestions, getAudioStream } from '../services/musicApi';
 import { TrackMetadata } from '../utils/storage';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer, { Event } from '@rntp/player';
@@ -129,22 +129,15 @@ export function SearchScreen() {
 
       setLoadingTrackId(track.id);
       
-      const streamData = await fetchWithFallback(`/api/v1/videos/${track.id}`);
+      const streamUrl = await getAudioStream(track.id);
       
-      if (streamData.error) {
-        throw new Error(streamData.error);
-      }
-      
-      // Extract the best M4A/MP4 audio stream
-      const audioStream = streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio/mp4') || s.type?.includes('audio/m4a')) || streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio'));
-      
-      if (!audioStream?.url) {
+      if (!streamUrl) {
         throw new Error("Audio stream not found for this track.");
       }
       
       const trackPayload = {
         id: track.id,
-        url: audioStream.url,
+        url: streamUrl,
         title: track.title,
         artist: track.artist,
         artwork: track.artwork,

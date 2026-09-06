@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
-
 import { TrackMetadata } from '../utils/storage';
+
+const API_BASE = 'https://sukoon-api.vercel.app';
 
 const FALLBACK_RESULTS: TrackMetadata[] = [
   {
@@ -8,125 +9,100 @@ const FALLBACK_RESULTS: TrackMetadata[] = [
     title: 'Never Gonna Give You Up (Fallback)',
     artist: 'Rick Astley',
     artwork: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
-  },
-  {
-    id: 'kJQP7kiw5Fk',
-    title: 'Despacito (Fallback)',
-    artist: 'Luis Fonsi',
-    artwork: 'https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg',
   }
 ];
 
-const COMMON_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-  'Accept': 'application/json, text/plain, */*',
-};
-
-async function fetchWithTimeout(url: string, options: any = {}, timeout: number = 4000): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  
-  if (options.signal) {
-    if (options.signal.aborted) {
-      controller.abort();
-    } else {
-      options.signal.addEventListener('abort', () => controller.abort());
-    }
-  }
-
+export const searchTracks = async (query: string): Promise<TrackMetadata[]> => {
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
-}
-
-export const INVIDIOUS_INSTANCES = [
-  'https://invidious.fdn.fr',
-  'https://inv.tux.pizza',
-  'https://invidious.perennialte.ch',
-  'https://invidious.nerdvpn.de'
-];
-
-export async function fetchWithFallback(endpoint: string): Promise<any> {
-  let lastError = null;
-  for (const baseUrl of INVIDIOUS_INSTANCES) {
-    try {
-      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const targetUrl = `${baseUrl}${cleanEndpoint}`;
-      
-      // Wrap the target URL in the AllOrigins proxy to bypass ISP DNS blocks
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-      
-      const response = await fetchWithTimeout(proxyUrl);
-      
-      if (!response.ok) continue; 
-      
-      const data = await response.json();
-      if (data.error) continue; 
-
-      return data; 
-    } catch (e: any) {
-      lastError = e;
-      console.log(`Proxy failed for node ${baseUrl}. Bypassing...`);
-      continue; 
-    }
-  }
-  throw new Error(`All proxy tunnels failed. Last error: ${lastError?.message || 'Unknown'}`);
-}
-
-export async function searchTracks(query: string): Promise<TrackMetadata[]> {
-  try {
-    const data = await fetchWithFallback(`/api/v1/search?q=${encodeURIComponent(query)}`);
-    
-    if (Array.isArray(data)) {
-      // Filter for videos to avoid channels/playlists
-      return data.filter((item: any) => item.type === 'video').map((item: any) => ({
-        id: item.videoId,
-        title: item.title,
-        artist: item.author,
-        artwork: item.videoThumbnails?.find((t: any) => t.quality === 'high')?.url || item.videoThumbnails?.[0]?.url || '',
-      }));
-    }
-    
-    throw new Error('API returned empty results');
-  } catch (error: any) {
-    console.error('Error searching tracks:', error);
-    Alert.alert(
-      'Search Failed', 
-      `Direct engine failed (${error.message || 'Network Error'}). Falling back to mock results.`
-    );
+    const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err: any) {
+    console.error('Search error:', err);
     return FALLBACK_RESULTS;
   }
-}
+};
+
+export const resolveAudioStreamDirect = async (videoId: string): Promise<string | null> => {
+  try {
+    const payload = {
+      videoId,
+      context: {
+        client: {
+          hl: 'en',
+          gl: 'IN',
+          clientName: 'ANDROID',
+          clientVersion: '21.03.36',
+          osName: 'Android',
+          osVersion: '13',
+          userAgent: 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip',
+          platform: 'MOBILE',
+          clientFormFactor: 'SMALL_FORM_FACTOR',
+          androidSdkVersion: 36
+        }
+      }
+    };
+
+    const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const formats = data.streamingData?.formats || [];
+    const adaptive = data.streamingData?.adaptiveFormats || [];
+
+    const f18 = formats.find((f: any) => f.itag === 18 && f.url) || formats.find((f: any) => f.url);
+    if (f18?.url) return f18.url;
+
+    const audio = adaptive.find((f: any) => f.itag === 140 && f.url) ||
+                  adaptive.find((f: any) => f.mimeType?.includes('audio') && f.url);
+    if (audio?.url) return audio.url;
+  } catch (e) {
+    console.error('Direct player resolution error:', e);
+  }
+  return null;
+};
+
+export const getAudioStream = async (id: string): Promise<string | null> => {
+  // 1. Try Vercel cloud backend
+  try {
+    const res = await fetch(`${API_BASE}/stream?id=${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.url) return data.url;
+    }
+  } catch (err) {
+    console.warn('Backend stream fetch failed, falling back to direct resolver:', err);
+  }
+
+  // 2. Direct client-side resolver (Strategy D)
+  // Mobile devices on residential / cellular IPs (Jio/Airtel/Wi-Fi) are not blocked by Google
+  try {
+    const directUrl = await resolveAudioStreamDirect(id);
+    if (directUrl) return directUrl;
+  } catch (err) {
+    console.error('Direct audio resolution failed:', err);
+  }
+
+  return null;
+};
 
 export async function getSearchSuggestions(query: string, signal?: AbortSignal): Promise<string[]> {
   if (!query.trim()) return [];
   try {
-    const res = await fetchWithTimeout(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`, { signal }, 3000);
+    const res = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encodeURIComponent(query)}`, { signal });
     const json = await res.json();
-    if (Array.isArray(json) && Array.isArray(json[1])) {
-       return json[1];
-    }
-  } catch (fallbackError: any) {
-     if (fallbackError.name === 'AbortError') throw fallbackError;
-     console.error('All suggestion endpoints failed', fallbackError);
+    if (Array.isArray(json) && Array.isArray(json[1])) return json[1];
+  } catch (e: any) {
+    if (e.name !== 'AbortError') console.error('Suggestion failed', e);
   }
   return [];
-}
-
-export async function getAudioStream(videoId: string): Promise<string | null> {
-  try {
-    const streamData = await fetchWithFallback(`/api/v1/videos/${videoId}`);
-    const audioStream = streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio/mp4') || s.type?.includes('audio/m4a')) || streamData.adaptiveFormats?.find((s: any) => s.type?.includes('audio'));
-    return audioStream?.url || null;
-  } catch (error) {
-    console.error('Error getting audio stream:', error);
-    return null;
-  }
 }
 
 export async function getRelatedTracks(videoId: string): Promise<TrackMetadata[]> {

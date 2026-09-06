@@ -1,0 +1,13 @@
+{
+  "name": "sukoon-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "bgutils-js": "^4.0.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "youtubei.js": "^18.0.0"
+  }
+}
