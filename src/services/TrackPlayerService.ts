@@ -87,6 +87,14 @@ export async function playTrack(metadata: TrackMetadata) {
       await TrackPlayer.clear();
     } catch {}
 
+    const ANDROID_UA = 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
+
+    const headers = {
+      'User-Agent': ANDROID_UA,
+      'Accept': '*/*',
+      'Range': 'bytes=0-'
+    };
+
     const payload = {
       id: metadata.id,
       mediaId: metadata.id,
@@ -96,6 +104,7 @@ export async function playTrack(metadata: TrackMetadata) {
       artwork: metadata.artwork,
       artworkUrl: metadata.artwork,
       duration: metadata.duration,
+      headers
     };
 
     if (typeof (TrackPlayer as any).add === 'function') {

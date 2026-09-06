@@ -31,8 +31,9 @@ export function SearchScreen() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const sub = TrackPlayer.addEventListener(Event.PlaybackError, (event: any) => {
-      Alert.alert("Native Player Error", JSON.stringify(event));
+    const sub = TrackPlayer.addEventListener(Event.PlaybackError, (error: any) => {
+      console.error('[NATIVE EXOPLAYER ERROR]:', error);
+      Alert.alert('Playback Engine Error', `${error?.code || 'ERROR'}: ${error?.message || JSON.stringify(error)}`);
     });
     return () => sub.remove();
   }, []);
@@ -158,6 +159,14 @@ export function SearchScreen() {
         throw new Error(`Audio stream not found for track "${track.title || track.id}".`);
       }
       
+      const ANDROID_UA = 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
+
+      const headers = {
+        'User-Agent': ANDROID_UA,
+        'Accept': '*/*',
+        'Range': 'bytes=0-'
+      };
+
       const trackPayload = {
         id: track.id,
         mediaId: track.id,
@@ -166,6 +175,7 @@ export function SearchScreen() {
         artist: track.artist || 'Unknown Artist',
         artwork: track.artwork || undefined,
         artworkUrl: track.artwork || undefined,
+        headers
       };
 
       if (typeof (TrackPlayer as any).add === 'function') {
