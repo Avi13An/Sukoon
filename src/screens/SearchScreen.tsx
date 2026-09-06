@@ -156,15 +156,16 @@ export function SearchScreen() {
       }
       
       if (!resolvedUrl || !resolvedUrl.startsWith('http')) {
-        throw new Error(`Audio stream not found for track "${track.title || track.id}".`);
+        setLoadingTrackId(null);
+        Alert.alert('Stream Error', 'Unable to resolve playable audio for this track. Please try another track.');
+        return;
       }
       
       const ANDROID_UA = 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
       const headers = {
         'User-Agent': ANDROID_UA,
-        'Accept': '*/*',
-        'Range': 'bytes=0-'
+        'Accept': '*/*'
       };
 
       const trackPayload = {

@@ -90,7 +90,17 @@ export const resolveAudioStreamDirect = async (videoId: string): Promise<string 
 };
 
 export const getAudioStream = async (id: string): Promise<string | null> => {
-  // 1. Try Vercel cloud backend
+  // Attempt 1: Direct client-side resolver (Strategy D - Android client profile)
+  try {
+    const directUrl = await resolveAudioStreamDirect(id);
+    if (typeof directUrl === 'string' && directUrl.startsWith('http')) {
+      return directUrl;
+    }
+  } catch (err) {
+    console.warn('[musicApi] Direct resolver failed, falling back to cloud backend:', err);
+  }
+
+  // Attempt 2 (Fallback): Vercel cloud backend
   try {
     const res = await fetch(`${API_BASE}/stream?id=${id}`);
     if (res.ok) {
@@ -101,21 +111,42 @@ export const getAudioStream = async (id: string): Promise<string | null> => {
       }
     }
   } catch (err) {
-    console.warn('Backend stream fetch failed, falling back to direct resolver:', err);
+    console.warn('[musicApi] Backend stream fetch failed, falling back to public mirrors:', err);
   }
 
-  // 2. Direct client-side resolver (Strategy D)
-  // Mobile devices on residential / cellular IPs (Jio/Airtel/Wi-Fi) are not blocked by Google
-  try {
-    const directUrl = await resolveAudioStreamDirect(id);
-    if (typeof directUrl === 'string' && directUrl.startsWith('http')) {
-      return directUrl;
+  // Attempt 3 (Public mirror fallback): Query high-availability public mirrors
+  const mirrorCandidates = [
+    `https://invidious.f5.si/latest_version?id=${id}&itag=140`,
+    `https://yt.omada.cafe/latest_version?id=${id}&itag=140`,
+    `https://invidious.f5.si/latest_version?id=${id}&itag=18`,
+    `https://yt.omada.cafe/latest_version?id=${id}&itag=18`,
+  ];
+
+  for (const mirrorUrl of mirrorCandidates) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(mirrorUrl, {
+        method: 'HEAD',
+        redirect: 'manual',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.status === 302 || res.status === 200 || res.status === 206) {
+        const loc = res.headers.get('location');
+        if (loc && loc.startsWith('http')) {
+          return loc;
+        }
+        return mirrorUrl;
+      }
+    } catch {
+      // try next mirror
     }
-  } catch (err) {
-    console.error('Direct audio resolution failed:', err);
   }
 
-  return null;
+  // Emergency fallback: return active mirror endpoint directly so player follows redirects natively
+  return `https://invidious.f5.si/latest_version?id=${id}&itag=140`;
 };
 
 export async function getSearchSuggestions(query: string, signal?: AbortSignal): Promise<string[]> {

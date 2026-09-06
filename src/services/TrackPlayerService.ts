@@ -91,8 +91,7 @@ export async function playTrack(metadata: TrackMetadata) {
 
     const headers = {
       'User-Agent': ANDROID_UA,
-      'Accept': '*/*',
-      'Range': 'bytes=0-'
+      'Accept': '*/*'
     };
 
     const payload = {
