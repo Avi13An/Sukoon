@@ -92,16 +92,6 @@ export async function playTrack(metadata: TrackMetadata) {
       playUrl = resolved;
     }
 
-    try {
-      if (typeof (TrackPlayer as any).reset === 'function') {
-        await (TrackPlayer as any).reset();
-      } else {
-        await TrackPlayer.clear();
-      }
-    } catch {
-      try { await TrackPlayer.clear(); } catch {}
-    }
-
     const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
     const ua = isIosStream
       ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
@@ -112,14 +102,18 @@ export async function playTrack(metadata: TrackMetadata) {
       'Accept': '*/*'
     };
 
+    // Dual-map url and uri so both v4 and v5 contracts (including native MediaHeaders injection) are satisfied
     const trackPayload = {
       id: metadata.id,
       mediaId: metadata.id,
-      url: playUrl,
-      title: metadata.title,
-      artist: metadata.artist,
-      artwork: metadata.artwork,
-      artworkUrl: metadata.artwork,
+      url: typeof playUrl === 'string' && playUrl.startsWith('http')
+        ? { uri: playUrl, headers }
+        : playUrl,
+      uri: playUrl,
+      title: metadata.title || 'Unknown Title',
+      artist: metadata.artist || 'Unknown Artist',
+      artwork: metadata.artwork || undefined,
+      artworkUrl: metadata.artwork || undefined,
       duration: metadata.duration,
       contentType: 'audio/mp4',
       mimeType: 'audio/mp4',
@@ -127,16 +121,18 @@ export async function playTrack(metadata: TrackMetadata) {
       headers
     };
 
-    // Ensure index 0 is explicitly loaded and prepared
+    // Replace playlist cleanly without wiping state machine
     if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-      await (TrackPlayer as any).setMediaItems([trackPayload], 0);
+      await (TrackPlayer as any).setMediaItems([trackPayload]);
     } else if (typeof (TrackPlayer as any).add === 'function') {
       await (TrackPlayer as any).add(trackPayload);
     }
 
-    // Explicitly trigger preparation & playback
-    if (typeof (TrackPlayer as any).load === 'function') {
-      try { await (TrackPlayer as any).load(trackPayload); } catch {}
+    // Explicitly trigger native preparation
+    if (typeof (TrackPlayer as any).prepare === 'function') {
+      await (TrackPlayer as any).prepare();
+    } else if (typeof (TrackPlayer as any).load === 'function') {
+      await (TrackPlayer as any).load(trackPayload);
     }
     
     setLastPlayedTrack(metadata);
