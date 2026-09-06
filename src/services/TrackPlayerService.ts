@@ -93,8 +93,14 @@ export async function playTrack(metadata: TrackMetadata) {
     }
 
     try {
-      await TrackPlayer.clear();
-    } catch {}
+      if (typeof (TrackPlayer as any).reset === 'function') {
+        await (TrackPlayer as any).reset();
+      } else {
+        await TrackPlayer.clear();
+      }
+    } catch {
+      try { await TrackPlayer.clear(); } catch {}
+    }
 
     const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
     const ua = isIosStream
@@ -106,7 +112,7 @@ export async function playTrack(metadata: TrackMetadata) {
       'Accept': '*/*'
     };
 
-    const payload = {
+    const trackPayload = {
       id: metadata.id,
       mediaId: metadata.id,
       url: playUrl,
@@ -115,15 +121,22 @@ export async function playTrack(metadata: TrackMetadata) {
       artwork: metadata.artwork,
       artworkUrl: metadata.artwork,
       duration: metadata.duration,
+      contentType: 'audio/mp4',
+      mimeType: 'audio/mp4',
+      type: 'default',
       headers
     };
 
-    if (typeof (TrackPlayer as any).add === 'function') {
-      await (TrackPlayer as any).add(payload);
-    } else if (typeof TrackPlayer.setMediaItems === 'function') {
-      await TrackPlayer.setMediaItems([payload as any]);
-    } else if (typeof (TrackPlayer as any).addMediaItem === 'function') {
-      await (TrackPlayer as any).addMediaItem(payload as any);
+    // Ensure index 0 is explicitly loaded and prepared
+    if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+      await (TrackPlayer as any).setMediaItems([trackPayload], 0);
+    } else if (typeof (TrackPlayer as any).add === 'function') {
+      await (TrackPlayer as any).add(trackPayload);
+    }
+
+    // Explicitly trigger preparation & playback
+    if (typeof (TrackPlayer as any).load === 'function') {
+      try { await (TrackPlayer as any).load(trackPayload); } catch {}
     }
     
     setLastPlayedTrack(metadata);

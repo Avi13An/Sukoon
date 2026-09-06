@@ -39,13 +39,9 @@ export function SearchScreen() {
     const stateSub = TrackPlayer.addEventListener(
       ((Event as any).PlaybackState || Event.PlaybackStateChanged) as any,
       (event: any) => {
-        const state = event?.state;
-        console.log('[TRACKPLAYER PLAYBACK STATE]:', state);
-        if (state === 'buffering' || state === PlaybackState.Buffering) {
-          Alert.alert('Playback State', 'State: Buffering audio...');
-        } else if (state === 'playing' || state === PlaybackState.Ready) {
-          console.log('[TRACKPLAYER PLAYING/READY]:', state);
-        }
+        console.log('[NATIVE STATE CHANGED]:', event);
+        const state = event?.state !== undefined ? event.state : event;
+        Alert.alert('Playback State Transition', `State: ${JSON.stringify(state)}`);
       }
     );
 
@@ -187,6 +183,9 @@ export function SearchScreen() {
         ...track,
         url: resolvedUrl
       });
+
+      const state = await TrackPlayer.getPlaybackState();
+      Alert.alert('Player Engine State', `Active State: ${JSON.stringify(state)}`);
     } catch (err: any) {
       console.error('Playback Error:', err);
       Alert.alert('Playback Execution Error', `${err?.name}: ${err?.message}`);
