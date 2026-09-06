@@ -76,11 +76,12 @@ export async function playTrack(metadata: TrackMetadata) {
     
     if (!playUrl) {
       const stream = await getAudioStream(metadata.id);
-      if (!stream) {
+      const resolved = typeof stream === 'string' ? stream : (stream as any)?.url;
+      if (!resolved || !resolved.startsWith('http')) {
         console.warn('No stream found for', metadata.id);
         return;
       }
-      playUrl = stream;
+      playUrl = resolved;
     }
 
     try {

@@ -120,6 +120,7 @@ export function SearchScreen() {
   };
 
   const handlePlayNow = async (track: TrackMetadata) => {
+    Alert.alert('Starting Playback', `Resolving ${track.title}...`);
     setSelectedTrack(null);
     setShowSyncInput(false);
     setSyncUsername('');
@@ -138,13 +139,7 @@ export function SearchScreen() {
         await setupPlayer();
       }
 
-      // Flush dead buffers
-      try {
-        await TrackPlayer.clear();
-      } catch (clearErr) {
-        console.warn('TrackPlayer.clear error (non-fatal):', clearErr);
-      }
-
+      // Must resolve stream URL first
       const streamResult = await getAudioStream(track.id);
 
       // Handle both string and { url: string } formats defensively
@@ -157,37 +152,14 @@ export function SearchScreen() {
       
       if (!resolvedUrl || !resolvedUrl.startsWith('http')) {
         setLoadingTrackId(null);
-        Alert.alert('Stream Error', 'Unable to resolve playable audio for this track. Please try another track.');
+        Alert.alert('Stream Error', 'Could not resolve audio stream for this song.');
         return;
       }
-      
-      const ANDROID_UA = 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-      const headers = {
-        'User-Agent': ANDROID_UA,
-        'Accept': '*/*'
-      };
-
-      const trackPayload = {
-        id: track.id,
-        mediaId: track.id,
-        url: resolvedUrl,
-        title: track.title || 'Unknown Title',
-        artist: track.artist || 'Unknown Artist',
-        artwork: track.artwork || undefined,
-        artworkUrl: track.artwork || undefined,
-        headers
-      };
-
-      if (typeof (TrackPlayer as any).add === 'function') {
-        await (TrackPlayer as any).add(trackPayload);
-      } else if (typeof TrackPlayer.setMediaItems === 'function') {
-        await TrackPlayer.setMediaItems([trackPayload as any]);
-      } else if (typeof (TrackPlayer as any).addMediaItem === 'function') {
-        await (TrackPlayer as any).addMediaItem(trackPayload as any);
-      }
-
-      await TrackPlayer.play();
+      await playTrack({
+        ...track,
+        url: resolvedUrl
+      });
     } catch (err: any) {
       console.error('Playback Error:', err);
       Alert.alert('Playback Error', err?.message || JSON.stringify(err));
@@ -254,6 +226,9 @@ export function SearchScreen() {
           onSubmitEditing={handleSearch}
           returnKeyType="search"
         />
+        <Text style={{ color: '#1DB954', fontSize: 11, textAlign: 'center', marginTop: 6 }}>
+          Sukoon v2.5 (Audio Engine Wired)
+        </Text>
       </View>
       
       {query.length > 0 && suggestions.length > 0 && results.length === 0 && !isLoading && (
@@ -414,7 +389,7 @@ const styles = StyleSheet.create({
   },
   suggestionsContainer: {
     position: 'absolute',
-    top: 68,
+    top: 88,
     left: 16,
     right: 16,
     backgroundColor: '#1e1e1e',
