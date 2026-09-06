@@ -2,6 +2,7 @@ import TrackPlayer, { Event, RepeatMode, PlayerCommand, PlaybackState } from '@r
 import { Alert } from 'react-native';
 import { 
   getOfflineTracks, 
+  getDownloadedTracks, 
   setLastPlayedTrack, 
   getLastPlayedTrack, 
   saveListenHistory, 
@@ -14,77 +15,150 @@ import { getAudioStream, searchTracks } from './musicApi';
 let isPlayerSetup = false;
 let isListenersAttached = false;
 let isResolvingAutoplay = false;
-let autoplayQueue: TrackMetadata[] = [];
+let upNextQueue: TrackMetadata[] = [];
+const queueListeners: Array<(queue: TrackMetadata[]) => void> = [];
 
-export async function prefetchAutoplayQueue(currentTrack: TrackMetadata) {
+export function subscribeToQueue(callback: (queue: TrackMetadata[]) => void) {
+  queueListeners.push(callback);
+  callback([...upNextQueue]);
+  return () => {
+    const idx = queueListeners.indexOf(callback);
+    if (idx !== -1) queueListeners.splice(idx, 1);
+  };
+}
+
+function notifyQueueChange() {
+  queueListeners.forEach(cb => {
+    try {
+      cb([...upNextQueue]);
+    } catch (e) {
+      console.error('[TrackPlayerService] Queue listener callback error:', e);
+    }
+  });
+}
+
+export function getUpNextQueue(): TrackMetadata[] {
+  return [...upNextQueue];
+}
+
+export function addToUpNextQueue(track: TrackMetadata) {
+  if (!track || !track.id) return;
+  if (!upNextQueue.some(t => t.id === track.id)) {
+    upNextQueue.push(track);
+    notifyQueueChange();
+  }
+}
+
+export function removeFromUpNextQueue(index: number) {
+  if (index >= 0 && index < upNextQueue.length) {
+    upNextQueue.splice(index, 1);
+    notifyQueueChange();
+  }
+}
+
+export function reorderUpNextQueue(fromIndex: number, toIndex: number) {
+  if (fromIndex < 0 || fromIndex >= upNextQueue.length || toIndex < 0 || toIndex >= upNextQueue.length) return;
+  const [movedItem] = upNextQueue.splice(fromIndex, 1);
+  upNextQueue.splice(toIndex, 0, movedItem);
+  notifyQueueChange();
+}
+
+export function clearUpNextQueue() {
+  upNextQueue = [];
+  notifyQueueChange();
+}
+
+export async function prefetchAutoplayQueue(currentTrack?: TrackMetadata) {
   try {
+    const baseTrack = currentTrack || getLastPlayedTrack();
+    if (!baseTrack) return;
     const history = getListenHistory();
     const historyIds = new Set(history.map(t => t.id));
-    historyIds.add(currentTrack.id);
+    historyIds.add(baseTrack.id);
+    upNextQueue.forEach(t => historyIds.add(t.id));
 
-    const query = currentTrack.artist && currentTrack.artist !== 'Unknown Artist'
-      ? `${currentTrack.artist} hits`
-      : `${currentTrack.title} radio`;
+    const query = baseTrack.artist && baseTrack.artist !== 'Unknown Artist'
+      ? `${baseTrack.artist} hits`
+      : `${baseTrack.title} radio`;
 
     const candidates = await searchTracks(query);
     if (Array.isArray(candidates) && candidates.length > 0) {
       const freshCandidates = candidates.filter(t => t?.id && !historyIds.has(t.id));
-      autoplayQueue = freshCandidates.slice(0, 4);
-      console.log(`[Autoplay] Prefetched ${autoplayQueue.length} candidate tracks`);
+      const newItems = freshCandidates.slice(0, 4);
+      if (newItems.length > 0) {
+        upNextQueue.push(...newItems);
+        notifyQueueChange();
+        console.log(`[Autoplay] Appended ${newItems.length} candidate tracks to upNextQueue. Total queue: ${upNextQueue.length}`);
+      }
     }
   } catch (err) {
     console.error('[Autoplay] Error prefetching autoplay queue:', err);
   }
 }
 
-export async function handleAutoplayTransition() {
+export async function playNextTrack(forcedTrackIndex?: number) {
   if (isResolvingAutoplay) return;
+  isResolvingAutoplay = true;
 
+  try {
+    let candidate: TrackMetadata | undefined;
+
+    if (typeof forcedTrackIndex === 'number' && forcedTrackIndex >= 0 && forcedTrackIndex < upNextQueue.length) {
+      [candidate] = upNextQueue.splice(forcedTrackIndex, 1);
+      notifyQueueChange();
+    } else {
+      if (upNextQueue.length === 0) {
+        const lastTrack = getLastPlayedTrack();
+        const query = lastTrack?.artist && lastTrack.artist !== 'Unknown Artist'
+          ? `${lastTrack.artist} hits`
+          : `${lastTrack?.title || 'Bollywood'} hits`;
+        const history = getListenHistory();
+        const historyIds = new Set(history.map(t => t.id));
+        if (lastTrack) historyIds.add(lastTrack.id);
+
+        const candidates = await searchTracks(query);
+        const fresh = Array.isArray(candidates) ? candidates.filter(t => t?.id && !historyIds.has(t.id)) : [];
+        if (fresh.length > 0) {
+          upNextQueue.push(...fresh.slice(0, 5));
+          notifyQueueChange();
+        }
+      }
+
+      if (upNextQueue.length > 0) {
+        candidate = upNextQueue.shift();
+        notifyQueueChange();
+      }
+    }
+
+    if (candidate) {
+      console.log(`[Queue] Playing track: ${candidate.title} by ${candidate.artist}`);
+      const resolvedUrl = candidate.url || await getAudioStream(candidate.id);
+      if (resolvedUrl) {
+        await playTrack({
+          ...candidate,
+          url: resolvedUrl,
+        });
+      }
+    }
+
+    // Whenever upNextQueue.length < 3, proactively fetch 3-4 more related songs
+    if (upNextQueue.length < 3) {
+      prefetchAutoplayQueue(candidate || getLastPlayedTrack() || undefined).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[Queue] playNextTrack error:', err);
+  } finally {
+    isResolvingAutoplay = false;
+  }
+}
+
+export async function handleAutoplayTransition() {
   const repeatMode = TrackPlayer.getRepeatMode();
   if (repeatMode !== RepeatMode.Off) {
     console.log('[Autoplay] Repeat mode active, skipping autoplay');
     return;
   }
-
-  isResolvingAutoplay = true;
-  try {
-    let nextTrack: TrackMetadata | undefined = autoplayQueue.shift();
-
-    if (!nextTrack) {
-      const lastTrack = getLastPlayedTrack();
-      if (lastTrack) {
-        const history = getListenHistory();
-        const historyIds = new Set(history.map(t => t.id));
-        historyIds.add(lastTrack.id);
-
-        const query = lastTrack.artist && lastTrack.artist !== 'Unknown Artist'
-          ? `${lastTrack.artist} hits`
-          : `${lastTrack.title} radio`;
-
-        const candidates = await searchTracks(query);
-        const fresh = Array.isArray(candidates) ? candidates.filter(t => t?.id && !historyIds.has(t.id)) : [];
-        if (fresh.length > 0) {
-          nextTrack = fresh[0];
-          autoplayQueue = fresh.slice(1, 4);
-        }
-      }
-    }
-
-    if (nextTrack) {
-      console.log(`[Autoplay] Playing next track: ${nextTrack.title} by ${nextTrack.artist}`);
-      const resolvedUrl = await getAudioStream(nextTrack.id);
-      if (resolvedUrl) {
-        await playTrack({
-          ...nextTrack,
-          url: resolvedUrl,
-        });
-      }
-    }
-  } catch (err) {
-    console.error('[Autoplay] Transition error:', err);
-  } finally {
-    isResolvingAutoplay = false;
-  }
+  await playNextTrack();
 }
 
 export async function setupPlayer(): Promise<boolean> {
@@ -189,10 +263,12 @@ export async function playTrack(metadata: TrackMetadata) {
       throw new Error('TrackPlayer setup failed or service unavailable');
     }
 
+    const downloadedTracks = getDownloadedTracks();
+    const downloadedTrack = downloadedTracks.find(t => t.id === metadata.id);
     const offlineTracks = getOfflineTracks();
     const offlineTrack = offlineTracks[metadata.id];
     
-    let playUrl = offlineTrack?.localUri;
+    let playUrl = downloadedTrack?.localUri || offlineTrack?.localUri;
     
     if (!playUrl && metadata.url) {
       playUrl = metadata.url;
@@ -268,6 +344,8 @@ export async function playTrack(metadata: TrackMetadata) {
     
     setLastPlayedTrack(metadata);
     saveListenHistory(metadata);
+    upNextQueue = upNextQueue.filter(t => t.id !== metadata.id);
+    notifyQueueChange();
     prefetchAutoplayQueue(metadata).catch(() => {});
     
     const eqSettings = getEqualizerSettings();

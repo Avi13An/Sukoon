@@ -23,10 +23,10 @@ import {
   TrackMetadata, 
   getCustomPlaylists, 
   removeTrackFromPlaylist, 
-  getOfflineTracks 
+  getDownloadedTracks 
 } from '../utils/storage';
 import { playTrack, addTracks } from '../services/TrackPlayerService';
-import { downloadPlaylistTracks } from '../services/downloadService';
+import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
 
 const { width } = Dimensions.get('window');
@@ -47,17 +47,20 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
   const playlistId = route.params?.playlistId || initialPlaylist.id;
   const [playlist, setPlaylist] = useState<Playlist>(initialPlaylist);
+  const [storageSize, setStorageSize] = useState<string>('0 MB');
 
   useFocusEffect(
     useCallback(() => {
       if (playlistId === 'downloads') {
-        const offlineDict = getOfflineTracks();
+        const downloaded = getDownloadedTracks();
         setPlaylist({
           id: 'downloads',
           name: 'Downloaded Tracks',
+          description: 'Offline audio stored directly on device for fast, data-free listening.',
           createdAt: Date.now(),
-          tracks: Object.values(offlineDict),
+          tracks: downloaded,
         });
+        getOfflineStorageUsage().then(usage => setStorageSize(usage.formattedSize));
       } else if (playlistId) {
         const found = getCustomPlaylists().find(p => p.id === playlistId);
         if (found) {
@@ -134,16 +137,21 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
 
   const handleRemoveTrack = (track: TrackMetadata) => {
+    const isDownloads = playlistId === 'downloads';
     Alert.alert(
-      'Remove Track',
-      `Remove "${track.title}" from "${playlist.name}"?`,
+      isDownloads ? 'Delete Download' : 'Remove Track',
+      isDownloads ? `Delete "${track.title}" from device storage?` : `Remove "${track.title}" from "${playlist.name}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove',
+          text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            if (playlistId !== 'downloads') {
+          onPress: async () => {
+            if (isDownloads) {
+              await deleteDownloadedTrack(track.id);
+              const usage = await getOfflineStorageUsage();
+              setStorageSize(usage.formattedSize);
+            } else {
               removeTrackFromPlaylist(playlist.id, track.id);
             }
             setPlaylist(prev => ({
@@ -209,7 +217,9 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           ) : null}
           <Text style={styles.trackCount}>
             {playlist.tracks.length} {playlist.tracks.length === 1 ? 'Track' : 'Tracks'}
-            {createdDateStr ? ` • Created ${createdDateStr}` : ''}
+            {playlistId === 'downloads' 
+              ? ` • ${storageSize} Offline Storage` 
+              : createdDateStr ? ` • Created ${createdDateStr}` : ''}
           </Text>
         </View>
       </Animated.View>

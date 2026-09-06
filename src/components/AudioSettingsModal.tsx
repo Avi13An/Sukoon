@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import TrackPlayer from '@rntp/player';
 import { 
   EqualizerSettings, 
   EqualizerPresetName, 
@@ -73,6 +74,13 @@ export function AudioSettingsModal({ visible, onClose }: Props) {
   const handleSoundBoostChange = async (val: number) => {
     const updated = await updateSoundBoost(val);
     setSettings({ ...updated });
+    if (updated.enabled && typeof TrackPlayer.setVolume === 'function') {
+      const clamped = Math.max(0, Math.min(100, val));
+      const gainMultiplier = 1.0 + (clamped / 100) * 0.2;
+      try {
+        await TrackPlayer.setVolume(Math.min(1.2, gainMultiplier));
+      } catch {}
+    }
   };
 
   // PanResponder for Bass Boost Slider
@@ -267,7 +275,7 @@ export function AudioSettingsModal({ visible, onClose }: Props) {
             activeOpacity={0.8}
           >
             <Ionicons name="hardware-chip-outline" size={20} color="#00ffcc" />
-            <Text style={styles.systemEqBtnText}>Open System Equalizer / Dolby Atmos</Text>
+            <Text style={styles.systemEqBtnText}>🎛️ Launch Hardware Equalizer (Dolby / System FX)</Text>
           </TouchableOpacity>
 
           <View style={styles.bottomSpacer} />

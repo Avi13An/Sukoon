@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, PanResponder } from 'react-native';
-import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode } from '@rntp/player';
+import TrackPlayer, { useActiveMediaItem, useIsPlaying, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
-import { toggleLoopMode } from '../services/TrackPlayerService';
+import { toggleLoopMode, playNextTrack } from '../services/TrackPlayerService';
+import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { AudioSettingsModal } from '../components/AudioSettingsModal';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { QueueModal } from '../components/QueueModal';
+import { LyricsModal } from '../components/LyricsModal';
 import { TrackMetadata } from '../utils/storage';
 
 const { width } = Dimensions.get('window');
@@ -15,14 +18,34 @@ const { width } = Dimensions.get('window');
 export function PlayerScreen({ navigation }: any) {
   const track = useActiveMediaItem();
   const isPlaying = useIsPlaying();
-  const { position, duration } = useProgress(250);
+  
+  const [currentPos, setCurrentPos] = useState(0);
+  const [currentDur, setCurrentDur] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      try {
+        const p = await TrackPlayer.getProgress();
+        if (isMounted && p && typeof p.position === 'number') {
+          setCurrentPos(p.position);
+          const validDur = p.duration > 0 ? p.duration : ((track as any)?.duration || 0);
+          if (validDur > 0) setCurrentDur(validDur);
+        }
+      } catch {}
+    }, 500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [(track as any)?.id || (track as any)?.mediaId]);
 
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
   const progressBarWidth = useRef(1);
 
-  const effectiveDuration = duration > 0 ? duration : ((track as any)?.duration || 0);
-  const displayPosition = isScrubbing ? scrubPosition : position;
+  const effectiveDuration = currentDur > 0 ? currentDur : ((track as any)?.duration || 180);
+  const displayPosition = isScrubbing ? scrubPosition : currentPos;
   const progressPercent = effectiveDuration > 0 
     ? Math.min(100, Math.max(0, (displayPosition / effectiveDuration) * 100)) 
     : 0;
@@ -38,21 +61,26 @@ export function PlayerScreen({ navigation }: any) {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
         setIsScrubbing(true);
-        const touchX = evt.nativeEvent.locationX;
-        const ratio = Math.max(0, Math.min(touchX / (progressBarWidth.current || 1), 1));
-        setScrubPosition(ratio * effectiveDuration);
+        const barWidth = progressBarWidth.current || 1;
+        const x = evt.nativeEvent.locationX;
+        const percentage = Math.max(0, Math.min(1, x / barWidth));
+        const targetSeconds = percentage * effectiveDuration;
+        setScrubPosition(targetSeconds);
       },
       onPanResponderMove: (evt) => {
-        const touchX = evt.nativeEvent.locationX;
-        const ratio = Math.max(0, Math.min(touchX / (progressBarWidth.current || 1), 1));
-        setScrubPosition(ratio * effectiveDuration);
+        const barWidth = progressBarWidth.current || 1;
+        const x = evt.nativeEvent.locationX;
+        const percentage = Math.max(0, Math.min(1, x / barWidth));
+        const targetSeconds = percentage * effectiveDuration;
+        setScrubPosition(targetSeconds);
       },
       onPanResponderRelease: async (evt) => {
-        const touchX = evt.nativeEvent.locationX;
-        const ratio = Math.max(0, Math.min(touchX / (progressBarWidth.current || 1), 1));
-        const seekTime = ratio * effectiveDuration;
+        const barWidth = progressBarWidth.current || 1;
+        const x = evt.nativeEvent.locationX;
+        const percentage = Math.max(0, Math.min(1, x / barWidth));
+        const targetSeconds = percentage * effectiveDuration;
         setIsScrubbing(false);
-        await handleSeek(seekTime);
+        await handleSeek(targetSeconds);
       },
       onPanResponderTerminate: () => {
         setIsScrubbing(false);
@@ -63,10 +91,15 @@ export function PlayerScreen({ navigation }: any) {
   const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
   const [isAudioSettingsVisible, setIsAudioSettingsVisible] = useState(false);
   const [isPlaylistModalVisible, setIsPlaylistModalVisible] = useState(false);
+  const [isQueueModalVisible, setIsQueueModalVisible] = useState(false);
+  const [isLyricsModalVisible, setIsLyricsModalVisible] = useState(false);
+  const [isDownloaded, setIsDownloaded] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
 
   const [showLyrics, setShowLyrics] = useState(false);
   const [lyricsLoading, setLyricsLoading] = useState(false);
-  const [lyricsData, setLyricsData] = useState<LrcLibResponse | null>(null);
+  const [lyricsData, setLyricsData] = useState<any>(null);
   const [syncedLines, setSyncedLines] = useState<SyncedLyricLine[]>([]);
   
   const scrollViewRef = useRef<ScrollView>(null);
@@ -109,7 +142,7 @@ export function PlayerScreen({ navigation }: any) {
   };
 
   const skipNext = async () => {
-    await TrackPlayer.skipToNext();
+    await playNextTrack();
   };
 
   const skipPrev = async () => {
@@ -141,9 +174,64 @@ export function PlayerScreen({ navigation }: any) {
   // Find active line index for synced lyrics
   let activeLineIndex = -1;
   if (syncedLines.length > 0) {
-    activeLineIndex = syncedLines.findIndex(line => line.time > position) - 1;
+    activeLineIndex = syncedLines.findIndex(line => line.time > displayPosition) - 1;
     if (activeLineIndex === -2) activeLineIndex = syncedLines.length - 1;
   }
+
+  useEffect(() => {
+    const trackId = (track as any)?.id || (track as any)?.mediaId;
+    if (trackId) {
+      setIsDownloaded(isTrackDownloaded(trackId));
+      setIsDownloading(false);
+      setDownloadProgress(0);
+    }
+  }, [(track as any)?.id || (track as any)?.mediaId]);
+
+  const handleToggleDownload = async () => {
+    const trackId = (track as any)?.id || (track as any)?.mediaId;
+    if (!trackId || !track) return;
+
+    if (isDownloaded) {
+      Alert.alert(
+        'Remove Download',
+        `Delete "${track.title}" from offline storage?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Delete', 
+            style: 'destructive',
+            onPress: async () => {
+              await deleteDownloadedTrack(trackId);
+              setIsDownloaded(false);
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    if (isDownloading) return;
+    setIsDownloading(true);
+    setDownloadProgress(0);
+    try {
+      const meta: TrackMetadata = {
+        id: trackId,
+        title: track.title || 'Unknown Title',
+        artist: track.artist || 'Unknown Artist',
+        artwork: artworkUri,
+        duration: effectiveDuration,
+      };
+      await downloadTrack(meta, (p) => {
+        setDownloadProgress(p);
+      });
+      setIsDownloaded(true);
+      Alert.alert('Downloaded', `"${track.title}" is saved for offline listening!`);
+    } catch (err: any) {
+      Alert.alert('Download Error', err?.message || 'Could not download track');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   if (!track) {
     return (
@@ -171,14 +259,17 @@ export function PlayerScreen({ navigation }: any) {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Now Playing</Text>
         <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.headerIcon} onPress={() => setIsLyricsModalVisible(true)}>
+            <Ionicons name="mic" size={22} color="#00ffcc" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIcon} onPress={() => setIsQueueModalVisible(true)}>
+            <Ionicons name="list" size={24} color="#ffffff" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerIcon} onPress={() => setIsAudioSettingsVisible(true)}>
             <Ionicons name="options" size={24} color="#ffffff" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerIcon} onPress={() => setIsSyncModalVisible(true)}>
             <Ionicons name="people" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon} onPress={() => setShowLyrics(!showLyrics)}>
-            <Ionicons name="text" size={24} color={showLyrics ? '#ffffff' : '#888888'} />
           </TouchableOpacity>
         </View>
       </View>
@@ -265,8 +356,53 @@ export function PlayerScreen({ navigation }: any) {
           <TouchableOpacity onPress={skipNext} style={styles.controlBtn}>
             <Ionicons name="play-skip-forward" size={36} color="#ffffff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setIsPlaylistModalVisible(true)} style={styles.controlBtn}>
-            <Ionicons name="musical-notes-outline" size={24} color="#ffffff" />
+          <TouchableOpacity onPress={handleToggleDownload} style={styles.controlBtn}>
+            {isDownloading ? (
+              <View style={styles.downloadingWrapper}>
+                <ActivityIndicator size="small" color="#00ffcc" />
+                <Text style={styles.downloadPercentText}>
+                  {Math.round(downloadProgress * 100)}%
+                </Text>
+              </View>
+            ) : isDownloaded ? (
+              <Ionicons name="checkmark-circle" size={28} color="#00ffcc" />
+            ) : (
+              <Ionicons name="arrow-down-circle-outline" size={28} color="#ffffff" />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.secondaryActionsRow}>
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsPlaylistModalVisible(true)}
+          >
+            <Ionicons name="bookmark-outline" size={20} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Save</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsLyricsModalVisible(true)}
+          >
+            <Ionicons name="text-outline" size={20} color="#00ffcc" />
+            <Text style={[styles.secondaryActionText, { color: '#00ffcc' }]}>Lyrics</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsQueueModalVisible(true)}
+          >
+            <Ionicons name="layers-outline" size={20} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Queue</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsSyncModalVisible(true)}
+          >
+            <Ionicons name="share-social-outline" size={20} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Sync</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -307,6 +443,33 @@ export function PlayerScreen({ navigation }: any) {
           duration: effectiveDuration,
         } : null}
         onClose={() => setIsPlaylistModalVisible(false)}
+      />
+
+      <QueueModal
+        visible={isQueueModalVisible}
+        onClose={() => setIsQueueModalVisible(false)}
+        currentTrack={track ? {
+          id: (track as any).id || (track as any).mediaId || '',
+          title: track.title || 'Unknown Title',
+          artist: track.artist || 'Unknown Artist',
+          artwork: artworkUri,
+          duration: effectiveDuration,
+        } : null}
+      />
+
+      <LyricsModal
+        visible={isLyricsModalVisible}
+        onClose={() => setIsLyricsModalVisible(false)}
+        track={track ? {
+          id: (track as any).id || (track as any).mediaId || '',
+          title: track.title || 'Unknown Title',
+          artist: track.artist || 'Unknown Artist',
+          artwork: artworkUri,
+          duration: effectiveDuration,
+        } : null}
+        currentPosition={displayPosition}
+        duration={effectiveDuration}
+        onSeek={handleSeek}
       />
     </View>
   );
@@ -432,6 +595,34 @@ const styles = StyleSheet.create({
   },
   controlBtn: {
     padding: 16,
+  },
+  downloadingWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadPercentText: {
+    color: '#00ffcc',
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  secondaryActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginTop: 24,
+    paddingHorizontal: 8,
+  },
+  secondaryActionBtn: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  secondaryActionText: {
+    color: '#888896',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 4,
   },
   playPauseBtn: {
     width: 80,

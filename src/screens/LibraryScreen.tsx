@@ -16,22 +16,26 @@ import {
   getCustomPlaylists, 
   createPlaylist, 
   deletePlaylist, 
-  getOfflineTracks, 
+  getDownloadedTracks,
   Playlist, 
-  OfflineTrack 
+  DownloadedTrack 
 } from '../utils/storage';
+import { getOfflineStorageUsage } from '../services/downloadService';
 
 export function LibraryScreen({ navigation }: any) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [downloadedTracks, setDownloadedTracks] = useState<OfflineTrack[]>([]);
+  const [downloadedTracks, setDownloadedTracks] = useState<DownloadedTrack[]>([]);
+  const [storageUsage, setStorageUsage] = useState<string>('0 MB');
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
 
-  const refreshLibrary = useCallback(() => {
+  const refreshLibrary = useCallback(async () => {
     setPlaylists(getCustomPlaylists());
-    const offlineDict = getOfflineTracks();
-    setDownloadedTracks(Object.values(offlineDict));
+    const downloaded = getDownloadedTracks();
+    setDownloadedTracks(downloaded);
+    const usage = await getOfflineStorageUsage();
+    setStorageUsage(usage.formattedSize);
   }, []);
 
   useFocusEffect(
@@ -95,7 +99,9 @@ export function LibraryScreen({ navigation }: any) {
         </View>
         <View style={styles.downloadInfo}>
           <Text style={styles.downloadTitle}>Downloaded Tracks</Text>
-          <Text style={styles.downloadCount}>{downloadedTracks.length} offline tracks</Text>
+          <Text style={styles.downloadCount}>
+            {downloadedTracks.length} offline tracks {downloadedTracks.length > 0 ? `• ${storageUsage}` : ''}
+          </Text>
         </View>
       </TouchableOpacity>
 

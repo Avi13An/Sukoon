@@ -1,4 +1,5 @@
 import { Linking, Platform, Alert } from 'react-native';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { 
   EqualizerSettings, 
   EqualizerPresetName, 
@@ -74,20 +75,30 @@ export async function toggleEqualizer(enabled: boolean) {
 }
 
 export async function openSystemEqualizer() {
-  if (Platform.OS === 'android') {
-    try {
-      await Linking.sendIntent('android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL');
-    } catch (e: any) {
-      console.warn('Could not launch system equalizer intent:', e);
-      Alert.alert(
-        'System Equalizer',
-        'Device system equalizer panel is not accessible directly on this device. Sukoon built-in DSP equalizer is active.'
-      );
-    }
-  } else {
+  if (Platform.OS !== 'android') {
     Alert.alert(
       'System Equalizer',
       'System-level equalizer panels are exclusive to Android (Dolby Atmos/SoundAlive). Sukoon DSP equalizer applies directly to playback on iOS.'
     );
+    return;
+  }
+
+  try {
+    await IntentLauncher.startActivityAsync('android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL', {
+      extra: { 'android.media.extra.CONTENT_TYPE': 0 }
+    });
+  } catch (err) {
+    try {
+      await Linking.sendIntent('android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL');
+    } catch (linkingErr) {
+      try {
+        await Linking.openURL('intent:#Intent;action=android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL;type=audio/*;end');
+      } catch (fallbackErr) {
+        Alert.alert(
+          'System Equalizer',
+          'Open Phone Settings > Sound & Vibration > Sound Effects / Dolby Atmos to configure hardware audio frequencies.'
+        );
+      }
+    }
   }
 }

@@ -15,6 +15,12 @@ export interface OfflineTrack extends TrackMetadata {
   localUri: string;
 }
 
+export interface DownloadedTrack extends TrackMetadata {
+  localUri: string;
+  downloadedAt: number;
+  sizeBytes?: number;
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -28,6 +34,7 @@ const KEYS = {
   PLAYLISTS: 'PLAYLISTS',
   CUSTOM_PLAYLISTS: '@sukoon_custom_playlists',
   OFFLINE_TRACKS: 'OFFLINE_TRACKS',
+  DOWNLOADED_TRACKS: '@sukoon_downloaded_tracks',
   LAST_PLAYED: 'LAST_PLAYED',
   MY_USERNAME: 'MY_USERNAME',
   RECENT_SEARCHES: '@sukoon_recent_searches',
@@ -140,6 +147,59 @@ export function saveOfflineTrack(track: OfflineTrack) {
   const tracks = getOfflineTracks();
   tracks[track.id] = track;
   storage.set(KEYS.OFFLINE_TRACKS, JSON.stringify(tracks));
+}
+
+export function getDownloadedTracks(): DownloadedTrack[] {
+  const data = storage.getString(KEYS.DOWNLOADED_TRACKS);
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch {}
+  }
+  const legacy = getOfflineTracks();
+  const legacyList = Object.values(legacy);
+  if (legacyList.length > 0) {
+    return legacyList.map(t => ({
+      ...t,
+      downloadedAt: Date.now(),
+    }));
+  }
+  return [];
+}
+
+export function saveDownloadedTrack(track: DownloadedTrack) {
+  const tracks = getDownloadedTracks();
+  const index = tracks.findIndex(t => t.id === track.id);
+  if (index >= 0) {
+    tracks[index] = track;
+  } else {
+    tracks.unshift(track);
+  }
+  storage.set(KEYS.DOWNLOADED_TRACKS, JSON.stringify(tracks));
+  saveOfflineTrack({
+    id: track.id,
+    title: track.title,
+    artist: track.artist,
+    artwork: track.artwork,
+    duration: track.duration,
+    localUri: track.localUri,
+  });
+}
+
+export function deleteDownloadedTrackStorage(trackId: string) {
+  const tracks = getDownloadedTracks().filter(t => t.id !== trackId);
+  storage.set(KEYS.DOWNLOADED_TRACKS, JSON.stringify(tracks));
+  const legacy = getOfflineTracks();
+  if (legacy[trackId]) {
+    delete legacy[trackId];
+    storage.set(KEYS.OFFLINE_TRACKS, JSON.stringify(legacy));
+  }
+}
+
+export function isTrackDownloaded(trackId: string): boolean {
+  if (!trackId) return false;
+  const tracks = getDownloadedTracks();
+  return tracks.some(t => t.id === trackId);
 }
 
 export function getLastPlayedTrack(): TrackMetadata | null {
