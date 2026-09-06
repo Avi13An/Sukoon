@@ -93,46 +93,38 @@ export async function playTrack(metadata: TrackMetadata) {
     }
 
     const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
-    const ua = isIosStream
+    const matchedUA = isIosStream
       ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
       : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-    const headers = {
-      'User-Agent': ua,
-      'Accept': '*/*'
-    };
-
-    // Dual-map url and uri so both v4 and v5 contracts (including native MediaHeaders injection) are satisfied
     const trackPayload = {
       id: metadata.id,
       mediaId: metadata.id,
-      url: typeof playUrl === 'string' && playUrl.startsWith('http')
-        ? { uri: playUrl, headers }
-        : playUrl,
-      uri: playUrl,
+      url: playUrl, // MUST be clean string URL
       title: metadata.title || 'Unknown Title',
       artist: metadata.artist || 'Unknown Artist',
       artwork: metadata.artwork || undefined,
-      artworkUrl: metadata.artwork || undefined,
       duration: metadata.duration,
-      contentType: 'audio/mp4',
-      mimeType: 'audio/mp4',
-      type: 'default',
-      headers
+      headers: {
+        'User-Agent': matchedUA,
+        'Accept': '*/*'
+      }
     };
 
-    // Replace playlist cleanly without wiping state machine
     if (typeof (TrackPlayer as any).setMediaItems === 'function') {
       await (TrackPlayer as any).setMediaItems([trackPayload]);
     } else if (typeof (TrackPlayer as any).add === 'function') {
       await (TrackPlayer as any).add(trackPayload);
     }
-
-    // Explicitly trigger native preparation
+    
+    // Check if queue actually accepted it
+    const q = await TrackPlayer.getQueue();
+    if (q.length === 0 && typeof (TrackPlayer as any).add === 'function') {
+      await (TrackPlayer as any).add([trackPayload]);
+    }
+    
     if (typeof (TrackPlayer as any).prepare === 'function') {
-      await (TrackPlayer as any).prepare();
-    } else if (typeof (TrackPlayer as any).load === 'function') {
-      await (TrackPlayer as any).load(trackPayload);
+      try { await (TrackPlayer as any).prepare(); } catch {}
     }
     
     setLastPlayedTrack(metadata);

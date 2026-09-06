@@ -24,57 +24,7 @@ export const searchTracks = async (query: string): Promise<TrackMetadata[]> => {
 };
 
 export const resolveAudioStreamDirect = async (videoId: string): Promise<string | null> => {
-  // Strategy 1: iOS client profile (directly provides pure itag 140 AAC/M4A audio)
-  try {
-    const iosPayload = {
-      videoId,
-      context: {
-        client: {
-          hl: 'en',
-          gl: 'IN',
-          clientName: 'iOS',
-          clientVersion: '20.11.6',
-          deviceMake: 'Apple',
-          deviceModel: 'iPhone10,4',
-          osName: 'iOS',
-          osVersion: '16.7.7.20H330'
-        }
-      }
-    };
-
-    const iosRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)',
-        'X-YouTube-Client-Name': '5',
-        'X-YouTube-Client-Version': '20.11.6'
-      },
-      body: JSON.stringify(iosPayload)
-    });
-
-    if (iosRes.ok) {
-      const data = await iosRes.json();
-      const adaptive = data.streamingData?.adaptiveFormats || [];
-      const formats = data.streamingData?.formats || [];
-
-      // 1. Search adaptiveFormats first for pure 128kbps AAC audio (itag 140)
-      const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
-      if (a140?.url) return a140.url;
-
-      // 2. Search adaptiveFormats for any pure audio stream (audio/mp4 or audio/*)
-      const pureAudio = adaptive.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http') && (f.mimeType?.startsWith('audio/') || f.mimeType?.includes('audio')));
-      if (pureAudio?.url) return pureAudio.url;
-
-      // 3. Fallback to muxed formats if no pure audio
-      const fAny = formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
-      if (fAny?.url) return fAny.url;
-    }
-  } catch (iosErr) {
-    console.warn('[musicApi] iOS direct player resolution failed:', iosErr);
-  }
-
-  // Strategy 2: Android client profile (fallback)
+  // Strategy 1: Android client profile (yields progressive MP4 itag 18 containing AAC audio & moov sample tables)
   try {
     const androidPayload = {
       videoId,
@@ -108,21 +58,70 @@ export const resolveAudioStreamDirect = async (videoId: string): Promise<string 
       const adaptive = data.streamingData?.adaptiveFormats || [];
       const formats = data.streamingData?.formats || [];
 
-      // 1. Pure itag 140
+      // 1. Progressive MP4 (itag 18) - 360p progressive container with AAC audio & moov sample tables
+      const f18 = formats.find((f: any) => f.itag === 18 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (f18?.url) return f18.url;
+
+      // 2. Pure 128kbps AAC audio (itag 140)
       const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
       if (a140?.url) return a140.url;
 
-      // 2. Pure audio stream
-      const pureAudio = adaptive.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http') && (f.mimeType?.startsWith('audio/') || f.mimeType?.includes('audio')));
-      if (pureAudio?.url) return pureAudio.url;
-
-      // 3. Fallback to muxed formats (itag 18)
-      const f18 = formats.find((f: any) => f.itag === 18 && typeof f.url === 'string' && f.url.startsWith('http')) ||
-                  formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
-      if (f18?.url) return f18.url;
+      // 3. Any format in streamingData.formats with a direct URL
+      const fAny = formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
+      if (fAny?.url) return fAny.url;
     }
   } catch (androidErr) {
     console.warn('[musicApi] Android direct player resolution failed:', androidErr);
+  }
+
+  // Strategy 2: iOS client profile (fallback)
+  try {
+    const iosPayload = {
+      videoId,
+      context: {
+        client: {
+          hl: 'en',
+          gl: 'IN',
+          clientName: 'iOS',
+          clientVersion: '20.11.6',
+          deviceMake: 'Apple',
+          deviceModel: 'iPhone10,4',
+          osName: 'iOS',
+          osVersion: '16.7.7.20H330'
+        }
+      }
+    };
+
+    const iosRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)',
+        'X-YouTube-Client-Name': '5',
+        'X-YouTube-Client-Version': '20.11.6'
+      },
+      body: JSON.stringify(iosPayload)
+    });
+
+    if (iosRes.ok) {
+      const data = await iosRes.json();
+      const adaptive = data.streamingData?.adaptiveFormats || [];
+      const formats = data.streamingData?.formats || [];
+
+      // 1. Progressive MP4 (itag 18) - 360p progressive container with AAC audio & moov sample tables
+      const f18 = formats.find((f: any) => f.itag === 18 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (f18?.url) return f18.url;
+
+      // 2. Pure 128kbps AAC audio (itag 140)
+      const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (a140?.url) return a140.url;
+
+      // 3. Any format in streamingData.formats with a direct URL
+      const fAny = formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
+      if (fAny?.url) return fAny.url;
+    }
+  } catch (iosErr) {
+    console.warn('[musicApi] iOS direct player resolution failed:', iosErr);
   }
 
   return null;

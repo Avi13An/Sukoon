@@ -184,8 +184,15 @@ export function SearchScreen() {
         url: resolvedUrl
       });
 
+      const queue = await TrackPlayer.getQueue();
       const state = await TrackPlayer.getPlaybackState();
-      Alert.alert('Player Engine State', `Active State: ${JSON.stringify(state)}`);
+      Alert.alert(
+        'Player Diagnostic',
+        `State: ${JSON.stringify(state)}\n` +
+        `Queue Count: ${queue.length}\n` +
+        `Current Track: ${queue[0]?.title || 'NONE'}\n` +
+        `URL Type: ${typeof (queue[0] as any)?.url}`
+      );
     } catch (err: any) {
       console.error('Playback Error:', err);
       Alert.alert('Playback Execution Error', `${err?.name}: ${err?.message}`);
