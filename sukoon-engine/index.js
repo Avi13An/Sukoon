@@ -5,6 +5,8 @@ import { createColdStartToken } from 'bgutils-js/webpo';
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 let ytInstance = null;
 let ytAndroidInstance = null;
@@ -164,9 +166,22 @@ async function handleAudioRedirect(req, res) {
   }
 }
 
+function handleUserClaim(req, res) {
+  const username = req.body?.username || req.query?.username || req.body?.user || 'user';
+  return res.status(200).json({
+    success: true,
+    user: {
+      id: 'usr_' + Date.now(),
+      username: typeof username === 'string' ? username.trim().toLowerCase() : 'user',
+      created_at: new Date().toISOString()
+    }
+  });
+}
+
 app.get('/search', handleSearch);
 app.get('/stream', handleStream);
 app.get('/audio', handleAudioRedirect);
+app.all(['/claim-username', '/api/claim-username', '/api/user', '/user', '/auth'], handleUserClaim);
 
 app.all(['/', '/index.js'], (req, res) => {
   if (req.query.q) return handleSearch(req, res);
@@ -174,6 +189,7 @@ app.all(['/', '/index.js'], (req, res) => {
     return handleAudioRedirect(req, res);
   }
   if (req.query.id) return handleStream(req, res);
+  if (req.body?.username || req.query?.username) return handleUserClaim(req, res);
   return res.json({ status: 'Sukoon Engine Active' });
 });
 

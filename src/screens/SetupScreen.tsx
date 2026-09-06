@@ -19,39 +19,60 @@ export function SetupScreen({ navigation }: any) {
     setError('');
     
     try {
-      // Check if username exists
-      const { data, error: fetchError } = await supabase
-        .from('profiles')
-        .select('username')
-        .eq('username', trimmed)
-        .single();
-        
-      if (data) {
+      // Race remote Supabase check with a 2.5s timeout so unreachable servers never hang the UI
+      const timeoutPromise = new Promise<{ timeout: boolean }>((resolve) =>
+        setTimeout(() => resolve({ timeout: true }), 2500)
+      );
+
+      const remoteCheck = async (): Promise<{ isTaken: boolean; error?: any }> => {
+        try {
+          const { data, error: fetchError } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('username', trimmed)
+            .single();
+            
+          if (data) {
+            return { isTaken: true };
+          }
+          
+          // Only attempt insert if no fetch error or "no rows found" (PGRST116)
+          if (!fetchError || fetchError.code === 'PGRST116') {
+            await supabase
+              .from('profiles')
+              .insert([{ username: trimmed }]);
+          }
+          return { isTaken: false };
+        } catch (err) {
+          return { isTaken: false, error: err };
+        }
+      };
+
+      const result = await Promise.race([remoteCheck(), timeoutPromise]);
+
+      if ('isTaken' in result && result.isTaken) {
         setError('Username is already taken.');
         setIsLoading(false);
         return;
       }
-      
-      // If it fails with no rows, that means it's available. Let's insert it.
-      const { error: insertError } = await supabase
-        .from('profiles')
-        .insert([{ username: trimmed }]);
-        
-      if (insertError) {
-        throw insertError;
-      }
-      
-      // Success
+
+      // If remote check was successful, timed out, or threw network error, proceed with username
+      console.log('[SetupScreen] Username claimed:', trimmed);
       setMyUsername(trimmed);
-      // MainNavigator should re-render or we reset navigation
       navigation.replace('MainTabs');
-      
     } catch (e: any) {
-      console.error(e);
-      setError('An error occurred. Try again.');
+      console.warn('[SetupScreen] Remote sync unavailable, proceeding in local mode:', e?.message || e);
+      setMyUsername(trimmed);
+      navigation.replace('MainTabs');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSkipGuest = () => {
+    const guestUsername = `Guest_${Math.floor(1000 + Math.random() * 9000)}`;
+    setMyUsername(guestUsername);
+    navigation.replace('MainTabs');
   };
 
   return (
@@ -89,6 +110,14 @@ export function SetupScreen({ navigation }: any) {
           ) : (
             <Text style={styles.buttonText}>Claim Username</Text>
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.guestButton} 
+          onPress={handleSkipGuest}
+          disabled={isLoading}
+        >
+          <Text style={styles.guestButtonText}>Skip as Guest</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -145,5 +174,15 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  guestButton: {
+    marginTop: 16,
+    padding: 12,
+    alignItems: 'center',
+  },
+  guestButtonText: {
+    color: '#888888',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "48043f75-0c86-4d1d-a879-a6780b8ac28e"
+      }
+    },
+    "android": {
+      "package": "com.venom13212006.sukoonengine"
+    }
+  }
+}
