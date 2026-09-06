@@ -1,4 +1,5 @@
 import TrackPlayer, { Event, RepeatMode, PlayerCommand } from '@rntp/player';
+import { Alert } from 'react-native';
 import { getOfflineTracks, setLastPlayedTrack, TrackMetadata } from '../utils/storage';
 import { getAudioStream } from './musicApi';
 
@@ -65,6 +66,11 @@ export async function toggleLoopMode() {
 
 export async function playTrack(metadata: TrackMetadata) {
   try {
+    const isPlayerReady = await setupPlayer();
+    if (!isPlayerReady) {
+      throw new Error('TrackPlayer setup failed or service unavailable');
+    }
+
     const offlineTracks = getOfflineTracks();
     const offlineTrack = offlineTracks[metadata.id];
     
@@ -78,8 +84,10 @@ export async function playTrack(metadata: TrackMetadata) {
       const stream = await getAudioStream(metadata.id);
       const resolved = typeof stream === 'string' ? stream : (stream as any)?.url;
       if (!resolved || !resolved.startsWith('http')) {
-        console.warn('No stream found for', metadata.id);
-        return;
+        const msg = `No playable audio stream found for track ${metadata.id}`;
+        console.warn(msg);
+        Alert.alert('TrackPlayer Service Error', msg);
+        throw new Error(msg);
       }
       playUrl = resolved;
     }
@@ -88,10 +96,13 @@ export async function playTrack(metadata: TrackMetadata) {
       await TrackPlayer.clear();
     } catch {}
 
-    const ANDROID_UA = 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
+    const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
+    const ua = isIosStream
+      ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
+      : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
     const headers = {
-      'User-Agent': ANDROID_UA,
+      'User-Agent': ua,
       'Accept': '*/*'
     };
 
@@ -116,8 +127,12 @@ export async function playTrack(metadata: TrackMetadata) {
     }
     
     setLastPlayedTrack(metadata);
+    if (typeof TrackPlayer.setVolume === 'function') {
+      await TrackPlayer.setVolume(1.0);
+    }
     await TrackPlayer.play();
-  } catch (error) {
-    console.error('Error playing track:', error);
+  } catch (error: any) {
+    Alert.alert('TrackPlayer Service Error', error?.message || JSON.stringify(error));
+    throw error;
   }
 }

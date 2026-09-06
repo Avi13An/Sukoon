@@ -24,8 +24,59 @@ export const searchTracks = async (query: string): Promise<TrackMetadata[]> => {
 };
 
 export const resolveAudioStreamDirect = async (videoId: string): Promise<string | null> => {
+  // Strategy 1: iOS client profile (directly provides pure itag 140 AAC/M4A audio)
   try {
-    const payload = {
+    const iosPayload = {
+      videoId,
+      context: {
+        client: {
+          hl: 'en',
+          gl: 'IN',
+          clientName: 'iOS',
+          clientVersion: '20.11.6',
+          deviceMake: 'Apple',
+          deviceModel: 'iPhone10,4',
+          osName: 'iOS',
+          osVersion: '16.7.7.20H330'
+        }
+      }
+    };
+
+    const iosRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)',
+        'X-YouTube-Client-Name': '5',
+        'X-YouTube-Client-Version': '20.11.6'
+      },
+      body: JSON.stringify(iosPayload)
+    });
+
+    if (iosRes.ok) {
+      const data = await iosRes.json();
+      const adaptive = data.streamingData?.adaptiveFormats || [];
+      const formats = data.streamingData?.formats || [];
+
+      // 1. Search adaptiveFormats first for pure 128kbps AAC audio (itag 140)
+      const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (a140?.url) return a140.url;
+
+      // 2. Search adaptiveFormats for any pure audio stream (audio/mp4 or audio/*)
+      const pureAudio = adaptive.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http') && (f.mimeType?.startsWith('audio/') || f.mimeType?.includes('audio')));
+      if (pureAudio?.url) return pureAudio.url;
+
+      // 3. Fallback to muxed formats if no pure audio
+      const fAny = formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
+      if (fAny?.url) return fAny.url;
+    }
+  } catch (iosErr) {
+    console.warn('[musicApi] iOS direct player resolution failed:', iosErr);
+  }
+
+  // Strategy 2: Android client profile (fallback)
+  try {
+    const androidPayload = {
       videoId,
       context: {
         client: {
@@ -43,49 +94,37 @@ export const resolveAudioStreamDirect = async (videoId: string): Promise<string 
       }
     };
 
-    const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
+    const androidRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(androidPayload)
     });
 
-    if (!res.ok) return null;
-    const data = await res.json();
-    const formats = data.streamingData?.formats || [];
-    const adaptive = data.streamingData?.adaptiveFormats || [];
+    if (androidRes.ok) {
+      const data = await androidRes.json();
+      const adaptive = data.streamingData?.adaptiveFormats || [];
+      const formats = data.streamingData?.formats || [];
 
-    // 1. Progressive format (itag 18 has combined video+audio with direct URL)
-    const f18 = formats.find((f: any) => f.itag === 18 && typeof f.url === 'string') || 
-                formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
-    if (f18?.url) return f18.url;
+      // 1. Pure itag 140
+      const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (a140?.url) return a140.url;
 
-    // 2. Adaptive audio formats (itag 140 is AAC 128kbps, or any audio/mp4 / audio stream)
-    const a140 = adaptive.find((f: any) => f.itag === 140 && typeof f.url === 'string');
-    if (a140?.url) return a140.url;
+      // 2. Pure audio stream
+      const pureAudio = adaptive.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http') && (f.mimeType?.startsWith('audio/') || f.mimeType?.includes('audio')));
+      if (pureAudio?.url) return pureAudio.url;
 
-    const audioMp4 = adaptive.find((f: any) => f.mimeType?.includes('audio/mp4') && typeof f.url === 'string');
-    if (audioMp4?.url) return audioMp4.url;
-
-    const anyAudio = adaptive.find((f: any) => f.mimeType?.includes('audio') && typeof f.url === 'string' && f.url.startsWith('http'));
-    if (anyAudio?.url) return anyAudio.url;
-
-    // 3. Fallback: check if URL is encoded in cipher parameters
-    const cipherItem = formats.find((f: any) => f.cipher || f.signatureCipher) ||
-                       adaptive.find((f: any) => (f.mimeType?.includes('audio') || f.itag === 140) && (f.cipher || f.signatureCipher));
-    if (cipherItem) {
-      const cipherStr = cipherItem.url || cipherItem.cipher || cipherItem.signatureCipher;
-      if (cipherStr && cipherStr.includes('url=')) {
-        const params = new URLSearchParams(cipherStr);
-        const extracted = params.get('url');
-        if (extracted && extracted.startsWith('http')) return decodeURIComponent(extracted);
-      }
+      // 3. Fallback to muxed formats (itag 18)
+      const f18 = formats.find((f: any) => f.itag === 18 && typeof f.url === 'string' && f.url.startsWith('http')) ||
+                  formats.find((f: any) => typeof f.url === 'string' && f.url.startsWith('http'));
+      if (f18?.url) return f18.url;
     }
-  } catch (e) {
-    console.error('Direct player resolution error:', e);
+  } catch (androidErr) {
+    console.warn('[musicApi] Android direct player resolution failed:', androidErr);
   }
+
   return null;
 };
 

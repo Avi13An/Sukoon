@@ -16,7 +16,7 @@ import {
 import { searchTracks, getSearchSuggestions, getAudioStream } from '../services/musicApi';
 import { TrackMetadata } from '../utils/storage';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
-import TrackPlayer, { Event } from '@rntp/player';
+import TrackPlayer, { Event, PlaybackState } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 
 export function SearchScreen() {
@@ -31,11 +31,36 @@ export function SearchScreen() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const sub = TrackPlayer.addEventListener(Event.PlaybackError, (error: any) => {
+    const errSub = TrackPlayer.addEventListener(Event.PlaybackError, (error: any) => {
       console.error('[NATIVE EXOPLAYER ERROR]:', error);
       Alert.alert('Playback Engine Error', `${error?.code || 'ERROR'}: ${error?.message || JSON.stringify(error)}`);
     });
-    return () => sub.remove();
+
+    const stateSub = TrackPlayer.addEventListener(
+      ((Event as any).PlaybackState || Event.PlaybackStateChanged) as any,
+      (event: any) => {
+        const state = event?.state;
+        console.log('[TRACKPLAYER PLAYBACK STATE]:', state);
+        if (state === 'buffering' || state === PlaybackState.Buffering) {
+          Alert.alert('Playback State', 'State: Buffering audio...');
+        } else if (state === 'playing' || state === PlaybackState.Ready) {
+          console.log('[TRACKPLAYER PLAYING/READY]:', state);
+        }
+      }
+    );
+
+    const playingSub = TrackPlayer.addEventListener(Event.IsPlayingChanged, (event: any) => {
+      console.log('[TRACKPLAYER IS_PLAYING]:', event?.playing);
+      if (event?.playing) {
+        Alert.alert('Playback State', 'State: Playing audio stream!');
+      }
+    });
+
+    return () => {
+      errSub.remove();
+      stateSub.remove();
+      playingSub.remove();
+    };
   }, []);
 
   const executeSearch = async (text: string) => {
@@ -156,13 +181,15 @@ export function SearchScreen() {
         return;
       }
 
+      Alert.alert('Stream Resolved', `URL: ${resolvedUrl.slice(0, 45)}...\nPassing to Player...`);
+
       await playTrack({
         ...track,
         url: resolvedUrl
       });
     } catch (err: any) {
       console.error('Playback Error:', err);
-      Alert.alert('Playback Error', err?.message || JSON.stringify(err));
+      Alert.alert('Playback Execution Error', `${err?.name}: ${err?.message}`);
     } finally {
       setLoadingTrackId(null);
     }

@@ -1,51 +1,105 @@
 const ANDROID_UA = 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
+const IOS_UA = 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)';
 const API_BASE = 'https://sukoon-api.vercel.app';
 
 async function resolveAudioStreamDirect(videoId) {
-  const payload = {
-    videoId,
-    context: {
-      client: {
-        hl: 'en',
-        gl: 'IN',
-        clientName: 'ANDROID',
-        clientVersion: '21.03.36',
-        osName: 'Android',
-        osVersion: '13',
-        userAgent: ANDROID_UA,
-        platform: 'MOBILE',
-        clientFormFactor: 'SMALL_FORM_FACTOR',
-        androidSdkVersion: 36
+  // Strategy 1: iOS client profile (directly provides pure itag 140 AAC/M4A audio)
+  try {
+    const iosPayload = {
+      videoId,
+      context: {
+        client: {
+          hl: 'en',
+          gl: 'IN',
+          clientName: 'iOS',
+          clientVersion: '20.11.6',
+          deviceMake: 'Apple',
+          deviceModel: 'iPhone10,4',
+          osName: 'iOS',
+          osVersion: '16.7.7.20H330'
+        }
       }
+    };
+
+    const iosRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': IOS_UA,
+        'X-YouTube-Client-Name': '5',
+        'X-YouTube-Client-Version': '20.11.6'
+      },
+      body: JSON.stringify(iosPayload)
+    });
+
+    if (iosRes.ok) {
+      const data = await iosRes.json();
+      const adaptive = data.streamingData?.adaptiveFormats || [];
+      const formats = data.streamingData?.formats || [];
+
+      // 1. Search adaptiveFormats first for pure 128kbps AAC audio (itag 140)
+      const a140 = adaptive.find((f) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (a140?.url) return a140.url;
+
+      // 2. Search adaptiveFormats for any pure audio stream (audio/mp4 or audio/*)
+      const pureAudio = adaptive.find((f) => typeof f.url === 'string' && f.url.startsWith('http') && (f.mimeType?.startsWith('audio/') || f.mimeType?.includes('audio')));
+      if (pureAudio?.url) return pureAudio.url;
+
+      // 3. Fallback to muxed formats if no pure audio
+      const fAny = formats.find((f) => typeof f.url === 'string' && f.url.startsWith('http'));
+      if (fAny?.url) return fAny.url;
     }
-  };
+  } catch (iosErr) {
+    console.warn('iOS direct player resolution failed:', iosErr.message);
+  }
 
-  const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': ANDROID_UA
-    },
-    body: JSON.stringify(payload)
-  });
+  // Strategy 2: Android client profile (fallback)
+  try {
+    const androidPayload = {
+      videoId,
+      context: {
+        client: {
+          hl: 'en',
+          gl: 'IN',
+          clientName: 'ANDROID',
+          clientVersion: '21.03.36',
+          osName: 'Android',
+          osVersion: '13',
+          userAgent: ANDROID_UA,
+          platform: 'MOBILE',
+          clientFormFactor: 'SMALL_FORM_FACTOR',
+          androidSdkVersion: 36
+        }
+      }
+    };
 
-  if (!res.ok) return null;
-  const data = await res.json();
-  const formats = data.streamingData?.formats || [];
-  const adaptive = data.streamingData?.adaptiveFormats || [];
+    const androidRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false&alt=json', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': ANDROID_UA
+      },
+      body: JSON.stringify(androidPayload)
+    });
 
-  const f18 = formats.find((f) => f.itag === 18 && typeof f.url === 'string') || 
-              formats.find((f) => typeof f.url === 'string' && f.url.startsWith('http'));
-  if (f18?.url) return f18.url;
+    if (androidRes.ok) {
+      const data = await androidRes.json();
+      const adaptive = data.streamingData?.adaptiveFormats || [];
+      const formats = data.streamingData?.formats || [];
 
-  const a140 = adaptive.find((f) => f.itag === 140 && typeof f.url === 'string');
-  if (a140?.url) return a140.url;
+      const a140 = adaptive.find((f) => f.itag === 140 && typeof f.url === 'string' && f.url.startsWith('http'));
+      if (a140?.url) return a140.url;
 
-  const audioMp4 = adaptive.find((f) => f.mimeType?.includes('audio/mp4') && typeof f.url === 'string');
-  if (audioMp4?.url) return audioMp4.url;
+      const pureAudio = adaptive.find((f) => typeof f.url === 'string' && f.url.startsWith('http') && (f.mimeType?.startsWith('audio/') || f.mimeType?.includes('audio')));
+      if (pureAudio?.url) return pureAudio.url;
 
-  const anyAudio = adaptive.find((f) => f.mimeType?.includes('audio') && typeof f.url === 'string' && f.url.startsWith('http'));
-  if (anyAudio?.url) return anyAudio.url;
+      const f18 = formats.find((f) => f.itag === 18 && typeof f.url === 'string' && f.url.startsWith('http')) ||
+                  formats.find((f) => typeof f.url === 'string' && f.url.startsWith('http'));
+      if (f18?.url) return f18.url;
+    }
+  } catch (androidErr) {
+    console.warn('Android direct player resolution failed:', androidErr.message);
+  }
 
   return null;
 }
@@ -106,10 +160,11 @@ async function verify() {
     throw new Error('Could not resolve stream URL from any source.');
   }
 
-  console.log(`[VERIFY] Fetching first 1024 bytes with Android User-Agent...`);
+  const matchingUa = streamUrl.includes('c=IOS') || !streamUrl.includes('c=ANDROID') ? IOS_UA : ANDROID_UA;
+  console.log(`[VERIFY] Fetching first 1024 bytes with matching User-Agent...`);
   const res = await fetch(streamUrl, {
     headers: {
-      'User-Agent': ANDROID_UA,
+      'User-Agent': matchingUa,
       'Range': 'bytes=0-1023'
     }
   });
