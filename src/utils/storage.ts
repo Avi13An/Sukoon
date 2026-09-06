@@ -23,10 +23,12 @@ export interface DownloadedTrack extends TrackMetadata {
 
 export interface Playlist {
   id: string;
+  shareCode: string; // e.g. "SK-8F3K9A"
   name: string;
   description?: string;
   createdAt: number;
   coverImage?: string;
+  isImported?: boolean; // If true, recipient cannot edit/delete tracks
   tracks: TrackMetadata[];
 }
 
@@ -51,27 +53,45 @@ export function setMyUsername(username: string) {
 }
 
 export function getCustomPlaylists(): Playlist[] {
+  let playlists: Playlist[] = [];
   const data = storage.getString(KEYS.CUSTOM_PLAYLISTS);
   if (data) {
     try {
-      return JSON.parse(data);
+      playlists = JSON.parse(data);
     } catch {}
+  } else {
+    const legacyData = storage.getString(KEYS.PLAYLISTS);
+    if (legacyData) {
+      try {
+        const legacy: any[] = JSON.parse(legacyData);
+        playlists = legacy.map(p => ({
+          id: p.id || Date.now().toString(),
+          shareCode: p.shareCode || ('SK-' + Math.random().toString(36).substring(2, 8).toUpperCase()),
+          name: p.name || 'Untitled Playlist',
+          description: p.description || '',
+          createdAt: p.createdAt || Date.now(),
+          coverImage: p.coverImage,
+          isImported: p.isImported || false,
+          tracks: p.tracks || []
+        }));
+      } catch {}
+    }
   }
-  const legacyData = storage.getString(KEYS.PLAYLISTS);
-  if (legacyData) {
-    try {
-      const legacy: any[] = JSON.parse(legacyData);
-      return legacy.map(p => ({
-        id: p.id || Date.now().toString(),
-        name: p.name || 'Untitled Playlist',
-        description: p.description || '',
-        createdAt: p.createdAt || Date.now(),
-        coverImage: p.coverImage,
-        tracks: p.tracks || []
-      }));
-    } catch {}
+
+  let needsSave = false;
+  playlists = playlists.map(p => {
+    if (!p.shareCode) {
+      p.shareCode = 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      needsSave = true;
+    }
+    return p;
+  });
+
+  if (needsSave) {
+    saveCustomPlaylists(playlists);
   }
-  return [];
+
+  return playlists;
 }
 
 export function saveCustomPlaylists(playlists: Playlist[]) {
@@ -80,17 +100,56 @@ export function saveCustomPlaylists(playlists: Playlist[]) {
 
 export function createPlaylist(name: string, description?: string, coverImage?: string): Playlist {
   const playlists = getCustomPlaylists();
+  const shareCode = 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
   const newPlaylist: Playlist = {
     id: Date.now().toString(),
+    shareCode,
     name: name.trim() || 'My Playlist',
     description: description?.trim() || '',
     createdAt: Date.now(),
     coverImage,
+    isImported: false,
     tracks: [],
   };
   playlists.push(newPlaylist);
   saveCustomPlaylists(playlists);
   return newPlaylist;
+}
+
+export function getPlaylistByShareCode(code: string): Playlist | undefined {
+  if (!code) return undefined;
+  const cleanCode = code.trim().toUpperCase();
+  const playlists = getCustomPlaylists();
+  return playlists.find(p => p.shareCode?.toUpperCase() === cleanCode);
+}
+
+export function importPlaylistByCode(code: string, sharedPlaylistData?: Playlist): Playlist | null {
+  if (!code) return null;
+  const cleanCode = code.trim().toUpperCase();
+  const playlists = getCustomPlaylists();
+
+  const existing = playlists.find(p => p.shareCode?.toUpperCase() === cleanCode && p.isImported);
+  if (existing) {
+    return existing;
+  }
+
+  const candidate = sharedPlaylistData || playlists.find(p => p.shareCode?.toUpperCase() === cleanCode);
+  if (!candidate) {
+    return null;
+  }
+
+  const importedPlaylist: Playlist = {
+    ...candidate,
+    id: `imported-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    shareCode: cleanCode,
+    isImported: true,
+    name: candidate.name,
+    tracks: [...candidate.tracks],
+  };
+
+  playlists.push(importedPlaylist);
+  saveCustomPlaylists(playlists);
+  return importedPlaylist;
 }
 
 export function addTrackToPlaylist(playlistId: string, track: TrackMetadata): boolean {

@@ -13,7 +13,7 @@ import {
   TouchableWithoutFeedback 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchLyrics, ParsedLyrics } from '../services/lyricsService';
+import { fetchLyrics, ParsedLyrics, sanitizeLyricText } from '../services/lyricsService';
 import { TrackMetadata } from '../utils/storage';
 
 const { height, width } = Dimensions.get('window');
@@ -211,7 +211,7 @@ export function LyricsModal({
                           isPassed && styles.passedLyricLine,
                         ]}
                       >
-                        {item.text || '♪'}
+                        {sanitizeLyricText(item.text) || '♪'}
                       </Text>
                     </TouchableOpacity>
                   );

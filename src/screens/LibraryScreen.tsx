@@ -17,6 +17,7 @@ import {
   createPlaylist, 
   deletePlaylist, 
   getDownloadedTracks,
+  importPlaylistByCode,
   Playlist, 
   DownloadedTrack 
 } from '../utils/storage';
@@ -29,6 +30,8 @@ export function LibraryScreen({ navigation }: any) {
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
+  const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+  const [importShareCode, setImportShareCode] = useState('');
 
   const refreshLibrary = useCallback(async () => {
     setPlaylists(getCustomPlaylists());
@@ -51,6 +54,7 @@ export function LibraryScreen({ navigation }: any) {
   const navigateToDownloads = () => {
     const downloadedPlaylist: Playlist = {
       id: 'downloads',
+      shareCode: 'DOWNLOADS',
       name: 'Downloaded Tracks',
       createdAt: Date.now(),
       tracks: downloadedTracks,
@@ -69,6 +73,26 @@ export function LibraryScreen({ navigation }: any) {
     setNewPlaylistDesc('');
     setIsCreateModalVisible(false);
     refreshLibrary();
+  };
+
+  const handleImportPlaylist = () => {
+    const code = importShareCode.trim();
+    if (!code) {
+      Alert.alert('Error', 'Please enter a valid share code (e.g. SK-XXXXXX).');
+      return;
+    }
+    const imported = importPlaylistByCode(code);
+    if (!imported) {
+      Alert.alert(
+        'Playlist Not Found', 
+        `No playlist with share code "${code.toUpperCase()}" was found on this device. Please verify the code and try again.`
+      );
+      return;
+    }
+    setImportShareCode('');
+    setIsImportModalVisible(false);
+    refreshLibrary();
+    Alert.alert('Shared / Read-Only', `"${imported.name}" has been imported to your library as read-only!`);
   };
 
   const handleDeletePlaylist = (playlist: Playlist) => {
@@ -107,14 +131,24 @@ export function LibraryScreen({ navigation }: any) {
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Your Playlists</Text>
-        <TouchableOpacity 
-          style={styles.newPlaylistBtn} 
-          onPress={() => setIsCreateModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={18} color="#000000" />
-          <Text style={styles.newPlaylistBtnText}>New Playlist</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtonsRow}>
+          <TouchableOpacity 
+            style={styles.importPlaylistBtn} 
+            onPress={() => setIsImportModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="download-outline" size={16} color="#00ffcc" />
+            <Text style={styles.importPlaylistBtnText}>Import</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.newPlaylistBtn} 
+            onPress={() => setIsCreateModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={18} color="#000000" />
+            <Text style={styles.newPlaylistBtnText}>New</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -127,7 +161,7 @@ export function LibraryScreen({ navigation }: any) {
           <TouchableOpacity 
             style={styles.playlistCard} 
             onPress={() => navigateToPlaylist(item)}
-            onLongPress={() => handleDeletePlaylist(item)}
+            onLongPress={() => !item.isImported && handleDeletePlaylist(item)}
             activeOpacity={0.8}
           >
             <View style={styles.playlistImageContainer}>
@@ -138,13 +172,20 @@ export function LibraryScreen({ navigation }: any) {
                   <Ionicons name="musical-notes" size={36} color="#555555" />
                 </View>
               )}
-              <TouchableOpacity 
-                style={styles.deleteIconBtn}
-                onPress={() => handleDeletePlaylist(item)}
-                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-              >
-                <Ionicons name="trash-outline" size={16} color="#ff5252" />
-              </TouchableOpacity>
+              {item.isImported ? (
+                <View style={styles.sharedBadge}>
+                  <Ionicons name="lock-closed" size={10} color="#000000" />
+                  <Text style={styles.sharedBadgeText}>Shared / Read-Only</Text>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.deleteIconBtn}
+                  onPress={() => handleDeletePlaylist(item)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#ff5252" />
+                </TouchableOpacity>
+              )}
             </View>
             <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
             <Text style={styles.playlistCount}>
@@ -200,6 +241,46 @@ export function LibraryScreen({ navigation }: any) {
                   onPress={handleCreatePlaylist}
                 >
                   <Text style={styles.modalSubmitText}>Create</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Import Playlist Modal */}
+      {isImportModalVisible && (
+        <Modal
+          visible={isImportModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsImportModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <Text style={styles.modalTitle}>Import Shared Playlist</Text>
+              <Text style={styles.modalSubtitle}>Enter the unique SK-XXXXXX code shared with you:</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="e.g. SK-8F3K9A"
+                placeholderTextColor="#777777"
+                value={importShareCode}
+                onChangeText={setImportShareCode}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.modalCancel} 
+                  onPress={() => setIsImportModalVisible(false)}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.modalSubmit} 
+                  onPress={handleImportPlaylist}
+                >
+                  <Text style={styles.modalSubmitText}>Import</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -264,6 +345,27 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  headerButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  importPlaylistBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181c',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#00ffcc',
+    gap: 4,
+  },
+  importPlaylistBtnText: {
+    color: '#00ffcc',
+    fontSize: 13,
+    fontWeight: '700',
   },
   newPlaylistBtn: {
     flexDirection: 'row',
@@ -368,10 +470,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2c2c30',
   },
+  sharedBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#00ffcc',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 3,
+  },
+  sharedBadgeText: {
+    color: '#000000',
+    fontSize: 9,
+    fontWeight: '800',
+  },
   modalTitle: {
     color: '#ffffff',
     fontSize: 20,
     fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    color: '#888896',
+    fontSize: 13,
     marginBottom: 16,
   },
   modalInput: {

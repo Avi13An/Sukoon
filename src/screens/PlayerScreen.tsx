@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, PanResponder } from 'react-native';
 import TrackPlayer, { useActiveMediaItem, useIsPlaying, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchLyrics, LrcLibResponse } from '../services/lyricsService';
+import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { toggleLoopMode, playNextTrack } from '../services/TrackPlayerService';
@@ -258,20 +258,9 @@ export function PlayerScreen({ navigation }: any) {
           <Ionicons name="chevron-down" size={32} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Now Playing</Text>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.headerIcon} onPress={() => setIsLyricsModalVisible(true)}>
-            <Ionicons name="mic" size={22} color="#00ffcc" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon} onPress={() => setIsQueueModalVisible(true)}>
-            <Ionicons name="list" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon} onPress={() => setIsAudioSettingsVisible(true)}>
-            <Ionicons name="options" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon} onPress={() => setIsSyncModalVisible(true)}>
-            <Ionicons name="people" size={24} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.headerIcon} onPress={() => setIsAudioSettingsVisible(true)}>
+          <Ionicons name="ellipsis-horizontal" size={24} color="#ffffff" />
+        </TouchableOpacity>
       </View>
 
       {showLyrics ? (
@@ -296,7 +285,7 @@ export function PlayerScreen({ navigation }: any) {
                       isPassed && styles.passedLyricLine
                     ]}
                   >
-                    {line.text}
+                    {sanitizeLyricText(line.text)}
                   </Text>
                 );
               })}
@@ -356,7 +345,46 @@ export function PlayerScreen({ navigation }: any) {
           <TouchableOpacity onPress={skipNext} style={styles.controlBtn}>
             <Ionicons name="play-skip-forward" size={36} color="#ffffff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleToggleDownload} style={styles.controlBtn}>
+          <View style={{ width: 56 }} />
+        </View>
+
+        <View style={styles.secondaryActionsRow}>
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsLyricsModalVisible(true)}
+          >
+            <Ionicons name="mic-outline" size={22} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Lyrics</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsQueueModalVisible(true)}
+          >
+            <Ionicons name="list-outline" size={22} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Queue</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsPlaylistModalVisible(true)}
+          >
+            <Ionicons name="add-circle-outline" size={22} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Playlist</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={() => setIsAudioSettingsVisible(true)}
+          >
+            <Ionicons name="options-outline" size={22} color="#aaaaaa" />
+            <Text style={styles.secondaryActionText}>Audio FX</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
+            onPress={handleToggleDownload}
+          >
             {isDownloading ? (
               <View style={styles.downloadingWrapper}>
                 <ActivityIndicator size="small" color="#00ffcc" />
@@ -365,44 +393,16 @@ export function PlayerScreen({ navigation }: any) {
                 </Text>
               </View>
             ) : isDownloaded ? (
-              <Ionicons name="checkmark-circle" size={28} color="#00ffcc" />
+              <>
+                <Ionicons name="checkmark-circle" size={22} color="#00ffcc" />
+                <Text style={[styles.secondaryActionText, { color: '#00ffcc' }]}>Saved</Text>
+              </>
             ) : (
-              <Ionicons name="arrow-down-circle-outline" size={28} color="#ffffff" />
+              <>
+                <Ionicons name="arrow-down-circle-outline" size={22} color="#aaaaaa" />
+                <Text style={styles.secondaryActionText}>Download</Text>
+              </>
             )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.secondaryActionsRow}>
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsPlaylistModalVisible(true)}
-          >
-            <Ionicons name="bookmark-outline" size={20} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Save</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsLyricsModalVisible(true)}
-          >
-            <Ionicons name="text-outline" size={20} color="#00ffcc" />
-            <Text style={[styles.secondaryActionText, { color: '#00ffcc' }]}>Lyrics</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsQueueModalVisible(true)}
-          >
-            <Ionicons name="layers-outline" size={20} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Queue</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsSyncModalVisible(true)}
-          >
-            <Ionicons name="share-social-outline" size={20} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Sync</Text>
           </TouchableOpacity>
         </View>
       </View>

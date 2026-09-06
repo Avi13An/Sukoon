@@ -222,8 +222,32 @@ export function HomeScreen() {
     );
   };
 
+  const getAmbientColors = (): [string, string, string] => {
+    switch (selectedCategory) {
+      case 'Lo-Fi':
+        return ['rgba(138, 43, 226, 0.25)', 'rgba(28, 15, 51, 0.5)', '#000000'];
+      case 'Bollywood':
+      case 'Acoustic':
+        return ['rgba(255, 85, 85, 0.22)', 'rgba(51, 19, 15, 0.5)', '#000000'];
+      case 'Punjabi':
+      case 'Workout':
+        return ['rgba(255, 170, 0, 0.22)', 'rgba(51, 39, 15, 0.5)', '#000000'];
+      case 'Sufi':
+        return ['rgba(0, 180, 216, 0.22)', 'rgba(15, 41, 51, 0.5)', '#000000'];
+      case 'Trending':
+        return ['rgba(255, 42, 109, 0.22)', 'rgba(40, 10, 30, 0.5)', '#000000'];
+      default:
+        return ['rgba(0, 255, 204, 0.20)', 'rgba(0, 40, 35, 0.5)', '#000000'];
+    }
+  };
+
   return (
     <View style={styles.screen}>
+      <LinearGradient 
+        colors={getAmbientColors()} 
+        style={styles.ambientGlow}
+        pointerEvents="none"
+      />
       <ScrollView 
         style={styles.container}
         showsVerticalScrollIndicator={false}
@@ -238,7 +262,7 @@ export function HomeScreen() {
       >
         {/* Glowing Top Banner & Hero Header */}
         <LinearGradient 
-          colors={['rgba(0, 255, 204, 0.18)', 'rgba(10, 10, 15, 0.85)', '#000000']} 
+          colors={getAmbientColors()} 
           style={styles.heroHeader}
         >
           <View style={styles.heroTopRow}>
@@ -432,6 +456,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
+  ambientGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 420,
+  },
   container: {
     flex: 1,
   },
@@ -487,12 +518,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categoryChip: {
-    backgroundColor: '#16161b',
+    backgroundColor: '#0d0d0d',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#24242e',
+    borderColor: '#222222',
   },
   categoryChipActive: {
     backgroundColor: '#00ffcc',
@@ -561,12 +592,12 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 12,
-    backgroundColor: '#18181f',
+    backgroundColor: '#0d0d0d',
     marginBottom: 8,
     position: 'relative',
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#24242e',
+    borderColor: '#222222',
   },
   thumbnail: {
     width: '100%',
@@ -659,11 +690,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   placeholder: {
-    backgroundColor: '#14141a',
+    backgroundColor: '#0d0d0d',
     padding: 20,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#22222b',
+    borderColor: '#222222',
   },
   placeholderText: {
     color: '#777785',

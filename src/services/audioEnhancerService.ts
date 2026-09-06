@@ -89,10 +89,10 @@ export async function openSystemEqualizer() {
     });
   } catch (err) {
     try {
-      await Linking.sendIntent('android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL');
-    } catch (linkingErr) {
+      await IntentLauncher.startActivityAsync('android.settings.SOUND_SETTINGS');
+    } catch (soundErr) {
       try {
-        await Linking.openURL('intent:#Intent;action=android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL;type=audio/*;end');
+        await Linking.openSettings();
       } catch (fallbackErr) {
         Alert.alert(
           'System Equalizer',

@@ -49,10 +49,15 @@ export function addToUpNextQueue(track: TrackMetadata) {
   }
 }
 
+export const MIN_QUEUE_SIZE = 10;
+
 export function removeFromUpNextQueue(index: number) {
   if (index >= 0 && index < upNextQueue.length) {
     upNextQueue.splice(index, 1);
     notifyQueueChange();
+    if (upNextQueue.length < MIN_QUEUE_SIZE) {
+      prefetchAutoplayQueue().catch(() => {});
+    }
   }
 }
 
@@ -72,25 +77,37 @@ export async function prefetchAutoplayQueue(currentTrack?: TrackMetadata) {
   try {
     const baseTrack = currentTrack || getLastPlayedTrack();
     if (!baseTrack) return;
+    if (upNextQueue.length >= MIN_QUEUE_SIZE) return;
+
     const history = getListenHistory();
     const historyIds = new Set(history.map(t => t.id));
     historyIds.add(baseTrack.id);
     upNextQueue.forEach(t => historyIds.add(t.id));
 
-    const query = baseTrack.artist && baseTrack.artist !== 'Unknown Artist'
-      ? `${baseTrack.artist} hits`
-      : `${baseTrack.title} radio`;
+    const queries = [
+      baseTrack.artist && baseTrack.artist !== 'Unknown Artist'
+        ? `${baseTrack.artist} top songs`
+        : `${baseTrack.title} radio`,
+      baseTrack.artist && (baseTrack as any).genre
+        ? `${baseTrack.artist} ${(baseTrack as any).genre}`
+        : `${baseTrack.artist || 'Bollywood'} hits`
+    ];
 
-    const candidates = await searchTracks(query);
-    if (Array.isArray(candidates) && candidates.length > 0) {
-      const freshCandidates = candidates.filter(t => t?.id && !historyIds.has(t.id));
-      const newItems = freshCandidates.slice(0, 4);
-      if (newItems.length > 0) {
-        upNextQueue.push(...newItems);
-        notifyQueueChange();
-        console.log(`[Autoplay] Appended ${newItems.length} candidate tracks to upNextQueue. Total queue: ${upNextQueue.length}`);
+    for (const q of queries) {
+      if (upNextQueue.length >= MIN_QUEUE_SIZE) break;
+      const candidates = await searchTracks(q);
+      if (Array.isArray(candidates) && candidates.length > 0) {
+        const freshCandidates = candidates.filter(t => t?.id && !historyIds.has(t.id));
+        for (const cand of freshCandidates) {
+          if (upNextQueue.length >= MIN_QUEUE_SIZE) break;
+          historyIds.add(cand.id);
+          upNextQueue.push(cand);
+        }
       }
     }
+
+    notifyQueueChange();
+    console.log(`[Autoplay] Queue updated. Total staged tracks: ${upNextQueue.length}`);
   } catch (err) {
     console.error('[Autoplay] Error prefetching autoplay queue:', err);
   }
@@ -141,8 +158,8 @@ export async function playNextTrack(forcedTrackIndex?: number) {
       }
     }
 
-    // Whenever upNextQueue.length < 3, proactively fetch 3-4 more related songs
-    if (upNextQueue.length < 3) {
+    // Proactively replenish queue if below MIN_QUEUE_SIZE
+    if (upNextQueue.length < MIN_QUEUE_SIZE) {
       prefetchAutoplayQueue(candidate || getLastPlayedTrack() || undefined).catch(() => {});
     }
   } catch (err) {
@@ -218,11 +235,20 @@ export async function setupPlayer(): Promise<boolean> {
   }
 }
 
+let currentSoundBoostPercent = 0;
+try {
+  const initialEq = getEqualizerSettings();
+  if (initialEq && typeof initialEq.soundBoost === 'number') {
+    currentSoundBoostPercent = initialEq.soundBoost;
+  }
+} catch {}
+
 export async function applySoundBoost(boostPercent: number) {
-  const clamped = Math.max(0, Math.min(100, boostPercent));
-  const gainMultiplier = 1.0 + (clamped / 100) * 0.2; // provides subtle headroom boost
+  currentSoundBoostPercent = Math.max(0, Math.min(100, boostPercent));
+  // Base volume is 0.72. 100% boost scales it smoothly to 1.0 (true hardware ceiling)
+  const calculatedVolume = 0.72 + (currentSoundBoostPercent / 100) * 0.28;
   if (typeof TrackPlayer.setVolume === 'function') {
-    await TrackPlayer.setVolume(Math.min(1.2, gainMultiplier));
+    await TrackPlayer.setVolume(calculatedVolume);
   }
 }
 
@@ -349,11 +375,10 @@ export async function playTrack(metadata: TrackMetadata) {
     prefetchAutoplayQueue(metadata).catch(() => {});
     
     const eqSettings = getEqualizerSettings();
-    if (eqSettings.enabled && eqSettings.soundBoost > 0) {
-      await applySoundBoost(eqSettings.soundBoost);
-    } else if (typeof TrackPlayer.setVolume === 'function') {
-      await TrackPlayer.setVolume(1.0);
+    if (eqSettings.enabled && typeof eqSettings.soundBoost === 'number') {
+      currentSoundBoostPercent = eqSettings.soundBoost;
     }
+    await applySoundBoost(currentSoundBoostPercent);
 
     if (typeof play === 'function') {
       await play();

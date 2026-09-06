@@ -40,6 +40,15 @@ function transliterateIfNeeded(text: string | null): string | null {
   return text;
 }
 
+export function sanitizeLyricText(text: string): string {
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  // Clean strange alternating/erratic casing (e.g. "eVerYOne" -> "Everyone")
+  const lower = trimmed.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
 export function cleanTitleForLyrics(rawTitle: string): string {
   if (!rawTitle) return '';
   return rawTitle
@@ -106,7 +115,14 @@ function processLrcData(data: LrcLibResponse): ParsedLyrics {
   let parsedLines: SyncedLyricLine[] = [];
 
   if (synced) {
-    parsedLines = parseSyncedLyrics(synced);
+    parsedLines = parseSyncedLyrics(synced).map(line => ({
+      ...line,
+      text: sanitizeLyricText(line.text)
+    }));
+  }
+
+  if (plain) {
+    plain = plain.split('\n').map(l => sanitizeLyricText(l)).join('\n');
   }
 
   return {

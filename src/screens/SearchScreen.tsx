@@ -19,6 +19,7 @@ import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer, { Event, PlaybackState } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { Ionicons } from '@expo/vector-icons';
 
 export function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -256,16 +257,35 @@ export function SearchScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search songs, artists..."
-          placeholderTextColor="#888"
-          value={query}
-          onChangeText={handleTextChange}
-          onFocus={() => setIsInputFocused(true)}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
-        />
+        <View style={styles.searchBarContainer}>
+          <Ionicons name="search" size={20} color="#888888" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search songs, artists..."
+            placeholderTextColor="#888"
+            value={query}
+            onChangeText={handleTextChange}
+            onFocus={() => setIsInputFocused(true)}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity 
+              onPress={() => {
+                if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                if (abortControllerRef.current) abortControllerRef.current.abort();
+                setQuery('');
+                handleTextChange('');
+                setResults([]);
+                setShowSuggestions(false);
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.clearSearchButton}
+            >
+              <Ionicons color="#777777" name="close-circle" size={20}/>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       
       {query.trim().length >= 2 && showSuggestions && suggestions.length > 0 && (
@@ -409,13 +429,26 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#000000',
   },
-  searchInput: {
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#121212',
-    color: '#ffffff',
     borderRadius: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#222222',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#ffffff',
     paddingVertical: 12,
     fontSize: 16,
+  },
+  clearSearchButton: {
+    padding: 4,
   },
   listContent: {
     paddingHorizontal: 16,

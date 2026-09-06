@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import Animated, { 
   useSharedValue, 
   useAnimatedScrollHandler, 
@@ -41,6 +42,7 @@ interface PlaylistScreenProps {
 export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   const initialPlaylist: Playlist = route.params?.playlist || {
     id: 'unknown',
+    shareCode: '',
     name: 'Playlist',
     createdAt: Date.now(),
     tracks: [],
@@ -55,6 +57,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         const downloaded = getDownloadedTracks();
         setPlaylist({
           id: 'downloads',
+          shareCode: 'DOWNLOADS',
           name: 'Downloaded Tracks',
           description: 'Offline audio stored directly on device for fast, data-free listening.',
           createdAt: Date.now(),
@@ -132,11 +135,22 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     }
   };
 
+  const handleCopyShareCode = async () => {
+    if (!playlist.shareCode) return;
+    try {
+      await Clipboard.setStringAsync(playlist.shareCode);
+      Alert.alert('Share Code Copied', `Share Code ${playlist.shareCode} copied!`);
+    } catch {
+      Alert.alert('Share Code', `Share Code: ${playlist.shareCode}`);
+    }
+  };
+
   const handlePlayTrack = (track: TrackMetadata) => {
     playTrack(track);
   };
 
   const handleRemoveTrack = (track: TrackMetadata) => {
+    if (playlist.isImported) return;
     const isDownloads = playlistId === 'downloads';
     Alert.alert(
       isDownloads ? 'Delete Download' : 'Remove Track',
@@ -184,13 +198,15 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity 
-        style={styles.removeBtn} 
-        onPress={() => handleRemoveTrack(item)}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Ionicons name="trash-outline" size={18} color="#ff5252" />
-      </TouchableOpacity>
+      {!playlist.isImported && (
+        <TouchableOpacity 
+          style={styles.removeBtn} 
+          onPress={() => handleRemoveTrack(item)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="trash-outline" size={18} color="#ff5252" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -212,6 +228,12 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
             <Ionicons name="arrow-back" size={24} color="#ffffff" />
           </TouchableOpacity>
           <Text style={styles.playlistName} numberOfLines={1}>{playlist.name}</Text>
+          {playlist.isImported && (
+            <View style={styles.viewOnlyBadge}>
+              <Ionicons name="lock-closed" size={11} color="#00ffcc" />
+              <Text style={styles.viewOnlyBadgeText}>Shared Playlist (View Only)</Text>
+            </View>
+          )}
           {playlist.description ? (
             <Text style={styles.playlistDesc} numberOfLines={2}>{playlist.description}</Text>
           ) : null}
@@ -243,10 +265,19 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 <Ionicons name="arrow-down-circle-outline" size={18} color="#ffffff" />
                 <Text style={styles.secondaryBtnText}>Download</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={() => setIsShareModalVisible(true)} activeOpacity={0.7}>
-                <Ionicons name="share-social-outline" size={18} color="#ffffff" />
-                <Text style={styles.secondaryBtnText}>Share</Text>
-              </TouchableOpacity>
+              
+              {!playlist.isImported && playlistId !== 'downloads' && (
+                <>
+                  <TouchableOpacity style={styles.secondaryBtn} onPress={handleCopyShareCode} activeOpacity={0.7}>
+                    <Ionicons name="copy-outline" size={18} color="#00ffcc" />
+                    <Text style={[styles.secondaryBtnText, { color: '#00ffcc' }]}>Share Code</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryBtn} onPress={() => setIsShareModalVisible(true)} activeOpacity={0.7}>
+                    <Ionicons name="share-social-outline" size={18} color="#ffffff" />
+                    <Text style={styles.secondaryBtnText}>Invite</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         }
@@ -345,6 +376,24 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: 'bold',
     marginBottom: 4,
+  },
+  viewOnlyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 255, 204, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.3)',
+    marginBottom: 6,
+    gap: 4,
+  },
+  viewOnlyBadgeText: {
+    color: '#00ffcc',
+    fontSize: 11,
+    fontWeight: '700',
   },
   playlistDesc: {
     color: '#cccccc',

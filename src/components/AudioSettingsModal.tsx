@@ -27,6 +27,7 @@ import {
   toggleEqualizer, 
   openSystemEqualizer 
 } from '../services/audioEnhancerService';
+import { applySoundBoost } from '../services/TrackPlayerService';
 
 const { height, width } = Dimensions.get('window');
 
@@ -74,12 +75,8 @@ export function AudioSettingsModal({ visible, onClose }: Props) {
   const handleSoundBoostChange = async (val: number) => {
     const updated = await updateSoundBoost(val);
     setSettings({ ...updated });
-    if (updated.enabled && typeof TrackPlayer.setVolume === 'function') {
-      const clamped = Math.max(0, Math.min(100, val));
-      const gainMultiplier = 1.0 + (clamped / 100) * 0.2;
-      try {
-        await TrackPlayer.setVolume(Math.min(1.2, gainMultiplier));
-      } catch {}
+    if (updated.enabled) {
+      await applySoundBoost(val);
     }
   };
 
