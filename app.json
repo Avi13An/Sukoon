@@ -36,18 +36,12 @@
     },
     "extra": {
       "eas": {
-        "projectId": "715ab528-05cc-4555-a4ab-73d2d40d3f68"
+        "projectId": "776d3a4c-1c06-445b-abbb-68d04fca4d31"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/776d3a4c-1c06-445b-abbb-68d04fca4d31"
-    },
-    "owner": "venom13212006",
     "plugins": [
       "expo-sharing"
-    ]
+    ],
+    "owner": "venomavan"
   }
 }
