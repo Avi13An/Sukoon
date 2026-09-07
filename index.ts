@@ -2,7 +2,13 @@ import 'react-native-get-random-values';
 import { registerRootComponent } from 'expo';
 import TrackPlayer, { Event, PlaybackState, type BackgroundEvent } from '@rntp/player';
 import App from './App';
-import { playNextTrack, playPreviousTrack, handleAutoplayTransition, PlaybackService } from './src/services/TrackPlayerService';
+import {
+  playNextTrack,
+  playPreviousTrack,
+  handleActiveTrackChanged,
+  handleEmergencyQueueEnded,
+  PlaybackService,
+} from './src/services/TrackPlayerService';
 
 try {
   TrackPlayer.registerBackgroundEventHandler(() => async (event: BackgroundEvent) => {
@@ -21,24 +27,16 @@ try {
         try { await TrackPlayer.seekTo(pos); } catch {}
       }
     } else if (
-      event.type === Event.PlaybackStateChanged &&
-      ((event as any).state === PlaybackState.Ended || (event as any).state === 'ended')
+      event.type === Event.MediaItemTransition ||
+      event.type === ((Event as any).PlaybackActiveTrackChanged || 'playback-active-track-changed')
     ) {
-      console.log('[BackgroundEvent] PlaybackState.Ended received, triggering autoplay...');
-      await handleAutoplayTransition();
-    } else if (
-      event.type === Event.MediaItemTransition &&
-      (event as any).item === null &&
-      (event as any).index === -1
-    ) {
-      console.log('[BackgroundEvent] MediaItemTransition to null received, triggering autoplay...');
-      await handleAutoplayTransition();
+      await handleActiveTrackChanged(event);
     } else if (
       (event.type as any) === 'event.playback-queue-ended' ||
       (event.type as any) === (Event as any).PlaybackQueueEnded
     ) {
-      console.log('[BackgroundEvent] PlaybackQueueEnded received, triggering autoplay...');
-      await handleAutoplayTransition();
+      console.log('[BackgroundEvent] PlaybackQueueEnded emergency received...');
+      await handleEmergencyQueueEnded();
     }
   });
 } catch (e) {
@@ -48,20 +46,16 @@ try {
 try {
   const queueEndedEvent = (Event as any).PlaybackQueueEnded || 'event.playback-queue-ended';
   TrackPlayer.addEventListener(queueEndedEvent as any, async () => {
-    await handleAutoplayTransition();
-  });
-
-  TrackPlayer.addEventListener(Event.PlaybackStateChanged, async (event: any) => {
-    if (event?.state === PlaybackState.Ended || (event as any)?.state === 'ended') {
-      await handleAutoplayTransition();
-    }
+    await handleEmergencyQueueEnded();
   });
 
   TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
-    // Only trigger if a track actually finished, not during empty queue resets
-    if (event?.item === null && event?.index === -1) {
-      await handleAutoplayTransition();
-    }
+    await handleActiveTrackChanged(event);
+  });
+
+  const activeTrackChangedEvent = (Event as any).PlaybackActiveTrackChanged || 'playback-active-track-changed';
+  TrackPlayer.addEventListener(activeTrackChangedEvent as any, async (event: any) => {
+    await handleActiveTrackChanged(event);
   });
 } catch (err) {
   console.log('[index.ts] addEventListener warning:', err);
