@@ -45,6 +45,28 @@ try {
   console.log('[index.ts] registerBackgroundEventHandler warning:', e);
 }
 
+try {
+  const queueEndedEvent = (Event as any).PlaybackQueueEnded || 'event.playback-queue-ended';
+  TrackPlayer.addEventListener(queueEndedEvent as any, async () => {
+    await handleAutoplayTransition();
+  });
+
+  TrackPlayer.addEventListener(Event.PlaybackStateChanged, async (event: any) => {
+    if (event?.state === PlaybackState.Ended || (event as any)?.state === 'ended') {
+      await handleAutoplayTransition();
+    }
+  });
+
+  TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
+    // Only trigger if a track actually finished, not during empty queue resets
+    if (event?.item === null && event?.index === -1) {
+      await handleAutoplayTransition();
+    }
+  });
+} catch (err) {
+  console.log('[index.ts] addEventListener warning:', err);
+}
+
 if (typeof (TrackPlayer as any).registerPlaybackService === 'function') {
   try {
     (TrackPlayer as any).registerPlaybackService(() => PlaybackService);

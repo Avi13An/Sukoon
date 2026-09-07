@@ -28,6 +28,7 @@ export const AppKilledPlaybackBehavior = {
 let isPlayerSetup = false;
 let isListenersAttached = false;
 let isResolvingAutoplay = false;
+let isLoadingTrack = false;
 let upNextQueue: TrackMetadata[] = [];
 let playbackHistory: TrackMetadata[] = [];
 let currentTrack: TrackMetadata | null = null;
@@ -225,9 +226,19 @@ export async function playPreviousTrack() {
 
 let isAutoTransitioning = false;
 export async function handleAutoplayTransition() {
-  if (isAutoTransitioning) return;
-  isAutoTransitioning = true;
+  // Guard 1: Ignore transition if a song is currently being loaded/selected
+  if (isLoadingTrack || isAutoTransitioning) {
+    return;
+  }
+
   try {
+    // Guard 2: Verify the song actually completed before auto-advancing
+    const progress = await TrackPlayer.getProgress();
+    if (progress && progress.duration > 0 && progress.position < progress.duration - 2) {
+      // False alarm: Player was reset, paused, or scrubbed, not naturally ended
+      return;
+    }
+
     if (await handleTrackEndedForSleepTimer()) {
       console.log('[Autoplay] Sleep timer ended or paused playback');
       return;
@@ -237,13 +248,15 @@ export async function handleAutoplayTransition() {
       console.log('[Autoplay] Repeat mode active, skipping autoplay');
       return;
     }
+
+    isAutoTransitioning = true;
     await playNextTrack();
   } catch (err) {
-    console.error('[Autoplay] Error in handleAutoplayTransition:', err);
+    console.warn('Error in handleAutoplayTransition:', err);
   } finally {
     setTimeout(() => {
       isAutoTransitioning = false;
-    }, 1000);
+    }, 1500);
   }
 }
 
@@ -313,11 +326,9 @@ export async function setupPlayer(): Promise<boolean> {
       });
 
       TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
+        // Only trigger if a track actually finished, not during empty queue resets
         if (event?.item === null && event?.index === -1) {
           console.log('[TrackPlayerService] MediaItemTransition ended, triggering autoplay...');
-          await handleAutoplayTransition();
-        } else if (typeof event?.index === 'number' && event.index > 0) {
-          console.log('[TrackPlayerService] MediaItemTransition advanced natively to index', event.index);
           await handleAutoplayTransition();
         }
       });
@@ -450,6 +461,7 @@ export async function playTrack(
   contextQueue?: TrackMetadata[],
   preserveExistingQueue = false
 ) {
+  isLoadingTrack = true;
   try {
     const isPlayerReady = await setupPlayer();
     if (!isPlayerReady) {
@@ -575,7 +587,12 @@ export async function playTrack(
     } catch {}
   } catch (error: any) {
     console.error('[TrackPlayerService] playTrack error:', error);
+    isLoadingTrack = false;
     throw error;
+  } finally {
+    setTimeout(() => {
+      isLoadingTrack = false;
+    }, 1200);
   }
 }
 
