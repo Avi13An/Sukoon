@@ -1,104 +1,52 @@
-import { Linking, Platform, Alert } from 'react-native';
-import * as IntentLauncher from 'expo-intent-launcher';
 import { 
-  EqualizerSettings, 
+  AudioFxSettings, 
   EqualizerPresetName, 
-  EQUALIZER_PRESETS, 
-  getEqualizerSettings, 
-  saveEqualizerSettings 
-} from '../utils/storage';
-import { applySoundBoost } from './TrackPlayerService';
+  FX_PRESETS, 
+  BAND_FREQUENCIES,
+  getAudioFxSettings, 
+  saveAudioFxSettings,
+  applyPreset,
+  setBandLevel,
+  setBassBoostStrength,
+  setSoundBoost,
+  toggleAudioFx,
+  openSystemEqualizer as openNativeOrSystemEq
+} from './audioEffectsService';
 
 export const EQ_PRESETS: EqualizerPresetName[] = [
   'Flat', 
-  'Bass Boost', 
-  'Vocal', 
+  'Bass Heavy (Skull Shaker)', 
+  'Vocal & Acoustic', 
+  'Club / Electronic', 
   'Pop', 
   'Rock', 
-  'Electronic', 
   'Custom'
 ];
 
 export async function setEqualizerPreset(preset: EqualizerPresetName) {
-  const current = getEqualizerSettings();
-  if (preset === 'Custom') {
-    current.preset = 'Custom';
-    saveEqualizerSettings(current);
-    return current;
-  }
-
-  const presetConfig = EQUALIZER_PRESETS[preset];
-  if (presetConfig) {
-    current.preset = preset;
-    current.bassBoost = presetConfig.bassBoost;
-    current.bands = { ...presetConfig.bands };
-    saveEqualizerSettings(current);
-  }
-  return current;
+  return applyPreset(preset);
 }
 
 export async function updateEqualizerBand(frequency: string, value: number) {
-  const current = getEqualizerSettings();
-  current.preset = 'Custom';
-  current.bands[frequency] = Math.max(-10, Math.min(10, value));
-  saveEqualizerSettings(current);
-  return current;
+  const index = BAND_FREQUENCIES.indexOf(frequency);
+  const bandIndex = index >= 0 ? index : 0;
+  return setBandLevel(bandIndex, value * 100);
 }
 
 export async function updateBassBoost(value: number) {
-  const current = getEqualizerSettings();
-  current.bassBoost = Math.max(0, Math.min(100, value));
-  saveEqualizerSettings(current);
-  return current;
+  // Value can be 0-100 or 0-1000; scale appropriately if 0-100 is passed
+  const scaled = value <= 100 ? value * 10 : value;
+  return setBassBoostStrength(scaled);
 }
 
 export async function updateSoundBoost(value: number) {
-  const current = getEqualizerSettings();
-  current.soundBoost = Math.max(0, Math.min(100, value));
-  saveEqualizerSettings(current);
-  if (current.enabled) {
-    await applySoundBoost(current.soundBoost);
-  }
-  return current;
+  return setSoundBoost(value);
 }
 
 export async function toggleEqualizer(enabled: boolean) {
-  const current = getEqualizerSettings();
-  current.enabled = enabled;
-  saveEqualizerSettings(current);
-  if (enabled) {
-    await applySoundBoost(current.soundBoost);
-  } else {
-    await applySoundBoost(0);
-  }
-  return current;
+  return toggleAudioFx(enabled);
 }
 
 export async function openSystemEqualizer() {
-  if (Platform.OS !== 'android') {
-    Alert.alert(
-      'System Equalizer',
-      'System-level equalizer panels are exclusive to Android (Dolby Atmos/SoundAlive). Sukoon DSP equalizer applies directly to playback on iOS.'
-    );
-    return;
-  }
-
-  try {
-    await IntentLauncher.startActivityAsync('android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL', {
-      extra: { 'android.media.extra.CONTENT_TYPE': 0 }
-    });
-  } catch (err) {
-    try {
-      await IntentLauncher.startActivityAsync('android.settings.SOUND_SETTINGS');
-    } catch (soundErr) {
-      try {
-        await Linking.openSettings();
-      } catch (fallbackErr) {
-        Alert.alert(
-          'System Equalizer',
-          'Open Phone Settings > Sound & Vibration > Sound Effects / Dolby Atmos to configure hardware audio frequencies.'
-        );
-      }
-    }
-  }
+  return openNativeOrSystemEq();
 }

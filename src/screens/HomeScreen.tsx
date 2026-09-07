@@ -18,6 +18,8 @@ import { getLastPlayedTrack, getListenHistory, TrackMetadata } from '../utils/st
 import { getRecommendedTracks, searchTracks } from '../services/musicApi';
 import { playTrack, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { PartyModal } from '../components/PartyModal';
+import { getPartyState, subscribeToPartyState, PartyState } from '../services/partyService';
 import { getAmbientThemeForTrack, getAmbientColorForTrack } from '../utils/colorExtractor';
 
 const { width } = Dimensions.get('window');
@@ -89,6 +91,13 @@ export function HomeScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [playlistModalTrack, setPlaylistModalTrack] = useState<TrackMetadata | null>(null);
+  const [isPartyModalVisible, setIsPartyModalVisible] = useState(false);
+  const [partyState, setPartyState] = useState<PartyState>(getPartyState());
+
+  useEffect(() => {
+    const unsub = subscribeToPartyState(setPartyState);
+    return unsub;
+  }, []);
 
   const loadData = useCallback(async () => {
     const history = getListenHistory();
@@ -277,9 +286,21 @@ export function HomeScreen() {
               <Text style={styles.brandTitle}>Sukoon</Text>
               <Text style={styles.brandTagline}>Your Sanctuary of Pure Sound</Text>
             </View>
-            <View style={styles.brandPill}>
-              <View style={styles.greenDot} />
-              <Text style={styles.brandPillText}>LOSSLESS DSP</Text>
+            <View style={styles.heroRightActions}>
+              <TouchableOpacity 
+                style={[styles.partyPill, partyState.isActive && styles.partyPillActive]} 
+                onPress={() => setIsPartyModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="sparkles" size={13} color={partyState.isActive ? "#000000" : "#00ffcc"} />
+                <Text style={[styles.partyPillText, partyState.isActive && styles.partyPillTextActive]}>
+                  {partyState.isActive ? `Jam: ${partyState.roomCode}` : 'Jam'}
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.brandPill}>
+                <View style={styles.greenDot} />
+                <Text style={styles.brandPillText}>LOSSLESS DSP</Text>
+              </View>
             </View>
           </View>
         </LinearGradient>
@@ -454,6 +475,11 @@ export function HomeScreen() {
         track={playlistModalTrack} 
         onClose={() => setPlaylistModalTrack(null)} 
       />
+
+      <PartyModal
+        visible={isPartyModalVisible}
+        onClose={() => setIsPartyModalVisible(false)}
+      />
     </View>
   );
 }
@@ -482,6 +508,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  heroRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  partyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#18181c',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2e2e36',
+  },
+  partyPillActive: {
+    backgroundColor: '#00ffcc',
+    borderColor: '#00ffcc',
+  },
+  partyPillText: {
+    color: '#00ffcc',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  partyPillTextActive: {
+    color: '#000000',
   },
   brandTitle: {
     color: '#ffffff',

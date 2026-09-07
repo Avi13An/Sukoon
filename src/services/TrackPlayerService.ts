@@ -567,6 +567,13 @@ export async function playTrack(metadata: TrackMetadata) {
     } else {
       await TrackPlayer.play();
     }
+
+    try {
+      const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
+      if (isPartyActive() && !isHandlingRemoteSync()) {
+        broadcastPartyAction('TRACK_CHANGE', { track: metadata });
+      }
+    } catch {}
   } catch (error: any) {
     console.error('[TrackPlayerService] playTrack error:', error);
     throw error;

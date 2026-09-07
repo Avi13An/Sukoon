@@ -4,7 +4,6 @@ import TrackPlayer, { useActiveMediaItem, useIsPlaying, RepeatMode } from '@rntp
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
-import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { toggleLoopMode, playNextTrack } from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,8 +13,15 @@ import { QueueModal } from '../components/QueueModal';
 import { LyricsModal } from '../components/LyricsModal';
 import { KaraokeStudioModal } from '../components/KaraokeStudioModal';
 import { SleepTimerModal } from '../components/SleepTimerModal';
+import { PartyModal } from '../components/PartyModal';
 import { showToast } from '../components/ToastNotification';
 import { subscribeToSleepTimer, SleepTimerState, getSleepTimerState } from '../services/sleepTimerService';
+import { 
+  getPartyState, 
+  subscribeToPartyState, 
+  broadcastPartyAction, 
+  PartyState 
+} from '../services/partyService';
 import { TrackMetadata } from '../utils/storage';
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
@@ -57,6 +63,20 @@ export function PlayerScreen({ navigation }: any) {
     };
   }, [(track as any)?.id || (track as any)?.mediaId]);
 
+  const [partyState, setPartyState] = useState<PartyState>(getPartyState());
+  const partyStateRef = useRef(partyState);
+  partyStateRef.current = partyState;
+
+  useEffect(() => {
+    const unsub = subscribeToPartyState((st) => {
+      setPartyState(st);
+      partyStateRef.current = st;
+    });
+    return unsub;
+  }, []);
+
+  const [isPartyModalVisible, setIsPartyModalVisible] = useState(false);
+
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
 
@@ -71,6 +91,9 @@ export function PlayerScreen({ navigation }: any) {
     setCurrentPos(clamped);
     try {
       await TrackPlayer.seekTo(clamped);
+      if (partyStateRef.current.isActive) {
+        broadcastPartyAction('SEEK', { position: clamped });
+      }
     } catch {}
   };
 
@@ -101,6 +124,9 @@ export function PlayerScreen({ navigation }: any) {
         setCurrentPos(targetSeconds);
         try {
           await TrackPlayer.seekTo(targetSeconds);
+          if (partyStateRef.current.isActive) {
+            broadcastPartyAction('SEEK', { position: targetSeconds });
+          }
         } catch {}
         setTimeout(() => {
           isScrubbingRef.current = false;
@@ -193,8 +219,14 @@ export function PlayerScreen({ navigation }: any) {
   const togglePlayback = async () => {
     if (isPlaying) {
       await TrackPlayer.pause();
+      if (partyStateRef.current.isActive) {
+        broadcastPartyAction('PAUSE');
+      }
     } else {
       await TrackPlayer.play();
+      if (partyStateRef.current.isActive) {
+        broadcastPartyAction('PLAY');
+      }
     }
   };
 
@@ -210,22 +242,6 @@ export function PlayerScreen({ navigation }: any) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
-  const [syncTarget, setSyncTarget] = useState('');
-  const [isSyncModalVisible, setIsSyncModalVisible] = useState(false);
-
-  const handleHostSync = async () => {
-    if (!syncTarget.trim()) return;
-    try {
-      await hostSyncSession(syncTarget.trim());
-      inviteToSync(syncTarget.trim());
-      setIsSyncModalVisible(false);
-      setSyncTarget('');
-      Alert.alert('Success', `Invited ${syncTarget.trim()} to sync!`);
-    } catch (e) {
-      console.error(e);
-    }
   };
 
   // Find active line index for synced lyrics
@@ -329,18 +345,45 @@ export function PlayerScreen({ navigation }: any) {
           <Ionicons name="chevron-down" size={32} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Now Playing</Text>
-        <TouchableOpacity 
-          style={styles.headerIcon} 
-          onPress={() => setIsSleepTimerVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons 
-            name={sleepState.isActive ? "moon" : "moon-outline"} 
-            size={24} 
-            color={sleepState.isActive ? "#00ffcc" : "#ffffff"} 
-          />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity 
+            style={styles.headerIcon} 
+            onPress={() => setIsPartyModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name={partyState.isActive ? "sparkles" : "sparkles-outline"} 
+              size={22} 
+              color={partyState.isActive ? "#00ffcc" : "#ffffff"} 
+            />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerIcon} 
+            onPress={() => setIsSleepTimerVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name={sleepState.isActive ? "moon" : "moon-outline"} 
+              size={22} 
+              color={sleepState.isActive ? "#00ffcc" : "#ffffff"} 
+            />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {partyState.isActive && (
+        <TouchableOpacity 
+          style={styles.partyBanner} 
+          onPress={() => setIsPartyModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.partyBannerPulse} />
+          <Text style={styles.partyBannerText}>
+            🎉 Party Sync Active • Code: {partyState.roomCode}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color="#00ffcc" />
+        </TouchableOpacity>
+      )}
 
       {showLyrics ? (
         <View style={styles.lyricsContainer}>
@@ -504,29 +547,10 @@ export function PlayerScreen({ navigation }: any) {
         </View>
       </View>
 
-      {isSyncModalVisible && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Host Sync Session</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Enter friend's username"
-              placeholderTextColor="#888888"
-              value={syncTarget}
-              onChangeText={setSyncTarget}
-              autoCapitalize="none"
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setIsSyncModalVisible(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.modalSubmit} onPress={handleHostSync}>
-                <Text style={styles.modalSubmitText}>Invite</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
+      <PartyModal
+        visible={isPartyModalVisible}
+        onClose={() => setIsPartyModalVisible(false)}
+      />
 
       <AudioSettingsModal visible={isAudioSettingsVisible} onClose={() => setIsAudioSettingsVisible(false)} />
       <SleepTimerModal visible={isSleepTimerVisible} onClose={() => setIsSleepTimerVisible(false)} />
@@ -616,6 +640,37 @@ const styles = StyleSheet.create({
   headerIcon: {
     marginLeft: 16,
     padding: 4,
+  },
+  partyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 20,
+    marginBottom: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.4)',
+    gap: 8,
+  },
+  partyBannerPulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#00ffcc',
+    shadowColor: '#00ffcc',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  partyBannerText: {
+    color: '#00ffcc',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   lyricsToggle: {
     padding: 4,

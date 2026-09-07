@@ -1,3 +1,4 @@
+import 'react-native-get-random-values';
 import { registerRootComponent } from 'expo';
 import TrackPlayer, { Event, PlaybackState, type BackgroundEvent } from '@rntp/player';
 import App from './App';
