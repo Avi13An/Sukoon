@@ -18,6 +18,8 @@ import {
   deletePlaylist, 
   getDownloadedTracks, 
   importPlaylistByCode,
+  getPlaylistByShareCode,
+  clonePlaylistToUser,
   getActiveUser,
   Playlist, 
   DownloadedTrack 
@@ -38,6 +40,7 @@ export function LibraryScreen({ navigation }: any) {
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
   const [importShareCode, setImportShareCode] = useState('');
+  const [foundPreviewPlaylist, setFoundPreviewPlaylist] = useState<Playlist | null>(null);
   const [activeUsername, setActiveUsername] = useState<string | null>(getActiveUser());
 
   const refreshLibrary = useCallback(async () => {
@@ -85,21 +88,48 @@ export function LibraryScreen({ navigation }: any) {
     showToast(`Playlist "${trimmed}" created!`, 'checkmark-circle');
   };
 
-  const handleImportPlaylist = () => {
-    const code = importShareCode.trim();
+  const handleFindPlaylist = () => {
+    const code = importShareCode.trim().toUpperCase();
     if (!code) {
       showToast('Please enter a valid share code', 'alert-circle');
       return;
     }
-    const imported = importPlaylistByCode(code);
-    if (!imported) {
-      showToast(`Playlist "${code.toUpperCase()}" not found`, 'alert-circle');
+    const found = getPlaylistByShareCode(code);
+    if (!found) {
+      showToast(`Playlist "${code}" not found`, 'alert-circle');
       return;
     }
+    setFoundPreviewPlaylist(found);
+  };
+
+  const handleCopyEditable = () => {
+    if (!foundPreviewPlaylist) return;
+    const cloned = clonePlaylistToUser(foundPreviewPlaylist);
+    setFoundPreviewPlaylist(null);
     setImportShareCode('');
     setIsImportModalVisible(false);
     refreshLibrary();
-    showToast(`"${imported.name}" imported as read-only!`, 'download-outline');
+    showToast('Playlist copied! You can now freely add or remove songs.', 'copy-outline');
+    navigation.navigate('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
+  };
+
+  const handleImportViewOnly = () => {
+    if (!foundPreviewPlaylist) return;
+    const imported = importPlaylistByCode(foundPreviewPlaylist.shareCode, foundPreviewPlaylist);
+    setFoundPreviewPlaylist(null);
+    setImportShareCode('');
+    setIsImportModalVisible(false);
+    refreshLibrary();
+    showToast('Playlist imported as view-only.', 'download-outline');
+    if (imported) {
+      navigation.navigate('PlaylistDetail', { playlist: imported, playlistId: imported.id });
+    }
+  };
+
+  const handleCloseImportModal = () => {
+    setIsImportModalVisible(false);
+    setFoundPreviewPlaylist(null);
+    setImportShareCode('');
   };
 
   const handleDeletePlaylist = (playlist: Playlist) => {
@@ -321,35 +351,116 @@ export function LibraryScreen({ navigation }: any) {
           visible={isImportModalVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setIsImportModalVisible(false)}
+          onRequestClose={handleCloseImportModal}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
-              <Text style={styles.modalTitle}>Import Shared Playlist</Text>
-              <Text style={styles.modalSubtitle}>Enter the unique SK-XXXXXX code shared with you:</Text>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="e.g. SK-8F3K9A"
-                placeholderTextColor="#777777"
-                value={importShareCode}
-                onChangeText={setImportShareCode}
-                autoCapitalize="characters"
-                autoCorrect={false}
-              />
-              <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={styles.modalCancel} 
-                  onPress={() => setIsImportModalVisible(false)}
-                >
-                  <Text style={styles.modalCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.modalSubmit} 
-                  onPress={handleImportPlaylist}
-                >
-                  <Text style={styles.modalSubmitText}>Import</Text>
-                </TouchableOpacity>
-              </View>
+              {!foundPreviewPlaylist ? (
+                <>
+                  <Text style={styles.modalTitle}>Import Shared Playlist</Text>
+                  <Text style={styles.modalSubtitle}>Enter the unique SK-XXXXXX code shared with you:</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="e.g. SK-8F3K9A"
+                    placeholderTextColor="#777777"
+                    value={importShareCode}
+                    onChangeText={(text) => {
+                      setImportShareCode(text);
+                      const clean = text.trim().toUpperCase();
+                      if (clean.length >= 6) {
+                        const directFound = getPlaylistByShareCode(clean);
+                        if (directFound) setFoundPreviewPlaylist(directFound);
+                      }
+                    }}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity 
+                      style={styles.modalCancel} 
+                      onPress={handleCloseImportModal}
+                    >
+                      <Text style={styles.modalCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.modalSubmit} 
+                      onPress={handleFindPlaylist}
+                    >
+                      <Text style={styles.modalSubmitText}>Find Playlist</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <View style={styles.previewContainer}>
+                  <View style={styles.previewHeaderRow}>
+                    <View style={styles.previewIconBox}>
+                      <Ionicons name="musical-notes" size={26} color="#00ffcc" />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <View style={styles.codeBadge}>
+                        <Text style={styles.codeBadgeText}>{foundPreviewPlaylist.shareCode}</Text>
+                      </View>
+                      <Text style={styles.previewTitle} numberOfLines={1}>
+                        {foundPreviewPlaylist.name}
+                      </Text>
+                      <Text style={styles.previewSubtitle}>
+                        {foundPreviewPlaylist.tracks.length} {foundPreviewPlaylist.tracks.length === 1 ? 'song' : 'songs'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {foundPreviewPlaylist.description ? (
+                    <Text style={styles.previewDescription} numberOfLines={2}>
+                      "{foundPreviewPlaylist.description}"
+                    </Text>
+                  ) : null}
+
+                  {foundPreviewPlaylist.tracks.length > 0 && (
+                    <View style={styles.previewTracksSnippet}>
+                      <Text style={styles.previewTracksSnippetTitle}>Tracks include:</Text>
+                      {foundPreviewPlaylist.tracks.slice(0, 3).map((t, i) => (
+                        <Text key={`${t.id}-${i}`} style={styles.previewTrackItem} numberOfLines={1}>
+                          • {t.title} <Text style={{ color: '#666670' }}>- {t.artist}</Text>
+                        </Text>
+                      ))}
+                      {foundPreviewPlaylist.tracks.length > 3 && (
+                        <Text style={styles.previewTrackMoreText}>
+                          + {foundPreviewPlaylist.tracks.length - 3} more tracks
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  <View style={styles.previewButtonsColumn}>
+                    {/* Primary Button: Copy to My Library (Editable) */}
+                    <TouchableOpacity 
+                      style={styles.copyEditableBtn} 
+                      onPress={handleCopyEditable}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="copy-outline" size={18} color="#000000" />
+                      <Text style={styles.copyEditableBtnText}>Copy to My Library (Editable)</Text>
+                    </TouchableOpacity>
+
+                    {/* Secondary Button: View Only (Shared) */}
+                    <TouchableOpacity 
+                      style={styles.viewOnlyBtn} 
+                      onPress={handleImportViewOnly}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="eye-outline" size={16} color="#aaaaaa" />
+                      <Text style={styles.viewOnlyBtnText}>View Only (Shared)</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.changeCodeBtn} 
+                      onPress={() => setFoundPreviewPlaylist(null)}
+                    >
+                      <Text style={styles.changeCodeText}>Search Different Code</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
           </View>
         </Modal>
@@ -662,6 +773,126 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  previewContainer: {
+    width: '100%',
+  },
+  previewHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  previewIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  codeBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 255, 204, 0.15)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.3)',
+    marginBottom: 4,
+  },
+  codeBadgeText: {
+    color: '#00ffcc',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  previewTitle: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: 'bold',
+  },
+  previewSubtitle: {
+    color: '#888896',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  previewDescription: {
+    color: '#aaaaaa',
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  previewTracksSnippet: {
+    backgroundColor: '#101014',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#222228',
+  },
+  previewTracksSnippetTitle: {
+    color: '#888896',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  previewTrackItem: {
+    color: '#dddddd',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  previewTrackMoreText: {
+    color: '#00ffcc',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  previewButtonsColumn: {
+    gap: 10,
+  },
+  copyEditableBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00ffcc',
+    paddingVertical: 13,
+    borderRadius: 10,
+    gap: 8,
+  },
+  copyEditableBtnText: {
+    color: '#000000',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  viewOnlyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#222228',
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#303038',
+    gap: 6,
+  },
+  viewOnlyBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  changeCodeBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginTop: 2,
+  },
+  changeCodeText: {
+    color: '#888896',
+    fontSize: 13,
   },
 });
 

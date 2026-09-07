@@ -25,7 +25,8 @@ import {
   TrackMetadata, 
   getCustomPlaylists, 
   removeTrackFromPlaylist, 
-  getDownloadedTracks 
+  getDownloadedTracks,
+  clonePlaylistToUser,
 } from '../utils/storage';
 import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
@@ -241,6 +242,32 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     }
   };
 
+  const handleDuplicateToMyLibrary = () => {
+    Alert.alert(
+      'Duplicate to My Account',
+      `Create an independent, fully editable copy of "${playlist.name}" in your library?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Copy & Open',
+          style: 'default',
+          onPress: () => {
+            const cloned = clonePlaylistToUser(playlist);
+            showToast('Created editable copy in your library!', 'copy-outline');
+            setPlaylist(cloned);
+            setOriginalTracks(cloned.tracks || []);
+            setShuffleMode('none');
+            if (typeof navigation.replace === 'function') {
+              navigation.replace('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
+            } else {
+              navigation.navigate('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handlePlayTrack = (track: TrackMetadata) => {
     playTrack(track);
   };
@@ -353,6 +380,30 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.listHeader}>
+            {playlist.isImported && (
+              <View style={styles.duplicateBanner}>
+                <View style={styles.duplicateBannerHeader}>
+                  <View style={styles.duplicateIconCircle}>
+                    <Ionicons name="copy-outline" size={18} color="#00ffcc" />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.duplicateBannerTitle}>Shared Playlist (View Only)</Text>
+                    <Text style={styles.duplicateBannerSubtitle}>
+                      Make an independent copy to add, remove, or reorder tracks.
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity 
+                  style={styles.duplicateBannerBtn} 
+                  onPress={handleDuplicateToMyLibrary}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="duplicate" size={16} color="#000000" />
+                  <Text style={styles.duplicateBannerBtnText}>Duplicate to My Account</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View style={styles.primaryActionButtons}>
               <TouchableOpacity style={styles.playAllBtn} onPress={handlePlayAll} activeOpacity={0.8}>
                 <Ionicons name="play" size={18} color="#000000" />
@@ -384,6 +435,17 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 <Text style={styles.secondaryBtnText}>Download</Text>
               </TouchableOpacity>
               
+              {playlist.isImported && (
+                <TouchableOpacity 
+                  style={[styles.secondaryBtn, styles.duplicateSecondaryBtn]} 
+                  onPress={handleDuplicateToMyLibrary} 
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="duplicate-outline" size={17} color="#00ffcc" />
+                  <Text style={[styles.secondaryBtnText, { color: '#00ffcc' }]}>Copy to Account</Text>
+                </TouchableOpacity>
+              )}
+
               {!playlist.isImported && playlistId !== 'downloads' && (
                 <>
                   <TouchableOpacity style={styles.secondaryBtn} onPress={handleCopyShareCode} activeOpacity={0.7}>
@@ -875,6 +937,55 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  duplicateBanner: {
+    backgroundColor: '#111116',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.25)',
+    marginBottom: 4,
+  },
+  duplicateBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  duplicateIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  duplicateBannerTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  duplicateBannerSubtitle: {
+    color: '#888896',
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  duplicateBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00ffcc',
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  duplicateBannerBtnText: {
+    color: '#000000',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  duplicateSecondaryBtn: {
+    borderColor: 'rgba(0, 255, 204, 0.4)',
   },
 });
 

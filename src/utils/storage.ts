@@ -218,16 +218,63 @@ export function createPlaylist(name: string, description?: string, coverImage?: 
   return newPlaylist;
 }
 
+export function clonePlaylistToUser(sourcePlaylist: Playlist, customName?: string): Playlist {
+  const newId = 'pl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const newShareCode = 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  const clonedTracks = (sourcePlaylist.tracks || []).map(track => ({ ...track }));
+
+  const newPlaylist: Playlist = {
+    id: newId,
+    shareCode: newShareCode,
+    name: customName || `${sourcePlaylist.name} (Copy)`,
+    description: sourcePlaylist.description ? `Copied from shared playlist: ${sourcePlaylist.name}` : undefined,
+    createdAt: Date.now(),
+    coverImage: sourcePlaylist.coverImage,
+    isImported: false, // Fully editable by recipient
+    tracks: clonedTracks,
+  };
+
+  const playlists = getCustomPlaylists();
+  playlists.push(newPlaylist);
+  saveCustomPlaylists(playlists);
+  return newPlaylist;
+}
+
 export function getPlaylistByShareCode(code: string): Playlist | undefined {
   if (!code) return undefined;
   const cleanCode = code.trim().toUpperCase();
-  const playlists = getCustomPlaylists();
-  return playlists.find(p => p.shareCode?.toUpperCase() === cleanCode);
+  
+  // 1. Check active user's playlists
+  const activePlaylists = getCustomPlaylists();
+  const foundActive = activePlaylists.find(p => p.shareCode?.toUpperCase() === cleanCode);
+  if (foundActive) return foundActive;
+
+  // 2. Check all registered accounts on device
+  try {
+    const users = Object.keys(getUsersDb());
+    for (const u of users) {
+      const userPlaylists = getCustomPlaylists(u);
+      const found = userPlaylists.find(p => p.shareCode?.toUpperCase() === cleanCode);
+      if (found) return found;
+    }
+  } catch {}
+
+  // 3. Check legacy custom playlists
+  const legacyCustom = storage.getString(KEYS.CUSTOM_PLAYLISTS);
+  if (legacyCustom) {
+    try {
+      const parsed: Playlist[] = JSON.parse(legacyCustom);
+      const found = parsed.find(p => p.shareCode?.toUpperCase() === cleanCode);
+      if (found) return found;
+    } catch {}
+  }
+
+  return undefined;
 }
 
 export function importPlaylistByCode(code: string, sharedPlaylistData?: Playlist): Playlist | null {
-  if (!code) return null;
-  const cleanCode = code.trim().toUpperCase();
+  if (!code && !sharedPlaylistData) return null;
+  const cleanCode = code ? code.trim().toUpperCase() : sharedPlaylistData?.shareCode?.toUpperCase() || '';
   const playlists = getCustomPlaylists();
 
   const existing = playlists.find(p => p.shareCode?.toUpperCase() === cleanCode && p.isImported);
@@ -235,7 +282,7 @@ export function importPlaylistByCode(code: string, sharedPlaylistData?: Playlist
     return existing;
   }
 
-  const candidate = sharedPlaylistData || playlists.find(p => p.shareCode?.toUpperCase() === cleanCode);
+  const candidate = sharedPlaylistData || getPlaylistByShareCode(cleanCode);
   if (!candidate) {
     return null;
   }
@@ -246,7 +293,7 @@ export function importPlaylistByCode(code: string, sharedPlaylistData?: Playlist
     shareCode: cleanCode,
     isImported: true,
     name: candidate.name,
-    tracks: [...candidate.tracks],
+    tracks: candidate.tracks.map(t => ({ ...t })),
   };
 
   playlists.push(importedPlaylist);
