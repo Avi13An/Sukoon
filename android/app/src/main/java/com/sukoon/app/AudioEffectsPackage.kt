@@ -7,7 +7,10 @@ import com.facebook.react.uimanager.ViewManager
 
 class AudioEffectsPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(AudioEffectsModule(reactContext))
+        return listOf(
+            AudioEffectsModule(reactContext),
+            AudioMixerModule(reactContext)
+        )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

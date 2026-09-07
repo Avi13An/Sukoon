@@ -5,8 +5,12 @@ import {
   AudioRecorder, 
   requestRecordingPermissionsAsync, 
   RecordingPresets, 
-  setAudioModeAsync 
+  setAudioModeAsync,
+  RecordingOptions,
+  IOSOutputFormat,
+  AudioQuality
 } from 'expo-audio';
+import { NativeModules } from 'react-native';
 import { 
   StudioRecording, 
   getStudioRecordings, 
@@ -16,6 +20,40 @@ import {
 import { showToast } from '../components/ToastNotification';
 
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
+
+/**
+ * Studio-Grade Vocal Recording Preset:
+ * - 44,100 Hz sampling rate
+ * - 192,000 bps high-definition AAC compression
+ * - 1 Channel (Mono) optimized for solo studio vocal isolation
+ * - AudioSource.MIC (1): Pure studio mic capture without VoIP noise-gating or bandpass filtering
+ */
+export const STUDIO_RECORDING_PRESET: RecordingOptions = {
+  extension: '.m4a',
+  sampleRate: 44100,
+  numberOfChannels: 1,
+  bitRate: 192000,
+  android: {
+    extension: '.m4a',
+    outputFormat: 'mpeg4',
+    audioEncoder: 'aac',
+    sampleRate: 44100,
+    audioSource: 'mic',
+  },
+  ios: {
+    extension: '.m4a',
+    outputFormat: IOSOutputFormat.MPEG4AAC,
+    audioQuality: AudioQuality.MAX,
+    sampleRate: 44100,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 192000,
+  },
+};
 
 let activeRecorder: AudioRecorder | null = null;
 let isRecordingState: boolean = false;
@@ -67,8 +105,8 @@ export async function startRecording(): Promise<void> {
       activeRecorder = null;
     }
 
-    const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
-    await recorder.prepareToRecordAsync();
+    const recorder = new AudioModule.AudioRecorder(STUDIO_RECORDING_PRESET);
+    await recorder.prepareToRecordAsync(STUDIO_RECORDING_PRESET);
     recorder.record();
 
     activeRecorder = recorder;
@@ -191,6 +229,23 @@ export async function stopAndSaveRecording(
       }
     } catch {
       if (recordedUri) finalLocalUri = recordedUri;
+    }
+
+    // Digital Makeup Gain / Pre-Amp:
+    // Phone microphones record at nominal levels (-20dB to -14dB).
+    // Apply a +7dB nominal gain boost so recorded vocal presence matches stock phone recorder loudness.
+    const { AudioMixerModule } = NativeModules;
+    if (AudioMixerModule && typeof AudioMixerModule.applyMakeupGain === 'function') {
+      try {
+        const boostedFileName = `cover_boosted_${timestamp}.m4a`;
+        const boostedUri = `${RECORDINGS_DIR}${boostedFileName}`;
+        const res = await AudioMixerModule.applyMakeupGain(finalLocalUri, boostedUri, 7.0);
+        if (res) {
+          finalLocalUri = boostedUri;
+        }
+      } catch (gainErr) {
+        console.warn('[recordingService] Makeup gain warning, keeping raw take:', gainErr);
+      }
     }
 
     const newRecording: StudioRecording = {
