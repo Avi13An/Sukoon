@@ -7,14 +7,17 @@ import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { toggleLoopMode, playNextTrack } from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AudioSettingsModal } from '../components/AudioSettingsModal';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { QueueModal } from '../components/QueueModal';
 import { LyricsModal } from '../components/LyricsModal';
+import { KaraokeStudioModal } from '../components/KaraokeStudioModal';
 import { SleepTimerModal } from '../components/SleepTimerModal';
 import { showToast } from '../components/ToastNotification';
 import { subscribeToSleepTimer, SleepTimerState, getSleepTimerState } from '../services/sleepTimerService';
 import { TrackMetadata } from '../utils/storage';
+import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
 const { width } = Dimensions.get('window');
 
@@ -116,6 +119,7 @@ export function PlayerScreen({ navigation }: any) {
   const [isPlaylistModalVisible, setIsPlaylistModalVisible] = useState(false);
   const [isQueueModalVisible, setIsQueueModalVisible] = useState(false);
   const [isLyricsModalVisible, setIsLyricsModalVisible] = useState(false);
+  const [isKaraokeStudioVisible, setIsKaraokeStudioVisible] = useState(false);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -275,8 +279,21 @@ export function PlayerScreen({ navigation }: any) {
     (typeof (track as any)?.url === 'object' ? (track as any)?.url?.artwork : undefined) ||
     'https://via.placeholder.com/400x400.png?text=Sukoon';
 
+  const ambientTheme = getAmbientThemeForTrack(track ? {
+    id: (track as any).id || (track as any).mediaId || '',
+    title: track.title || '',
+    artist: track.artist || '',
+  } : null);
+
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={ambientTheme.gradient}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 0.7 }}
+        pointerEvents="none"
+      />
       <View style={styles.header}>
         <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-down" size={32} color="#ffffff" />
@@ -383,9 +400,17 @@ export function PlayerScreen({ navigation }: any) {
         <View style={styles.secondaryActionsRow}>
           <TouchableOpacity 
             style={styles.secondaryActionBtn} 
+            onPress={() => setIsKaraokeStudioVisible(true)}
+          >
+            <Ionicons name="mic" size={22} color="#ff3b30" />
+            <Text style={[styles.secondaryActionText, { color: '#ff3b30' }]}>Studio</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.secondaryActionBtn} 
             onPress={() => setIsLyricsModalVisible(true)}
           >
-            <Ionicons name="mic-outline" size={22} color="#aaaaaa" />
+            <Ionicons name="document-text-outline" size={22} color="#aaaaaa" />
             <Text style={styles.secondaryActionText}>Lyrics</Text>
           </TouchableOpacity>
 
@@ -503,6 +528,20 @@ export function PlayerScreen({ navigation }: any) {
         currentPosition={displayPosition}
         duration={effectiveDuration}
         onSeek={handleSeek}
+      />
+
+      <KaraokeStudioModal
+        visible={isKaraokeStudioVisible}
+        onClose={() => setIsKaraokeStudioVisible(false)}
+        track={track ? {
+          id: (track as any).id || (track as any).mediaId || '',
+          title: track.title || 'Unknown Title',
+          artist: track.artist || 'Unknown Artist',
+          artwork: artworkUri,
+          duration: effectiveDuration,
+        } : null}
+        currentPosition={displayPosition}
+        duration={effectiveDuration}
       />
     </View>
   );

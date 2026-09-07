@@ -38,6 +38,16 @@ export interface UserAccount {
   createdAt: number;
 }
 
+export interface StudioRecording {
+  id: string;
+  songTitle: string;
+  artist: string;
+  localUri: string;
+  createdAt: number;
+  durationSeconds: number;
+  fileSizeBytes?: number;
+}
+
 const KEYS = {
   ACTIVE_SESSION: '@sukoon_active_session',
   USERS_DB: '@sukoon_users_db',
@@ -45,6 +55,7 @@ const KEYS = {
   CUSTOM_PLAYLISTS: '@sukoon_custom_playlists',
   OFFLINE_TRACKS: 'OFFLINE_TRACKS',
   DOWNLOADED_TRACKS: '@sukoon_downloaded_tracks',
+  STUDIO_RECORDINGS: '@sukoon_studio_recordings',
   LAST_PLAYED: 'LAST_PLAYED',
   MY_USERNAME: 'MY_USERNAME',
   RECENT_SEARCHES: '@sukoon_recent_searches',
@@ -480,5 +491,27 @@ export function getEqualizerSettings(): EqualizerSettings {
 
 export function saveEqualizerSettings(settings: EqualizerSettings): void {
   storage.set(KEYS.EQUALIZER_SETTINGS, JSON.stringify(settings));
+}
+
+export function getStudioRecordings(): StudioRecording[] {
+  const data = storage.getString(KEYS.STUDIO_RECORDINGS);
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch {}
+  }
+  return [];
+}
+
+export function saveStudioRecording(rec: StudioRecording): void {
+  const current = getStudioRecordings();
+  const updated = [rec, ...current.filter((r) => r.id !== rec.id)];
+  storage.set(KEYS.STUDIO_RECORDINGS, JSON.stringify(updated));
+}
+
+export function deleteStudioRecordingStorage(id: string): void {
+  const current = getStudioRecordings();
+  const updated = current.filter((r) => r.id !== id);
+  storage.set(KEYS.STUDIO_RECORDINGS, JSON.stringify(updated));
 }
 

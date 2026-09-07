@@ -18,6 +18,7 @@ import { getLastPlayedTrack, getListenHistory, TrackMetadata } from '../utils/st
 import { getRecommendedTracks, searchTracks } from '../services/musicApi';
 import { playTrack, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { getAmbientThemeForTrack, getAmbientColorForTrack } from '../utils/colorExtractor';
 
 const { width } = Dimensions.get('window');
 
@@ -82,6 +83,7 @@ export function HomeScreen() {
   const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
   const [categoryTracks, setCategoryTracks] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
+  const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCategoryLoading, setIsCategoryLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -91,6 +93,8 @@ export function HomeScreen() {
   const loadData = useCallback(async () => {
     const history = getListenHistory();
     setRecentTracks(history);
+    const lastTrack = getLastPlayedTrack();
+    setCurrentAmbientTrack(lastTrack);
 
     try {
       const [recs, trending] = await Promise.all([
@@ -223,6 +227,9 @@ export function HomeScreen() {
   };
 
   const getAmbientColors = (): [string, string, string] => {
+    if (selectedCategory === 'All' && currentAmbientTrack) {
+      return getAmbientThemeForTrack(currentAmbientTrack).gradient;
+    }
     switch (selectedCategory) {
       case 'Lo-Fi':
         return ['rgba(138, 43, 226, 0.25)', 'rgba(28, 15, 51, 0.5)', '#000000'];

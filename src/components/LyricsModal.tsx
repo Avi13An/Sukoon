@@ -13,7 +13,12 @@ import {
   TouchableWithoutFeedback 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchLyrics, ParsedLyrics, sanitizeLyricText } from '../services/lyricsService';
+import { 
+  getLyricsWithSource, 
+  LYRICS_SOURCES, 
+  ParsedLyrics, 
+  sanitizeLyricText 
+} from '../services/lyricsService';
 import { TrackMetadata } from '../utils/storage';
 
 const { height, width } = Dimensions.get('window');
@@ -39,18 +44,33 @@ export function LyricsModal({
   const [isLoading, setIsLoading] = useState(false);
   const [customSearchQuery, setCustomSearchQuery] = useState('');
   const [showSearchInput, setShowSearchInput] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<string>('LRCLIB (Synced)');
   
   const flatListRef = useRef<FlatList>(null);
   const lastActiveIndex = useRef<number>(-1);
 
-  const loadLyrics = async (customQuery?: string) => {
+  const loadLyrics = async (customQuery?: string, sourceOverride?: string) => {
     if (!track && !customQuery) return;
     setIsLoading(true);
+    const useSource = sourceOverride || selectedSource;
     try {
       const searchTitle = customQuery ? customQuery : (track?.title || '');
       const searchArtist = customQuery ? '' : (track?.artist || '');
-      const res = await fetchLyrics(searchTitle, searchArtist, duration);
-      setLyricsData(res);
+      const res = await getLyricsWithSource(searchTitle, searchArtist, duration, useSource);
+      if (res) {
+        setLyricsData({
+          trackName: searchTitle,
+          artistName: searchArtist,
+          synced: res.synced,
+          syncedLyrics: null,
+          plainLyrics: res.plainLyrics || null,
+          lines: res.lines,
+          source: res.source,
+        });
+        setSelectedSource(res.source);
+      } else {
+        setLyricsData(null);
+      }
     } catch (e) {
       console.error('[LyricsModal] Error loading lyrics:', e);
       setLyricsData(null);
@@ -127,6 +147,11 @@ export function LyricsModal({
                 <Text style={styles.headerTitle}>
                   {lyricsData?.synced ? 'Live Synced Lyrics' : 'Lyrics'}
                 </Text>
+                {lyricsData?.source ? (
+                  <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceBadgeText}>{lyricsData.source}</Text>
+                  </View>
+                ) : null}
               </View>
               <Text style={styles.subTitle} numberOfLines={1}>
                 {track?.title} • {track?.artist}
@@ -144,6 +169,33 @@ export function LyricsModal({
                 <Ionicons name="close" size={24} color="#ffffff" />
               </TouchableOpacity>
             </View>
+          </View>
+
+          {/* Multi-Source Selector Row */}
+          <View style={styles.sourceSelectorRow}>
+            {LYRICS_SOURCES.map((src) => {
+              const isSelected = selectedSource === src;
+              return (
+                <TouchableOpacity
+                  key={src}
+                  style={[styles.sourceChip, isSelected && styles.sourceChipActive]}
+                  onPress={() => {
+                    setSelectedSource(src);
+                    loadLyrics(customSearchQuery.trim() || undefined, src);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons 
+                    name={src.includes('Synced') ? 'sync' : 'document-text-outline'} 
+                    size={11} 
+                    color={isSelected ? '#000000' : '#8e8e9e'} 
+                  />
+                  <Text style={[styles.sourceChipText, isSelected && styles.sourceChipTextActive]}>
+                    {src}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Alternate Search Input */}
@@ -297,6 +349,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
+  sourceBadge: {
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.25)',
+  },
+  sourceBadgeText: {
+    color: '#00ffcc',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   subTitle: {
     color: '#888896',
     fontSize: 13,
@@ -308,6 +373,35 @@ const styles = StyleSheet.create({
   },
   iconBtn: {
     padding: 6,
+  },
+  sourceSelectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  sourceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#16161e',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#242430',
+  },
+  sourceChipActive: {
+    backgroundColor: '#00ffcc',
+    borderColor: '#00ffcc',
+  },
+  sourceChipText: {
+    color: '#8e8e9e',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sourceChipTextActive: {
+    color: '#000000',
+    fontWeight: '700',
   },
   searchBarRow: {
     flexDirection: 'row',

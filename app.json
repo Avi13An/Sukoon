@@ -45,6 +45,9 @@
     "updates": {
       "url": "https://u.expo.dev/776d3a4c-1c06-445b-abbb-68d04fca4d31"
     },
-    "owner": "venom13212006"
+    "owner": "venom13212006",
+    "plugins": [
+      "expo-sharing"
+    ]
   }
 }

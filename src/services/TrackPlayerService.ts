@@ -252,10 +252,17 @@ try {
 
 export async function applySoundBoost(boostPercent: number) {
   currentSoundBoostPercent = Math.max(0, Math.min(100, boostPercent));
-  // Baseline volume is 0.60 at 0% boost, scaling to 1.00 at 100% boost for an immediate, significant loudness jump
-  const calculatedVolume = 0.60 + (currentSoundBoostPercent / 100) * 0.40;
+  // Baseline volume is 0.50 at 0% boost, scaling to 1.00 at 100% boost for an immediate 2x loudness jump
+  const calculatedVolume = 0.50 + (currentSoundBoostPercent / 100) * 0.50;
   if (typeof TrackPlayer.setVolume === 'function') {
     await TrackPlayer.setVolume(calculatedVolume);
+  }
+}
+
+export async function setPlayerVolume(volume: number) {
+  const clamped = Math.max(0, Math.min(1, volume));
+  if (typeof TrackPlayer.setVolume === 'function') {
+    await TrackPlayer.setVolume(clamped);
   }
 }
 

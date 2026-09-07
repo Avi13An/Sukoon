@@ -27,7 +27,7 @@ import {
   removeTrackFromPlaylist, 
   getDownloadedTracks 
 } from '../utils/storage';
-import { playTrack, addTracks } from '../services/TrackPlayerService';
+import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
 
@@ -40,6 +40,69 @@ interface PlaylistScreenProps {
   navigation: any;
 }
 
+export type SmartShuffleMode = 'none' | 'soft_to_hype' | 'hype_to_soft' | 'artist_flow' | 'balanced';
+
+const SOFT_KEYWORDS = ['acoustic', 'unplugged', 'chill', 'lofi', 'lo-fi', 'slow', 'reverb', 'sleep', 'relax', 'piano', 'ambient', 'sufi', 'sad', 'instrumental', 'peaceful', 'soothing'];
+const HYPE_KEYWORDS = ['remix', 'beat', 'banger', 'bass', 'party', 'club', 'trap', 'edm', 'workout', 'dance', 'dhol', 'hard', 'hype', 'speed', 'energetic', 'dj'];
+
+function getTrackEnergyScore(track: TrackMetadata): number {
+  const text = `${track.title} ${track.artist}`.toLowerCase();
+  let score = 0;
+  SOFT_KEYWORDS.forEach(k => {
+    if (text.includes(k)) score -= 2;
+  });
+  HYPE_KEYWORDS.forEach(k => {
+    if (text.includes(k)) score += 2;
+  });
+  return score;
+}
+
+function applySmartShuffle(tracks: TrackMetadata[], mode: SmartShuffleMode): TrackMetadata[] {
+  const copy = [...tracks];
+  if (mode === 'none' || copy.length <= 1) return copy;
+
+  if (mode === 'soft_to_hype') {
+    return copy.sort((a, b) => getTrackEnergyScore(a) - getTrackEnergyScore(b));
+  }
+
+  if (mode === 'hype_to_soft') {
+    return copy.sort((a, b) => getTrackEnergyScore(b) - getTrackEnergyScore(a));
+  }
+
+  if (mode === 'artist_flow') {
+    const byArtist = new Map<string, TrackMetadata[]>();
+    copy.forEach(t => {
+      const art = t.artist || 'Unknown';
+      if (!byArtist.has(art)) byArtist.set(art, []);
+      byArtist.get(art)!.push(t);
+    });
+    const result: TrackMetadata[] = [];
+    byArtist.forEach(list => {
+      result.push(...list);
+    });
+    return result;
+  }
+
+  if (mode === 'balanced') {
+    const shuffled = [...copy].sort(() => Math.random() - 0.5);
+    const result: TrackMetadata[] = [];
+    const pool = [...shuffled];
+
+    while (pool.length > 0) {
+      const lastArtist = result.length > 0 ? result[result.length - 1].artist : null;
+      const candidateIdx = pool.findIndex(t => t.artist !== lastArtist);
+      if (candidateIdx !== -1) {
+        result.push(pool.splice(candidateIdx, 1)[0]);
+      } else {
+        result.push(pool.shift()!);
+      }
+    }
+    return result;
+  }
+
+  return copy;
+}
+
 export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   const initialPlaylist: Playlist = route.params?.playlist || {
     id: 'unknown',
@@ -50,6 +113,9 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
   const playlistId = route.params?.playlistId || initialPlaylist.id;
   const [playlist, setPlaylist] = useState<Playlist>(initialPlaylist);
+  const [originalTracks, setOriginalTracks] = useState<TrackMetadata[]>(initialPlaylist.tracks || []);
+  const [shuffleMode, setShuffleMode] = useState<SmartShuffleMode>('none');
+  const [isShuffleModalVisible, setIsShuffleModalVisible] = useState(false);
   const [storageSize, setStorageSize] = useState<string>('0 MB');
 
   useFocusEffect(
@@ -64,11 +130,13 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           createdAt: Date.now(),
           tracks: downloaded,
         });
+        setOriginalTracks(downloaded);
         getOfflineStorageUsage().then(usage => setStorageSize(usage.formattedSize));
       } else if (playlistId) {
         const found = getCustomPlaylists().find(p => p.id === playlistId);
         if (found) {
           setPlaylist(found);
+          setOriginalTracks(found.tracks || []);
         }
       }
     }, [playlistId])
@@ -105,7 +173,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
 
   const handlePlayAll = async () => {
     if (!playlist.tracks || playlist.tracks.length === 0) {
-      Alert.alert('Empty Playlist', 'No tracks in this playlist to play.');
+      showToast('No tracks in this playlist to play', 'alert-circle');
       return;
     }
 
@@ -113,6 +181,33 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     if (playlist.tracks.length > 1) {
       addTracks(playlist.tracks.slice(1)).catch(() => {});
     }
+  };
+
+  const handleSelectShuffleMode = (mode: SmartShuffleMode) => {
+    setShuffleMode(mode);
+    setIsShuffleModalVisible(false);
+    const sorted = applySmartShuffle(originalTracks, mode);
+    setPlaylist(prev => ({ ...prev, tracks: sorted }));
+    
+    clearUpNextQueue();
+    sorted.slice(1).forEach(t => addToUpNextQueue(t));
+    
+    const modeNames: Record<SmartShuffleMode, string> = {
+      none: 'Original Order',
+      soft_to_hype: 'Soft to Hype 🌿',
+      hype_to_soft: 'Hype to Soft 🔥',
+      artist_flow: 'Artist Flow 🎤',
+      balanced: 'Smart Balanced ⚖️',
+    };
+    showToast(`Smart Shuffle: ${modeNames[mode]}`, 'sparkles');
+  };
+
+  const handleResetShuffle = () => {
+    setShuffleMode('none');
+    setPlaylist(prev => ({ ...prev, tracks: [...originalTracks] }));
+    clearUpNextQueue();
+    originalTracks.slice(1).forEach(t => addToUpNextQueue(t));
+    showToast('Restored original playlist order', 'refresh-outline');
   };
 
   const handleDownloadAll = () => {
@@ -258,10 +353,30 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.listHeader}>
-            <TouchableOpacity style={styles.playAllBtn} onPress={handlePlayAll} activeOpacity={0.8}>
-              <Ionicons name="play" size={20} color="#000000" />
-              <Text style={styles.playAllBtnText}>Play All</Text>
-            </TouchableOpacity>
+            <View style={styles.primaryActionButtons}>
+              <TouchableOpacity style={styles.playAllBtn} onPress={handlePlayAll} activeOpacity={0.8}>
+                <Ionicons name="play" size={18} color="#000000" />
+                <Text style={styles.playAllBtnText}>Play All</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.shuffleBtn, shuffleMode !== 'none' && styles.shuffleBtnActive]} 
+                onPress={() => setIsShuffleModalVisible(true)} 
+                activeOpacity={0.8}
+              >
+                <Ionicons name="sparkles" size={16} color={shuffleMode !== 'none' ? '#000000' : '#00ffcc'} />
+                <Text style={[styles.shuffleBtnText, shuffleMode !== 'none' && styles.shuffleBtnTextActive]}>
+                  Smart Shuffle
+                </Text>
+              </TouchableOpacity>
+
+              {shuffleMode !== 'none' && (
+                <TouchableOpacity style={styles.resetBtn} onPress={handleResetShuffle} activeOpacity={0.8}>
+                  <Ionicons name="refresh" size={15} color="#ffffff" />
+                  <Text style={styles.resetBtnText}>Reset</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <View style={styles.secondaryActions}>
               <TouchableOpacity style={styles.secondaryBtn} onPress={handleDownloadAll} activeOpacity={0.7}>
@@ -313,6 +428,87 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 <Text style={styles.modalSubmitText}>Share</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      )}
+
+      {/* Smart AI Shuffle Modal */}
+      {isShuffleModalVisible && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeaderRow}>
+              <View style={styles.sparkleBadge}>
+                <Ionicons name="sparkles" size={18} color="#00ffcc" />
+              </View>
+              <Text style={styles.modalTitle}>Smart AI Shuffle</Text>
+            </View>
+            <Text style={styles.modalSubtitle}>Select an intelligent sequencing flow for this playlist:</Text>
+
+            <View style={styles.shuffleModesList}>
+              <TouchableOpacity 
+                style={[styles.shuffleModeItem, shuffleMode === 'soft_to_hype' && styles.shuffleModeItemActive]}
+                onPress={() => handleSelectShuffleMode('soft_to_hype')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.shuffleModeIconBox}>
+                  <Text style={{ fontSize: 18 }}>🌿</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.shuffleModeTitle}>Soft to Hype</Text>
+                  <Text style={styles.shuffleModeDesc}>Acoustic & chill melodies → High-tempo bangers</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.shuffleModeItem, shuffleMode === 'hype_to_soft' && styles.shuffleModeItemActive]}
+                onPress={() => handleSelectShuffleMode('hype_to_soft')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.shuffleModeIconBox}>
+                  <Text style={{ fontSize: 18 }}>🔥</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.shuffleModeTitle}>Hype to Soft</Text>
+                  <Text style={styles.shuffleModeDesc}>High-energy party hits → Smooth wind-down</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.shuffleModeItem, shuffleMode === 'artist_flow' && styles.shuffleModeItemActive]}
+                onPress={() => handleSelectShuffleMode('artist_flow')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.shuffleModeIconBox}>
+                  <Text style={{ fontSize: 18 }}>🎤</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.shuffleModeTitle}>Artist Flow</Text>
+                  <Text style={styles.shuffleModeDesc}>Clusters songs by artist for seamless discography</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.shuffleModeItem, shuffleMode === 'balanced' && styles.shuffleModeItemActive]}
+                onPress={() => handleSelectShuffleMode('balanced')}
+                activeOpacity={0.7}
+              >
+                <View style={styles.shuffleModeIconBox}>
+                  <Text style={{ fontSize: 18 }}>⚖️</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.shuffleModeTitle}>Smart Balanced</Text>
+                  <Text style={styles.shuffleModeDesc}>Balanced distribution with no consecutive artist repeats</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.closeShuffleModalBtn} 
+              onPress={() => setIsShuffleModalVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.closeShuffleModalText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -419,19 +615,64 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     gap: 12,
   },
+  primaryActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   playAllBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#00ffcc',
-    paddingVertical: 13,
-    borderRadius: 24,
-    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 22,
+    gap: 6,
   },
   playAllBtnText: {
     color: '#000000',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
+  },
+  shuffleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#16161a',
+    borderWidth: 1,
+    borderColor: '#00ffcc',
+    paddingVertical: 12,
+    borderRadius: 22,
+    gap: 6,
+  },
+  shuffleBtnActive: {
+    backgroundColor: '#00ffcc',
+    borderColor: '#00ffcc',
+  },
+  shuffleBtnText: {
+    color: '#00ffcc',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  shuffleBtnTextActive: {
+    color: '#000000',
+  },
+  resetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#222226',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    gap: 4,
+  },
+  resetBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
   },
   secondaryActions: {
     flexDirection: 'row',
@@ -566,6 +807,74 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontWeight: 'bold',
     fontSize: 15,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  sparkleBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSubtitle: {
+    color: '#aaaaaa',
+    fontSize: 13,
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  shuffleModesList: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  shuffleModeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#0c0c0e',
+    borderWidth: 1,
+    borderColor: '#26262a',
+    gap: 12,
+  },
+  shuffleModeItemActive: {
+    borderColor: '#00ffcc',
+    backgroundColor: 'rgba(0, 255, 204, 0.08)',
+  },
+  shuffleModeIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: '#1a1a1e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shuffleModeTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  shuffleModeDesc: {
+    color: '#888888',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  closeShuffleModalBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#202024',
+  },
+  closeShuffleModalText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

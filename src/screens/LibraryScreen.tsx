@@ -23,12 +23,16 @@ import {
   DownloadedTrack 
 } from '../utils/storage';
 import { getOfflineStorageUsage, logoutUser } from '../services/downloadService';
+import { StudioRecordingsModal } from '../components/StudioRecordingsModal';
+import { getStudioRecordings } from '../services/recordingService';
 import { showToast } from '../components/ToastNotification';
 
 export function LibraryScreen({ navigation }: any) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [downloadedTracks, setDownloadedTracks] = useState<DownloadedTrack[]>([]);
   const [storageUsage, setStorageUsage] = useState<string>('0 MB');
+  const [isStudioModalVisible, setIsStudioModalVisible] = useState(false);
+  const [recordingCount, setRecordingCount] = useState<number>(0);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
@@ -43,6 +47,7 @@ export function LibraryScreen({ navigation }: any) {
     setDownloadedTracks(downloaded);
     const usage = await getOfflineStorageUsage();
     setStorageUsage(usage.formattedSize);
+    setRecordingCount(getStudioRecordings().length);
   }, []);
 
   useFocusEffect(
@@ -168,6 +173,25 @@ export function LibraryScreen({ navigation }: any) {
           <Text style={styles.downloadTitle}>Downloaded Tracks</Text>
           <Text style={styles.downloadCount}>
             {downloadedTracks.length} offline tracks {downloadedTracks.length > 0 ? `• ${storageUsage}` : ''}
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={[styles.downloadCard, { marginTop: -12, borderColor: 'rgba(255, 59, 48, 0.25)' }]} 
+        onPress={() => setIsStudioModalVisible(true)} 
+        activeOpacity={0.7}
+      >
+        <View style={[styles.downloadIconPlaceholder, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}>
+          <Ionicons name="mic" size={24} color="#ff3b30" />
+        </View>
+        <View style={styles.downloadInfo}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.downloadTitle}>Studio Recordings</Text>
+            <View style={styles.recDot} />
+          </View>
+          <Text style={styles.downloadCount}>
+            {recordingCount} vocal {recordingCount === 1 ? 'take' : 'takes'} & covers
           </Text>
         </View>
       </TouchableOpacity>
@@ -330,6 +354,14 @@ export function LibraryScreen({ navigation }: any) {
           </View>
         </Modal>
       )}
+
+      <StudioRecordingsModal
+        visible={isStudioModalVisible}
+        onClose={() => {
+          setIsStudioModalVisible(false);
+          refreshLibrary();
+        }}
+      />
     </View>
   );
 }
@@ -422,6 +454,12 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 13,
     marginTop: 3,
+  },
+  recDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ff3b30',
   },
   sectionHeader: {
     flexDirection: 'row',
