@@ -24,6 +24,7 @@ import {
   shareRecording 
 } from '../services/recordingService';
 import { setPlayerVolume } from '../services/TrackPlayerService';
+import { showToast } from './ToastNotification';
 
 const { width } = Dimensions.get('window');
 
@@ -174,7 +175,7 @@ export function KaraokeStudioModal({
       setStudioState('recording');
       setLastSavedRecording(null);
     } catch (err: any) {
-      Alert.alert('Microphone Access', err.message || 'Could not start voice recording.');
+      showToast(err?.message || 'Recording requires standalone native microphone module', 'mic-off-outline');
     }
   };
 
@@ -196,11 +197,10 @@ export function KaraokeStudioModal({
         setLastSavedRecording(saved);
         setStudioState('saved');
       } else {
-        Alert.alert('Studio Error', 'Failed to save recording file.');
         setStudioState('idle');
       }
     } catch (err: any) {
-      Alert.alert('Error Saving', err.message || 'Could not finalize recording.');
+      showToast(err?.message || 'Could not finalize recording', 'alert-circle');
       setStudioState('idle');
     }
   };
