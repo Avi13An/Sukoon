@@ -1,6 +1,6 @@
 import TrackPlayer from '@rntp/player';
 
-export type SleepTimerMode = '15m' | '30m' | '45m' | '60m' | 'end_of_track' | 'off';
+export type SleepTimerMode = '15m' | '30m' | '45m' | '60m' | 'end_of_track' | 'off' | 'custom';
 
 export interface SleepTimerState {
   isActive: boolean;
@@ -80,6 +80,10 @@ export function setSleepTimer(mode: SleepTimerMode) {
     return;
   }
 
+  if (mode === 'custom') {
+    return;
+  }
+
   const durationMap: Record<'15m' | '30m' | '45m' | '60m', number> = {
     '15m': 15 * 60,
     '30m': 30 * 60,
@@ -88,6 +92,40 @@ export function setSleepTimer(mode: SleepTimerMode) {
   };
 
   remainingSeconds = durationMap[mode] || 0;
+  notifyListeners();
+
+  timerInterval = setInterval(async () => {
+    remainingSeconds -= 1;
+    if (remainingSeconds <= 0) {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+      currentMode = 'off';
+      remainingSeconds = 0;
+      isSleepPaused = true;
+      try {
+        await TrackPlayer.pause();
+      } catch (err) {
+        console.error('[SleepTimerService] Error pausing TrackPlayer:', err);
+      }
+      notifyListeners();
+    } else {
+      notifyListeners();
+    }
+  }, 1000);
+}
+
+export function setCustomSleepTimer(minutes: number) {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  const validMinutes = Math.max(1, Math.min(720, Math.round(minutes)));
+  currentMode = 'custom';
+  isSleepPaused = false;
+  remainingSeconds = validMinutes * 60;
   notifyListeners();
 
   timerInterval = setInterval(async () => {

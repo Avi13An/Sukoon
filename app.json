@@ -28,7 +28,9 @@
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -40,7 +42,8 @@
       }
     },
     "plugins": [
-      "expo-sharing"
+      "expo-sharing",
+      "expo-audio"
     ],
     "owner": "venomavan"
   }

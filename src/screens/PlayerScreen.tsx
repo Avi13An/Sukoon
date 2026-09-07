@@ -28,6 +28,17 @@ export function PlayerScreen({ navigation }: any) {
   const [currentPos, setCurrentPos] = useState(0);
   const [currentDur, setCurrentDur] = useState(0);
   const isTransitioningRef = useRef(false);
+  const isScrubbingRef = useRef(false);
+  const progressBarRef = useRef<View>(null);
+  const barPageXRef = useRef(0);
+  const barWidthRef = useRef(1);
+
+  const updateBarLayout = () => {
+    progressBarRef.current?.measure((x, y, width, height, pageX) => {
+      if (width > 0) barWidthRef.current = width;
+      if (typeof pageX === 'number') barPageXRef.current = pageX;
+    });
+  };
 
   useEffect(() => {
     isTransitioningRef.current = false;
@@ -35,7 +46,7 @@ export function PlayerScreen({ navigation }: any) {
     const interval = setInterval(async () => {
       try {
         const p = await TrackPlayer.getProgress();
-        if (isMounted && p && typeof p.position === 'number') {
+        if (isMounted && !isScrubbingRef.current && p && typeof p.position === 'number') {
           setCurrentPos(p.position);
           const validDur = p.duration > 0 ? p.duration : ((track as any)?.duration || 0);
           if (validDur > 0) setCurrentDur(validDur);
@@ -58,7 +69,6 @@ export function PlayerScreen({ navigation }: any) {
 
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
-  const progressBarWidth = useRef(1);
 
   const effectiveDuration = currentDur > 0 ? currentDur : ((track as any)?.duration || 180);
   const displayPosition = isScrubbing ? scrubPosition : currentPos;
@@ -68,38 +78,50 @@ export function PlayerScreen({ navigation }: any) {
 
   const handleSeek = async (newPos: number) => {
     const clamped = Math.max(0, Math.min(newPos, effectiveDuration));
-    await TrackPlayer.seekTo(clamped);
+    setCurrentPos(clamped);
+    try {
+      await TrackPlayer.seekTo(clamped);
+    } catch {}
   };
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
+      onPanResponderGrant: (evt, gestureState) => {
+        isScrubbingRef.current = true;
         setIsScrubbing(true);
-        const barWidth = progressBarWidth.current || 1;
-        const x = evt.nativeEvent.locationX;
-        const percentage = Math.max(0, Math.min(1, x / barWidth));
-        const targetSeconds = percentage * effectiveDuration;
+        updateBarLayout();
+        const barWidth = barWidthRef.current || 1;
+        const touchX = Math.max(0, Math.min(barWidth, gestureState.x0 - barPageXRef.current));
+        const targetSeconds = (touchX / barWidth) * effectiveDuration;
         setScrubPosition(targetSeconds);
       },
-      onPanResponderMove: (evt) => {
-        const barWidth = progressBarWidth.current || 1;
-        const x = evt.nativeEvent.locationX;
-        const percentage = Math.max(0, Math.min(1, x / barWidth));
-        const targetSeconds = percentage * effectiveDuration;
+      onPanResponderMove: (evt, gestureState) => {
+        const barWidth = barWidthRef.current || 1;
+        const touchX = Math.max(0, Math.min(barWidth, gestureState.moveX - barPageXRef.current));
+        const targetSeconds = (touchX / barWidth) * effectiveDuration;
         setScrubPosition(targetSeconds);
       },
-      onPanResponderRelease: async (evt) => {
-        const barWidth = progressBarWidth.current || 1;
-        const x = evt.nativeEvent.locationX;
-        const percentage = Math.max(0, Math.min(1, x / barWidth));
-        const targetSeconds = percentage * effectiveDuration;
-        setIsScrubbing(false);
-        await handleSeek(targetSeconds);
+      onPanResponderRelease: async (evt, gestureState) => {
+        const barWidth = barWidthRef.current || 1;
+        const touchX = Math.max(0, Math.min(barWidth, gestureState.moveX - barPageXRef.current));
+        const targetSeconds = (touchX / barWidth) * effectiveDuration;
+        setScrubPosition(targetSeconds);
+        setCurrentPos(targetSeconds);
+        try {
+          await TrackPlayer.seekTo(targetSeconds);
+        } catch {}
+        setTimeout(() => {
+          isScrubbingRef.current = false;
+          setIsScrubbing(false);
+        }, 250);
       },
       onPanResponderTerminate: () => {
-        setIsScrubbing(false);
+        setTimeout(() => {
+          isScrubbingRef.current = false;
+          setIsScrubbing(false);
+        }, 250);
       }
     })
   ).current;
@@ -383,8 +405,12 @@ export function PlayerScreen({ navigation }: any) {
         <View style={styles.progressRow}>
           <Text style={styles.timeText}>{formatTime(displayPosition)}</Text>
           <View 
+            ref={progressBarRef}
             style={styles.progressBarTouchable}
-            onLayout={(e) => { progressBarWidth.current = e.nativeEvent.layout.width; }}
+            onLayout={(e) => { 
+              barWidthRef.current = e.nativeEvent.layout.width; 
+              updateBarLayout();
+            }}
             {...panResponder.panHandlers}
           >
             <View style={styles.progressBarBg}>

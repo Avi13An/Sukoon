@@ -13,6 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import TrackPlayer, { useIsPlaying } from '@rntp/player';
 import { TrackMetadata, StudioRecording } from '../utils/storage';
 import { getLyricsWithSource, ParsedLyrics, LyricLine } from '../services/lyricsService';
 import { 
@@ -45,6 +46,20 @@ export function KaraokeStudioModal({
   currentPosition,
   duration,
 }: Props) {
+  const isPlaying = useIsPlaying();
+
+  const toggleBgmPlayback = async () => {
+    try {
+      if (isPlaying) {
+        await TrackPlayer.pause();
+      } else {
+        await TrackPlayer.play();
+      }
+    } catch (e) {
+      console.warn('[KaraokeStudio] Error toggling playback:', e);
+    }
+  };
+
   const [lyricsData, setLyricsData] = useState<ParsedLyrics | null>(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [bgmVolume, setBgmVolume] = useState<number>(75); // 0 to 100
@@ -298,12 +313,32 @@ export function KaraokeStudioModal({
           </View>
         </View>
 
-        {/* BGM Volume Mixer Control */}
+        {/* BGM Cueing, Play/Pause & Volume Mixer Control */}
         <View style={styles.mixerCard}>
-          <View style={styles.mixerRow}>
-            <Ionicons name="volume-medium-outline" size={18} color="#00ffcc" />
-            <Text style={styles.mixerLabel}>Backing Music Volume</Text>
-            <Text style={styles.mixerValue}>{bgmVolume}%</Text>
+          <View style={styles.bgmRow}>
+            <TouchableOpacity 
+              onPress={toggleBgmPlayback} 
+              activeOpacity={0.7} 
+              style={styles.bgmPlayBtn}
+            >
+              <Ionicons 
+                name={isPlaying ? "pause-circle" : "play-circle"} 
+                size={38} 
+                color="#00ffcc" 
+              />
+            </TouchableOpacity>
+            <View style={styles.bgmTrackInfo}>
+              <Text style={styles.bgmTrackTitle} numberOfLines={1}>
+                {track?.title || 'No Track Selected'}
+              </Text>
+              <Text style={styles.bgmTrackArtist} numberOfLines={1}>
+                {track?.artist || 'Cue backing track'}
+              </Text>
+            </View>
+            <View style={styles.bgmVolBadge}>
+              <Ionicons name="volume-medium-outline" size={14} color="#00ffcc" />
+              <Text style={styles.bgmVolText}>{bgmVolume}%</Text>
+            </View>
           </View>
           <View 
             style={styles.sliderContainer}
@@ -528,21 +563,42 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#1e1e24',
   },
-  mixerRow: {
+  bgmRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  mixerLabel: {
-    color: '#cccccc',
-    fontSize: 13,
-    fontWeight: '600',
-    marginLeft: 8,
+  bgmPlayBtn: {
+    paddingRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bgmTrackInfo: {
     flex: 1,
+    justifyContent: 'center',
   },
-  mixerValue: {
+  bgmTrackTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  bgmTrackArtist: {
+    color: '#888896',
+    fontSize: 12,
+    marginTop: 1,
+  },
+  bgmVolBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 255, 204, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  bgmVolText: {
     color: '#00ffcc',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   sliderContainer: {

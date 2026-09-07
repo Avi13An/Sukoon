@@ -5,13 +5,15 @@ import {
   StyleSheet, 
   Modal, 
   TouchableOpacity, 
-  TouchableWithoutFeedback 
+  TouchableWithoutFeedback,
+  TextInput 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
   SleepTimerMode, 
   SleepTimerState, 
   setSleepTimer, 
+  setCustomSleepTimer,
   subscribeToSleepTimer, 
   cancelSleepTimer,
   getSleepTimerState
@@ -40,6 +42,11 @@ const TIMER_OPTIONS: TimerOption[] = [
 
 export function SleepTimerModal({ visible, onClose }: Props) {
   const [timerState, setTimerState] = useState<SleepTimerState>(getSleepTimerState());
+  const [customMinutes, setCustomMinutes] = useState<number>(25);
+
+  const adjustMinutes = (delta: number) => {
+    setCustomMinutes((prev) => Math.max(1, Math.min(720, (prev || 0) + delta)));
+  };
 
   useEffect(() => {
     const unsubscribe = subscribeToSleepTimer((state) => {
@@ -132,6 +139,62 @@ export function SleepTimerModal({ visible, onClose }: Props) {
                     </TouchableOpacity>
                   );
                 })}
+              </View>
+
+              {/* Custom Duration Section */}
+              <View style={styles.customSection}>
+                <Text style={styles.customSectionTitle}>Custom Duration</Text>
+                <View style={styles.customControlsRow}>
+                  <TouchableOpacity 
+                    style={styles.stepperBtn} 
+                    onPress={() => adjustMinutes(-5)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.stepperBtnText}>- 5m</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.inputContainer}>
+                    <TextInput
+                      style={styles.customInput}
+                      keyboardType="numeric"
+                      value={customMinutes ? customMinutes.toString() : ''}
+                      onChangeText={(txt) => {
+                        const num = parseInt(txt.replace(/[^0-9]/g, ''), 10);
+                        if (!isNaN(num)) {
+                          setCustomMinutes(Math.max(1, Math.min(720, num)));
+                        } else {
+                          setCustomMinutes(0);
+                        }
+                      }}
+                      maxLength={3}
+                      placeholder="25"
+                      placeholderTextColor="#555566"
+                    />
+                    <Text style={styles.inputSuffix}>min</Text>
+                  </View>
+
+                  <TouchableOpacity 
+                    style={styles.stepperBtn} 
+                    onPress={() => adjustMinutes(5)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.stepperBtnText}>+ 5m</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.setCustomBtn}
+                  onPress={() => {
+                    const mins = customMinutes > 0 ? customMinutes : 1;
+                    setCustomSleepTimer(mins);
+                    showToast(`Sleep timer set for ${mins} minutes`, 'moon');
+                    onClose();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="timer-outline" size={18} color="#000000" />
+                  <Text style={styles.setCustomBtnText}>Set Custom Timer ({customMinutes || 1} min)</Text>
+                </TouchableOpacity>
               </View>
 
             </View>
@@ -237,6 +300,82 @@ const styles = StyleSheet.create({
   },
   optionLabelSelected: {
     color: '#ffffff',
+    fontWeight: '700',
+  },
+  customSection: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#1c1c24',
+  },
+  customSectionTitle: {
+    color: '#aaaaaa',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  customControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 10,
+  },
+  stepperBtn: {
+    flex: 1,
+    backgroundColor: '#16161e',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#242432',
+  },
+  stepperBtnText: {
+    color: '#00ffcc',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  inputContainer: {
+    flex: 1.2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#101016',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#262636',
+    paddingHorizontal: 8,
+    height: 42,
+  },
+  customInput: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    minWidth: 40,
+    padding: 0,
+  },
+  inputSuffix: {
+    color: '#888896',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  setCustomBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00ffcc',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  setCustomBtnText: {
+    color: '#000000',
+    fontSize: 14,
     fontWeight: '700',
   },
 });
