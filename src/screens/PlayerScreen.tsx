@@ -4,7 +4,7 @@ import TrackPlayer, { useActiveMediaItem, useIsPlaying, RepeatMode } from '@rntp
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
-import { toggleLoopMode, playNextTrack, playPreviousTrack } from '../services/TrackPlayerService';
+import { toggleLoopMode, playNextTrack, playPreviousTrack, getCurrentTrack } from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AudioSettingsModal } from '../components/AudioSettingsModal';
@@ -47,12 +47,24 @@ export function PlayerScreen({ navigation }: any) {
 
   useEffect(() => {
     let isMounted = true;
+    const initialMeta = getCurrentTrack();
+    const initialDur = (track as any)?.duration || initialMeta?.duration || 0;
+    if (initialDur > 0) {
+      setCurrentDur(initialDur);
+    } else {
+      setCurrentDur(0);
+    }
+    setCurrentPos(0);
+
     const interval = setInterval(async () => {
       try {
         const p = await TrackPlayer.getProgress();
         if (isMounted && !isScrubbingRef.current && p && typeof p.position === 'number') {
           setCurrentPos(p.position);
-          const validDur = p.duration > 0 ? p.duration : ((track as any)?.duration || 0);
+          const activeMeta = getCurrentTrack();
+          const validDur = p.duration > 0 
+            ? p.duration 
+            : ((track as any)?.duration || activeMeta?.duration || 0);
           if (validDur > 0) setCurrentDur(validDur);
         }
       } catch {}
@@ -80,14 +92,20 @@ export function PlayerScreen({ navigation }: any) {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
 
-  const effectiveDuration = currentDur > 0 ? currentDur : ((track as any)?.duration || 180);
-  const displayPosition = isScrubbing ? scrubPosition : currentPos;
+  const activeMetadata = getCurrentTrack();
+  const fallbackTrackDuration = (track as any)?.duration || activeMetadata?.duration || 0;
+  const totalDuration = currentDur > 0 ? currentDur : fallbackTrackDuration;
+  const effectiveDuration = totalDuration > 0 ? totalDuration : 0;
+  const displayPosition = isScrubbing 
+    ? scrubPosition 
+    : Math.min(currentPos, effectiveDuration > 0 ? effectiveDuration : currentPos);
   const progressPercent = effectiveDuration > 0 
     ? Math.min(100, Math.max(0, (displayPosition / effectiveDuration) * 100)) 
     : 0;
 
   const handleSeek = async (newPos: number) => {
-    const clamped = Math.max(0, Math.min(newPos, effectiveDuration));
+    const maxDur = effectiveDuration > 0 ? effectiveDuration : newPos;
+    const clamped = Math.max(0, Math.min(newPos, maxDur));
     setCurrentPos(clamped);
     try {
       await TrackPlayer.seekTo(clamped);
@@ -107,25 +125,31 @@ export function PlayerScreen({ navigation }: any) {
         updateBarLayout();
         const barWidth = barWidthRef.current || 1;
         const touchX = Math.max(0, Math.min(barWidth, gestureState.x0 - barPageXRef.current));
-        const targetSeconds = (touchX / barWidth) * effectiveDuration;
-        setScrubPosition(targetSeconds);
+        const scrubPercent = touchX / barWidth;
+        const targetSeconds = effectiveDuration > 0 ? scrubPercent * effectiveDuration : 0;
+        const clamped = effectiveDuration > 0 ? Math.max(0, Math.min(effectiveDuration, targetSeconds)) : targetSeconds;
+        setScrubPosition(clamped);
       },
       onPanResponderMove: (evt, gestureState) => {
         const barWidth = barWidthRef.current || 1;
         const touchX = Math.max(0, Math.min(barWidth, gestureState.moveX - barPageXRef.current));
-        const targetSeconds = (touchX / barWidth) * effectiveDuration;
-        setScrubPosition(targetSeconds);
+        const scrubPercent = touchX / barWidth;
+        const targetSeconds = effectiveDuration > 0 ? scrubPercent * effectiveDuration : 0;
+        const clamped = effectiveDuration > 0 ? Math.max(0, Math.min(effectiveDuration, targetSeconds)) : targetSeconds;
+        setScrubPosition(clamped);
       },
       onPanResponderRelease: async (evt, gestureState) => {
         const barWidth = barWidthRef.current || 1;
         const touchX = Math.max(0, Math.min(barWidth, gestureState.moveX - barPageXRef.current));
-        const targetSeconds = (touchX / barWidth) * effectiveDuration;
-        setScrubPosition(targetSeconds);
-        setCurrentPos(targetSeconds);
+        const scrubPercent = touchX / barWidth;
+        const targetSeconds = effectiveDuration > 0 ? scrubPercent * effectiveDuration : 0;
+        const clamped = effectiveDuration > 0 ? Math.max(0, Math.min(effectiveDuration, targetSeconds)) : targetSeconds;
+        setScrubPosition(clamped);
+        setCurrentPos(clamped);
         try {
-          await TrackPlayer.seekTo(targetSeconds);
+          await TrackPlayer.seekTo(clamped);
           if (partyStateRef.current.isActive) {
-            broadcastPartyAction('SEEK', { position: targetSeconds });
+            broadcastPartyAction('SEEK', { position: clamped });
           }
         } catch {}
         setTimeout(() => {
@@ -138,7 +162,7 @@ export function PlayerScreen({ navigation }: any) {
           isScrubbingRef.current = false;
           setIsScrubbing(false);
         }, 250);
-      }
+      },
     })
   ).current;
 
@@ -239,9 +263,17 @@ export function PlayerScreen({ navigation }: any) {
   };
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
+    const totalSecs = Math.floor(seconds);
+    const hours = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    const formattedSecs = secs < 10 ? `0${secs}` : `${secs}`;
+    if (hours > 0) {
+      const formattedMins = mins < 10 ? `0${mins}` : `${mins}`;
+      return `${hours}:${formattedMins}:${formattedSecs}`;
+    }
+    return `${mins}:${formattedSecs}`;
   };
 
   // Find active line index for synced lyrics
