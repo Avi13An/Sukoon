@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -24,9 +24,11 @@ import {
   Playlist, 
   TrackMetadata, 
   getCustomPlaylists, 
+  getUserPlaylists,
   removeTrackFromPlaylist, 
   getDownloadedTracks,
   clonePlaylistToUser,
+  onPlaylistsChanged,
 } from '../utils/storage';
 import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
@@ -134,7 +136,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         setOriginalTracks(downloaded);
         getOfflineStorageUsage().then(usage => setStorageSize(usage.formattedSize));
       } else if (playlistId) {
-        const found = getCustomPlaylists().find(p => p.id === playlistId);
+        const found = getUserPlaylists().find(p => p.id === playlistId);
         if (found) {
           setPlaylist(found);
           setOriginalTracks(found.tracks || []);
@@ -142,6 +144,19 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       }
     }, [playlistId])
   );
+
+  useEffect(() => {
+    const unsub = onPlaylistsChanged(() => {
+      if (playlistId && playlistId !== 'downloads') {
+        const found = getUserPlaylists().find(p => p.id === playlistId);
+        if (found) {
+          setPlaylist(found);
+          setOriginalTracks(found.tracks || []);
+        }
+      }
+    });
+    return unsub;
+  }, [playlistId]);
   
   const scrollY = useSharedValue(0);
 

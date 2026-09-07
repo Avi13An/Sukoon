@@ -32,10 +32,19 @@ export interface Playlist {
   tracks: TrackMetadata[];
 }
 
-export interface UserAccount {
-  username: string;
-  passwordHash: string;
+export interface StoredUserAccount {
+  id: string;
+  username: string; // Display username
+  normalizedUsername: string; // trimmed and lowercase for lookups
+  passwordHash: string; // Or stored password string for offline local auth
   createdAt: number;
+}
+
+export type UserAccount = StoredUserAccount;
+
+export interface ActiveSession {
+  id: string;
+  username: string;
 }
 
 export interface StudioRecording {
@@ -52,8 +61,10 @@ export interface StudioRecording {
 
 const KEYS = {
   ACTIVE_SESSION: '@sukoon_active_session',
-  USERS_DB: '@sukoon_users_db',
+  USERS_REGISTRY: '@sukoon_users_registry',
+  LEGACY_USERS_DB: '@sukoon_users_db',
   PLAYLISTS: 'PLAYLISTS',
+  LEGACY_USER_PLAYLISTS: '@sukoon_user_playlists',
   CUSTOM_PLAYLISTS: '@sukoon_custom_playlists',
   OFFLINE_TRACKS: 'OFFLINE_TRACKS',
   DOWNLOADED_TRACKS: '@sukoon_downloaded_tracks',
@@ -65,69 +76,234 @@ const KEYS = {
   EQUALIZER_SETTINGS: '@sukoon_equalizer_settings',
 };
 
-export function getActiveUser(): string | null {
-  return storage.getString(KEYS.ACTIVE_SESSION) || storage.getString(KEYS.MY_USERNAME) || null;
+// Event subscription for playlist & user data changes
+type StorageListener = () => void;
+const storageListeners: StorageListener[] = [];
+
+export function onPlaylistsChanged(listener: StorageListener): () => void {
+  storageListeners.push(listener);
+  return () => {
+    const idx = storageListeners.indexOf(listener);
+    if (idx !== -1) storageListeners.splice(idx, 1);
+  };
 }
 
-export function setActiveUser(username: string): void {
-  const clean = username.trim().toLowerCase();
-  storage.set(KEYS.ACTIVE_SESSION, clean);
-  storage.set(KEYS.MY_USERNAME, clean);
+export function notifyStorageChanged(): void {
+  storageListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (err) {
+      console.error('[Storage] listener error:', err);
+    }
+  });
 }
 
-export function clearActiveSession(): void {
-  storage.remove(KEYS.ACTIVE_SESSION);
-  storage.remove(KEYS.MY_USERNAME);
-}
-
-export function getUsersDb(): Record<string, UserAccount> {
-  const data = storage.getString(KEYS.USERS_DB);
+// Multi-User Registry & Session Management
+export function getUsersRegistry(): Record<string, StoredUserAccount> {
+  const data = storage.getString(KEYS.USERS_REGISTRY);
   if (data) {
     try {
       return JSON.parse(data);
     } catch {}
   }
+
+  // Fallback migration: Check legacy USERS_DB
+  const legacyData = storage.getString(KEYS.LEGACY_USERS_DB);
+  if (legacyData) {
+    try {
+      const legacyDb: Record<string, any> = JSON.parse(legacyData);
+      const migrated: Record<string, StoredUserAccount> = {};
+      for (const [key, val] of Object.entries(legacyDb)) {
+        const rawName = val.username || key;
+        const norm = rawName.trim().toLowerCase();
+        migrated[norm] = {
+          id: val.id || `user_${norm}`,
+          username: rawName.trim(),
+          normalizedUsername: norm,
+          passwordHash: val.passwordHash || '',
+          createdAt: val.createdAt || Date.now(),
+        };
+      }
+      if (Object.keys(migrated).length > 0) {
+        storage.set(KEYS.USERS_REGISTRY, JSON.stringify(migrated));
+        return migrated;
+      }
+    } catch {}
+  }
   return {};
 }
 
-export function registerUser(username: string, password: string): { success: boolean; error?: string } {
-  const cleanUser = username.trim().toLowerCase();
-  const cleanPass = password.trim();
-  if (cleanUser.length < 3) {
+export const getUsersDb = getUsersRegistry;
+
+export function getActiveUserSession(): ActiveSession | null {
+  const rawSession = storage.getString(KEYS.ACTIVE_SESSION);
+  if (rawSession) {
+    try {
+      const parsed = JSON.parse(rawSession);
+      if (parsed && typeof parsed === 'object' && parsed.id && parsed.username) {
+        return {
+          id: String(parsed.id),
+          username: String(parsed.username),
+        };
+      }
+    } catch {
+      // Legacy string format fallback
+      const norm = rawSession.trim().toLowerCase();
+      const registry = getUsersRegistry();
+      const user = registry[norm];
+      if (user) {
+        return { id: user.id, username: user.username };
+      }
+      return { id: `user_${norm}`, username: rawSession.trim() };
+    }
+  }
+
+  const legacyUsername = storage.getString(KEYS.MY_USERNAME);
+  if (legacyUsername) {
+    const norm = legacyUsername.trim().toLowerCase();
+    const registry = getUsersRegistry();
+    const user = registry[norm];
+    if (user) {
+      return { id: user.id, username: user.username };
+    }
+    return { id: `user_${norm}`, username: legacyUsername.trim() };
+  }
+
+  return null;
+}
+
+export function setActiveSession(session: ActiveSession): void {
+  storage.set(KEYS.ACTIVE_SESSION, JSON.stringify({
+    id: session.id,
+    username: session.username.trim(),
+  }));
+  storage.set(KEYS.MY_USERNAME, session.username.trim());
+  notifyStorageChanged();
+}
+
+export function getActiveUser(): string | null {
+  const session = getActiveUserSession();
+  return session ? session.username : null;
+}
+
+export function setActiveUser(usernameOrSession: string | ActiveSession): void {
+  if (typeof usernameOrSession === 'object' && usernameOrSession !== null) {
+    setActiveSession(usernameOrSession);
+    return;
+  }
+  const cleanUsername = String(usernameOrSession).trim();
+  const normUsername = cleanUsername.toLowerCase();
+  const registry = getUsersRegistry();
+  const existing = registry[normUsername];
+  if (existing) {
+    setActiveSession({ id: existing.id, username: existing.username });
+  } else {
+    setActiveSession({ id: `user_${normUsername}`, username: cleanUsername });
+  }
+}
+
+export function clearActiveSession(): void {
+  storage.remove(KEYS.ACTIVE_SESSION);
+  storage.remove(KEYS.MY_USERNAME);
+  notifyStorageChanged();
+}
+
+export function hydrateUserData(user: StoredUserAccount): void {
+  // 1. Ensure user-scoped playlists are loaded and legacy playlists migrated
+  const playlists = getUserPlaylists(user.id);
+
+  // If user has no playlists, create an initial "Liked Songs" playlist
+  const hasLikedSongs = playlists.some(
+    p => p.id === `liked_${user.id}` || p.name.trim().toLowerCase() === 'liked songs'
+  );
+  if (!hasLikedSongs) {
+    const likedPlaylist: Playlist = {
+      id: `liked_${user.id}`,
+      shareCode: 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+      name: 'Liked Songs',
+      description: 'Your favorite tracks',
+      createdAt: Date.now(),
+      isImported: false,
+      tracks: [],
+    };
+    playlists.unshift(likedPlaylist);
+    saveUserPlaylists(playlists, user.id);
+  }
+
+  // 2. Pre-touch favorites and listen history
+  getFavoriteTracks(user.id);
+  getListenHistory();
+
+  // 3. Notify listeners
+  notifyStorageChanged();
+}
+
+export function registerUser(
+  username: string, 
+  password: string
+): { success: boolean; error?: string; user?: StoredUserAccount } {
+  const trimmed = username.trim();
+  const normUsername = trimmed.toLowerCase();
+  const cleanPassword = password.trim();
+
+  if (trimmed.length < 3) {
     return { success: false, error: 'Username must be at least 3 characters.' };
   }
-  if (cleanPass.length < 4) {
+  if (cleanPassword.length < 4) {
     return { success: false, error: 'Password must be at least 4 characters.' };
   }
 
-  const db = getUsersDb();
-  if (db[cleanUser]) {
-    return { success: false, error: 'Username is already taken.' };
+  const users = getUsersRegistry();
+  if (users[normUsername]) {
+    return { success: false, error: 'Username already exists. Please log in.' };
   }
 
-  db[cleanUser] = {
-    username: cleanUser,
-    passwordHash: cleanPass,
+  const id = `user_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+  const newUser: StoredUserAccount = {
+    id,
+    username: trimmed,
+    normalizedUsername: normUsername,
+    passwordHash: cleanPassword,
     createdAt: Date.now(),
   };
 
-  storage.set(KEYS.USERS_DB, JSON.stringify(db));
-  setActiveUser(cleanUser);
-  return { success: true };
+  users[normUsername] = newUser;
+  storage.set(KEYS.USERS_REGISTRY, JSON.stringify(users));
+
+  // Set active session
+  setActiveSession({ id: newUser.id, username: newUser.username });
+
+  // Hydrate user-specific data
+  hydrateUserData(newUser);
+
+  return { success: true, user: newUser };
 }
 
-export function loginUser(username: string, password: string): { success: boolean; error?: string } {
-  const cleanUser = username.trim().toLowerCase();
-  const cleanPass = password.trim();
-  const db = getUsersDb();
-  const user = db[cleanUser];
+export function loginUser(
+  username: string, 
+  password: string
+): { success: boolean; error?: string; user?: StoredUserAccount } {
+  const normUsername = username.trim().toLowerCase();
+  const cleanPassword = password.trim();
 
-  if (!user || user.passwordHash !== cleanPass) {
-    return { success: false, error: 'Invalid username or password.' };
+  const users = getUsersRegistry();
+  const user = users[normUsername];
+
+  if (!user) {
+    return { success: false, error: 'Username not found. Please sign up.' };
   }
 
-  setActiveUser(cleanUser);
-  return { success: true };
+  if (user.passwordHash !== cleanPassword) {
+    return { success: false, error: 'Incorrect password.' };
+  }
+
+  // Persist active session
+  setActiveSession({ id: user.id, username: user.username });
+
+  // Hydrate user-specific data (playlists, favorites, history)
+  hydrateUserData(user);
+
+  return { success: true, user };
 }
 
 export function clearDownloadedTracksStorage(): void {
@@ -143,44 +319,75 @@ export function setMyUsername(username: string) {
   setActiveUser(username);
 }
 
-export function getUserPlaylistsKey(username?: string | null): string {
-  const user = username || getActiveUser() || 'guest';
-  return `@sukoon_user_${user.toLowerCase()}_playlists`;
+// User-Scoped Playlists Binding
+export function getUserPlaylistsKey(userIdOrUsername?: string | null): string {
+  if (userIdOrUsername) {
+    if (userIdOrUsername.startsWith('user_')) {
+      return `@sukoon_playlists_${userIdOrUsername}`;
+    }
+    const registry = getUsersRegistry();
+    const user = registry[userIdOrUsername.trim().toLowerCase()];
+    if (user) {
+      return `@sukoon_playlists_${user.id}`;
+    }
+    return `@sukoon_playlists_${userIdOrUsername.trim().toLowerCase()}`;
+  }
+  const session = getActiveUserSession();
+  if (session?.id) {
+    return `@sukoon_playlists_${session.id}`;
+  }
+  return '@sukoon_playlists_guest';
 }
 
-export function getCustomPlaylists(username?: string): Playlist[] {
-  const key = getUserPlaylistsKey(username);
+export function getUserPlaylists(targetUserIdOrUsername?: string): Playlist[] {
+  const session = getActiveUserSession();
+  const key = getUserPlaylistsKey(targetUserIdOrUsername || session?.id);
   let playlists: Playlist[] = [];
-  const data = storage.getString(key);
-  if (data) {
+
+  const rawData = storage.getString(key);
+  if (rawData) {
     try {
-      playlists = JSON.parse(data);
+      playlists = JSON.parse(rawData);
     } catch {}
-  } else {
-    // If no user-specific key exists yet, check legacy storage keys for smooth migration
-    const legacyCustom = storage.getString(KEYS.CUSTOM_PLAYLISTS);
-    const legacyPlaylists = storage.getString(KEYS.PLAYLISTS);
-    const raw = legacyCustom || legacyPlaylists;
-    if (raw) {
-      try {
-        const legacy: any[] = JSON.parse(raw);
-        playlists = legacy.map(p => ({
-          id: p.id || Date.now().toString(),
-          shareCode: p.shareCode || ('SK-' + Math.random().toString(36).substring(2, 8).toUpperCase()),
-          name: p.name || 'Untitled Playlist',
-          description: p.description || '',
-          createdAt: p.createdAt || Date.now(),
-          coverImage: p.coverImage,
-          isImported: p.isImported || false,
-          tracks: p.tracks || []
-        }));
-        if (playlists.length > 0) {
-          saveCustomPlaylists(playlists, username);
-        }
-      } catch {}
+  }
+
+  // Fallback migration: If user-scoped playlists are empty, check legacy storage keys
+  if (!playlists || playlists.length === 0) {
+    const legacyKeysToCheck: string[] = [
+      KEYS.LEGACY_USER_PLAYLISTS, // @sukoon_user_playlists
+      session ? `@sukoon_user_${session.username.toLowerCase()}_playlists` : '',
+      session ? `@sukoon_playlists_${session.username.toLowerCase()}` : '',
+      KEYS.CUSTOM_PLAYLISTS, // @sukoon_custom_playlists
+      KEYS.PLAYLISTS, // PLAYLISTS
+    ].filter(Boolean);
+
+    for (const legacyKey of legacyKeysToCheck) {
+      const legacyRaw = storage.getString(legacyKey);
+      if (legacyRaw) {
+        try {
+          const parsed = JSON.parse(legacyRaw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            playlists = parsed.map((p: any) => ({
+              id: p.id || `pl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              shareCode: p.shareCode || ('SK-' + Math.random().toString(36).substring(2, 8).toUpperCase()),
+              name: p.name || 'Untitled Playlist',
+              description: p.description || '',
+              createdAt: p.createdAt || Date.now(),
+              coverImage: p.coverImage,
+              isImported: p.isImported || false,
+              tracks: Array.isArray(p.tracks) ? p.tracks : [],
+            }));
+            if (playlists.length > 0) {
+              saveUserPlaylists(playlists, targetUserIdOrUsername);
+              break;
+            }
+          }
+        } catch {}
+      }
     }
   }
 
+  // Ensure every playlist has a share code
   let needsSave = false;
   playlists = playlists.map(p => {
     if (!p.shareCode) {
@@ -191,19 +398,26 @@ export function getCustomPlaylists(username?: string): Playlist[] {
   });
 
   if (needsSave) {
-    saveCustomPlaylists(playlists, username);
+    saveUserPlaylists(playlists, targetUserIdOrUsername);
   }
 
   return playlists;
 }
 
-export function saveCustomPlaylists(playlists: Playlist[], username?: string) {
-  const key = getUserPlaylistsKey(username);
+export function saveUserPlaylists(playlists: Playlist[], targetUserIdOrUsername?: string): void {
+  const session = getActiveUserSession();
+  const key = getUserPlaylistsKey(targetUserIdOrUsername || session?.id);
   storage.set(key, JSON.stringify(playlists));
+  notifyStorageChanged();
 }
 
+export const getCustomPlaylists = getUserPlaylists;
+export const saveCustomPlaylists = saveUserPlaylists;
+export const getPlaylists = getUserPlaylists;
+export const savePlaylists = saveUserPlaylists;
+
 export function createPlaylist(name: string, description?: string, coverImage?: string): Playlist {
-  const playlists = getCustomPlaylists();
+  const playlists = getUserPlaylists();
   const shareCode = 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
   const newPlaylist: Playlist = {
     id: Date.now().toString(),
@@ -216,7 +430,7 @@ export function createPlaylist(name: string, description?: string, coverImage?: 
     tracks: [],
   };
   playlists.push(newPlaylist);
-  saveCustomPlaylists(playlists);
+  saveUserPlaylists(playlists);
   return newPlaylist;
 }
 
@@ -236,9 +450,9 @@ export function clonePlaylistToUser(sourcePlaylist: Playlist, customName?: strin
     tracks: clonedTracks,
   };
 
-  const playlists = getCustomPlaylists();
+  const playlists = getUserPlaylists();
   playlists.push(newPlaylist);
-  saveCustomPlaylists(playlists);
+  saveUserPlaylists(playlists);
   return newPlaylist;
 }
 
@@ -247,28 +461,31 @@ export function getPlaylistByShareCode(code: string): Playlist | undefined {
   const cleanCode = code.trim().toUpperCase();
   
   // 1. Check active user's playlists
-  const activePlaylists = getCustomPlaylists();
+  const activePlaylists = getUserPlaylists();
   const foundActive = activePlaylists.find(p => p.shareCode?.toUpperCase() === cleanCode);
   if (foundActive) return foundActive;
 
-  // 2. Check all registered accounts on device
+  // 2. Check all registered accounts on device from @sukoon_users_registry
   try {
-    const users = Object.keys(getUsersDb());
+    const users = Object.values(getUsersRegistry());
     for (const u of users) {
-      const userPlaylists = getCustomPlaylists(u);
+      const userPlaylists = getUserPlaylists(u.id);
       const found = userPlaylists.find(p => p.shareCode?.toUpperCase() === cleanCode);
       if (found) return found;
     }
   } catch {}
 
   // 3. Check legacy custom playlists
-  const legacyCustom = storage.getString(KEYS.CUSTOM_PLAYLISTS);
-  if (legacyCustom) {
-    try {
-      const parsed: Playlist[] = JSON.parse(legacyCustom);
-      const found = parsed.find(p => p.shareCode?.toUpperCase() === cleanCode);
-      if (found) return found;
-    } catch {}
+  const legacyKeys = [KEYS.CUSTOM_PLAYLISTS, KEYS.LEGACY_USER_PLAYLISTS, KEYS.PLAYLISTS];
+  for (const lk of legacyKeys) {
+    const legacyCustom = storage.getString(lk);
+    if (legacyCustom) {
+      try {
+        const parsed: Playlist[] = JSON.parse(legacyCustom);
+        const found = parsed.find(p => p.shareCode?.toUpperCase() === cleanCode);
+        if (found) return found;
+      } catch {}
+    }
   }
 
   return undefined;
@@ -277,7 +494,7 @@ export function getPlaylistByShareCode(code: string): Playlist | undefined {
 export function importPlaylistByCode(code: string, sharedPlaylistData?: Playlist): Playlist | null {
   if (!code && !sharedPlaylistData) return null;
   const cleanCode = code ? code.trim().toUpperCase() : sharedPlaylistData?.shareCode?.toUpperCase() || '';
-  const playlists = getCustomPlaylists();
+  const playlists = getUserPlaylists();
 
   const existing = playlists.find(p => p.shareCode?.toUpperCase() === cleanCode && p.isImported);
   if (existing) {
@@ -299,13 +516,13 @@ export function importPlaylistByCode(code: string, sharedPlaylistData?: Playlist
   };
 
   playlists.push(importedPlaylist);
-  saveCustomPlaylists(playlists);
+  saveUserPlaylists(playlists);
   return importedPlaylist;
 }
 
 export function addTrackToPlaylist(playlistId: string, track: TrackMetadata): boolean {
   if (!playlistId || !track || !track.id) return false;
-  const playlists = getCustomPlaylists();
+  const playlists = getUserPlaylists();
   const playlist = playlists.find(p => p.id === playlistId);
   if (!playlist) return false;
 
@@ -317,36 +534,78 @@ export function addTrackToPlaylist(playlistId: string, track: TrackMetadata): bo
   if (!playlist.coverImage && track.artwork) {
     playlist.coverImage = track.artwork;
   }
-  saveCustomPlaylists(playlists);
+  saveUserPlaylists(playlists);
   return true;
 }
 
 export function removeTrackFromPlaylist(playlistId: string, trackId: string): boolean {
-  const playlists = getCustomPlaylists();
+  const playlists = getUserPlaylists();
   const playlist = playlists.find(p => p.id === playlistId);
   if (!playlist) return false;
 
   const initialCount = playlist.tracks.length;
   playlist.tracks = playlist.tracks.filter(t => t.id !== trackId);
   if (playlist.tracks.length !== initialCount) {
-    saveCustomPlaylists(playlists);
+    saveUserPlaylists(playlists);
     return true;
   }
   return false;
 }
 
 export function deletePlaylist(playlistId: string): boolean {
-  const playlists = getCustomPlaylists();
+  const playlists = getUserPlaylists();
   const filtered = playlists.filter(p => p.id !== playlistId);
   if (filtered.length !== playlists.length) {
-    saveCustomPlaylists(filtered);
+    saveUserPlaylists(filtered);
     return true;
   }
   return false;
 }
 
-export const getPlaylists = getCustomPlaylists;
-export const savePlaylists = saveCustomPlaylists;
+// User-Scoped Favorites / Liked Songs
+export function getUserFavoritesKey(userId?: string | null): string {
+  const session = getActiveUserSession();
+  const id = userId || session?.id || 'guest';
+  return `@sukoon_favorites_${id}`;
+}
+
+export function getFavoriteTracks(userId?: string): TrackMetadata[] {
+  const key = getUserFavoritesKey(userId);
+  const data = storage.getString(key);
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch {}
+  }
+  return [];
+}
+
+export function saveFavoriteTracks(tracks: TrackMetadata[], userId?: string): void {
+  const key = getUserFavoritesKey(userId);
+  storage.set(key, JSON.stringify(tracks));
+  notifyStorageChanged();
+}
+
+export function toggleFavoriteTrack(track: TrackMetadata, userId?: string): boolean {
+  if (!track || !track.id) return false;
+  const favorites = getFavoriteTracks(userId);
+  const exists = favorites.some(t => t.id === track.id);
+  let updated: TrackMetadata[];
+  if (exists) {
+    updated = favorites.filter(t => t.id !== track.id);
+  } else {
+    updated = [track, ...favorites];
+  }
+  saveFavoriteTracks(updated, userId);
+  return !exists;
+}
+
+export function isTrackFavorite(trackId: string, userId?: string): boolean {
+  if (!trackId) return false;
+  const favorites = getFavoriteTracks(userId);
+  return favorites.some(t => t.id === trackId);
+}
+
 
 export function getOfflineTracks(): Record<string, OfflineTrack> {
   const data = storage.getString(KEYS.OFFLINE_TRACKS);
@@ -439,8 +698,11 @@ export function clearRecentSearches(): void {
   storage.remove(KEYS.RECENT_SEARCHES);
 }
 
+// User-scoped listen history
 export function getListenHistory(): TrackMetadata[] {
-  const data = storage.getString(KEYS.LISTEN_HISTORY);
+  const session = getActiveUserSession();
+  const key = session ? `@sukoon_listen_history_${session.id}` : KEYS.LISTEN_HISTORY;
+  const data = storage.getString(key) || storage.getString(KEYS.LISTEN_HISTORY);
   return data ? JSON.parse(data) : [];
 }
 
@@ -448,7 +710,9 @@ export function saveListenHistory(track: TrackMetadata): TrackMetadata[] {
   if (!track || !track.id) return getListenHistory();
   const current = getListenHistory();
   const updated = [track, ...current.filter(t => t.id !== track.id)].slice(0, 20);
-  storage.set(KEYS.LISTEN_HISTORY, JSON.stringify(updated));
+  const session = getActiveUserSession();
+  const key = session ? `@sukoon_listen_history_${session.id}` : KEYS.LISTEN_HISTORY;
+  storage.set(key, JSON.stringify(updated));
   return updated;
 }
 

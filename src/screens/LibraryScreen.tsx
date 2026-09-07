@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
   getCustomPlaylists, 
+  getUserPlaylists,
   createPlaylist, 
   deletePlaylist, 
   getDownloadedTracks, 
@@ -21,6 +22,7 @@ import {
   getPlaylistByShareCode,
   clonePlaylistToUser,
   getActiveUser,
+  onPlaylistsChanged,
   Playlist, 
   DownloadedTrack 
 } from '../utils/storage';
@@ -45,7 +47,7 @@ export function LibraryScreen({ navigation }: any) {
 
   const refreshLibrary = useCallback(async () => {
     setActiveUsername(getActiveUser());
-    setPlaylists(getCustomPlaylists());
+    setPlaylists(getUserPlaylists());
     const downloaded = getDownloadedTracks();
     setDownloadedTracks(downloaded);
     const usage = await getOfflineStorageUsage();
@@ -58,6 +60,13 @@ export function LibraryScreen({ navigation }: any) {
       refreshLibrary();
     }, [refreshLibrary])
   );
+
+  useEffect(() => {
+    const unsub = onPlaylistsChanged(() => {
+      refreshLibrary();
+    });
+    return unsub;
+  }, [refreshLibrary]);
 
   const navigateToPlaylist = (playlist: Playlist) => {
     navigation.navigate('PlaylistDetail', { playlist, playlistId: playlist.id });

@@ -11,7 +11,7 @@ import {
   StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { loginUser, registerUser, setActiveUser } from '../utils/storage';
+import { loginUser, registerUser, getUserPlaylists, notifyStorageChanged } from '../utils/storage';
 import { supabase } from '../services/supabase';
 
 interface Props {
@@ -27,14 +27,14 @@ export function AuthScreen({ navigation }: Props) {
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    const cleanUser = username.trim().toLowerCase();
+    const rawUser = username.trim();
     const cleanPass = password.trim();
 
-    if (!cleanUser) {
+    if (!rawUser) {
       setError('Please enter a username.');
       return;
     }
-    if (cleanUser.length < 3) {
+    if (rawUser.length < 3) {
       setError('Username must be at least 3 characters.');
       return;
     }
@@ -52,28 +52,34 @@ export function AuthScreen({ navigation }: Props) {
 
     try {
       if (isLoginMode) {
-        const result = loginUser(cleanUser, cleanPass);
+        const result = loginUser(rawUser, cleanPass);
         if (!result.success) {
           setError(result.error || 'Invalid username or password.');
           setIsLoading(false);
           return;
         }
       } else {
-        const result = registerUser(cleanUser, cleanPass);
+        const result = registerUser(rawUser, cleanPass);
         if (!result.success) {
-          setError(result.error || 'Username is already registered.');
+          setError(result.error || 'Username already exists. Please log in.');
           setIsLoading(false);
           return;
         }
 
         // Asynchronously sync profile to Supabase if available
         try {
-          await supabase.from('profiles').upsert([{ username: cleanUser }]);
+          await supabase.from('profiles').upsert([{ username: rawUser.toLowerCase() }]);
         } catch {}
       }
 
-      setActiveUser(cleanUser);
-      navigation.replace('MainTabs');
+      // Trigger playlist reload / state sync so the user's custom playlists and liked songs immediately appear
+      getUserPlaylists();
+      notifyStorageChanged();
+
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainTabs' }],
+      });
     } catch (err: any) {
       setError(err?.message || 'Authentication error. Please try again.');
     } finally {
