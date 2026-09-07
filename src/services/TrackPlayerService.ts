@@ -183,17 +183,28 @@ export async function playNextTrack(forcedTrackIndex?: number) {
   }
 }
 
+let isAutoTransitioning = false;
 export async function handleAutoplayTransition() {
-  if (await handleTrackEndedForSleepTimer()) {
-    console.log('[Autoplay] Sleep timer ended or paused playback');
-    return;
+  if (isAutoTransitioning) return;
+  isAutoTransitioning = true;
+  try {
+    if (await handleTrackEndedForSleepTimer()) {
+      console.log('[Autoplay] Sleep timer ended or paused playback');
+      return;
+    }
+    const repeatMode = TrackPlayer.getRepeatMode();
+    if (repeatMode !== RepeatMode.Off) {
+      console.log('[Autoplay] Repeat mode active, skipping autoplay');
+      return;
+    }
+    await playNextTrack();
+  } catch (err) {
+    console.error('[Autoplay] Error in handleAutoplayTransition:', err);
+  } finally {
+    setTimeout(() => {
+      isAutoTransitioning = false;
+    }, 1000);
   }
-  const repeatMode = TrackPlayer.getRepeatMode();
-  if (repeatMode !== RepeatMode.Off) {
-    console.log('[Autoplay] Repeat mode active, skipping autoplay');
-    return;
-  }
-  await playNextTrack();
 }
 
 export async function setupPlayer(): Promise<boolean> {
@@ -406,7 +417,9 @@ export async function playTrack(metadata: TrackMetadata) {
       if (!resolved || !resolved.startsWith('http')) {
         const msg = `No playable audio stream found for track ${metadata.id}`;
         console.warn(msg);
-        Alert.alert('TrackPlayer Service Error', msg);
+        try {
+          Alert.alert('TrackPlayer Service Error', msg);
+        } catch {}
         throw new Error(msg);
       }
       playUrl = resolved;
@@ -431,6 +444,12 @@ export async function playTrack(metadata: TrackMetadata) {
         'Accept': '*/*'
       }
     };
+
+    if (typeof (TrackPlayer as any).reset === 'function') {
+      try { await (TrackPlayer as any).reset(); } catch {}
+    } else if (typeof (TrackPlayer as any).clear === 'function') {
+      try { await (TrackPlayer as any).clear(); } catch {}
+    }
 
     if (typeof load === 'function') {
       await load(trackPayload);
@@ -493,3 +512,8 @@ export async function playTrack(metadata: TrackMetadata) {
     throw error;
   }
 }
+
+export async function PlaybackService() {
+  // Headless background playback service handler stub
+}
+

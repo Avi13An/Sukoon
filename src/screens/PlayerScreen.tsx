@@ -27,7 +27,6 @@ export function PlayerScreen({ navigation }: any) {
   
   const [currentPos, setCurrentPos] = useState(0);
   const [currentDur, setCurrentDur] = useState(0);
-  const isTransitioningRef = useRef(false);
   const isScrubbingRef = useRef(false);
   const progressBarRef = useRef<View>(null);
   const barPageXRef = useRef(0);
@@ -41,7 +40,6 @@ export function PlayerScreen({ navigation }: any) {
   };
 
   useEffect(() => {
-    isTransitioningRef.current = false;
     let isMounted = true;
     const interval = setInterval(async () => {
       try {
@@ -50,14 +48,6 @@ export function PlayerScreen({ navigation }: any) {
           setCurrentPos(p.position);
           const validDur = p.duration > 0 ? p.duration : ((track as any)?.duration || 0);
           if (validDur > 0) setCurrentDur(validDur);
-
-          // Continuous Autoplay transition safeguard:
-          // If duration > 5s and position is within 0.8s of the end, trigger next track
-          if (validDur > 5 && p.position >= validDur - 0.8 && !isTransitioningRef.current) {
-            isTransitioningRef.current = true;
-            console.log('[PlayerScreen] Reached song end threshold, auto-transitioning next track...');
-            playNextTrack().catch(() => {});
-          }
         }
       } catch {}
     }, 500);
