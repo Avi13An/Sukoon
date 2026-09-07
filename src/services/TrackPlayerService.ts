@@ -29,7 +29,20 @@ let isPlayerSetup = false;
 let isListenersAttached = false;
 let isResolvingAutoplay = false;
 let upNextQueue: TrackMetadata[] = [];
+let playbackHistory: TrackMetadata[] = [];
+let currentTrack: TrackMetadata | null = null;
 const queueListeners: Array<(queue: TrackMetadata[]) => void> = [];
+
+export function notifyQueueChange() {
+  queueListeners.forEach(cb => {
+    try {
+      cb([...upNextQueue]);
+    } catch (e) {
+      console.error('[TrackPlayerService] Queue listener callback error:', e);
+    }
+  });
+}
+export const notifyQueueListeners = notifyQueueChange;
 
 export function subscribeToQueue(callback: (queue: TrackMetadata[]) => void) {
   queueListeners.push(callback);
@@ -40,15 +53,6 @@ export function subscribeToQueue(callback: (queue: TrackMetadata[]) => void) {
   };
 }
 
-function notifyQueueChange() {
-  queueListeners.forEach(cb => {
-    try {
-      cb([...upNextQueue]);
-    } catch (e) {
-      console.error('[TrackPlayerService] Queue listener callback error:', e);
-    }
-  });
-}
 
 export function getUpNextQueue(): TrackMetadata[] {
   return [...upNextQueue];
@@ -168,7 +172,7 @@ export async function playNextTrack(forcedTrackIndex?: number) {
         await playTrack({
           ...candidate,
           url: resolvedUrl,
-        });
+        }, undefined, true);
       }
     }
 
@@ -186,26 +190,43 @@ export async function playNextTrack(forcedTrackIndex?: number) {
 export async function playPreviousTrack() {
   try {
     const progress = await TrackPlayer.getProgress();
-    if (progress && progress.position > 3) {
+    // If more than 3 seconds into the song, restart it (standard music player behavior)
+    if (progress && typeof progress.position === 'number' && progress.position > 3) {
       await TrackPlayer.seekTo(0);
       return;
     }
-    const history = getListenHistory();
-    const currentTrack = getLastPlayedTrack();
-    if (history.length > 1) {
-      const prevTrack = history[1];
-      if (prevTrack && prevTrack.id !== currentTrack?.id) {
-        if (currentTrack && !upNextQueue.some(t => t.id === currentTrack.id)) {
+    // Otherwise, pop the last song from playbackHistory if available
+    if (playbackHistory.length > 0) {
+      const prevTrack = playbackHistory.pop();
+      if (prevTrack) {
+        // Put current song back to top of upNextQueue
+        if (currentTrack) {
           upNextQueue.unshift(currentTrack);
           notifyQueueChange();
         }
-        await playTrack(prevTrack);
+        await playTrack(prevTrack, undefined, true);
         return;
       }
     }
+
+    // Fallback to MMKV listen history if playbackHistory was empty
+    const history = getListenHistory();
+    const active = currentTrack || getLastPlayedTrack();
+    if (history.length > 1) {
+      const prevTrack = history[1];
+      if (prevTrack && prevTrack.id !== active?.id) {
+        if (active) {
+          upNextQueue.unshift(active);
+          notifyQueueChange();
+        }
+        await playTrack(prevTrack, undefined, true);
+        return;
+      }
+    }
+
     await TrackPlayer.seekTo(0);
   } catch (err) {
-    console.error('[TrackPlayerService] playPreviousTrack error:', err);
+    console.warn('Error in playPreviousTrack:', err);
     try { await TrackPlayer.seekTo(0); } catch {}
   }
 }
@@ -412,29 +433,79 @@ export async function toggleLoopMode() {
   return nextMode;
 }
 
-export async function playTrack(metadata: TrackMetadata) {
+export function formatForTrackPlayer(metadata: TrackMetadata, resolvedUrl: string, matchedUA: string) {
+  return {
+    id: metadata.id,
+    mediaId: metadata.id,
+    url: resolvedUrl, // MUST be clean string URL
+    title: metadata.title || 'Unknown Title',
+    artist: metadata.artist || 'Unknown Artist',
+    artwork: metadata.artwork || undefined,
+    artworkUrl: metadata.artwork || undefined,
+    duration: metadata.duration,
+    headers: {
+      'User-Agent': matchedUA,
+      'Accept': '*/*'
+    }
+  };
+}
+
+export async function playTrack(
+  selectedTrack: TrackMetadata, 
+  contextQueue?: TrackMetadata[],
+  preserveExistingQueue = false
+) {
   try {
     const isPlayerReady = await setupPlayer();
     if (!isPlayerReady) {
       throw new Error('TrackPlayer setup failed or service unavailable');
     }
 
+    // Step 1: Immediately stop and wipe any active native player queue
+    if (typeof (TrackPlayer as any).reset === 'function') {
+      try { await (TrackPlayer as any).reset(); } catch {}
+    }
+    if (typeof (TrackPlayer as any).clear === 'function') {
+      try { await (TrackPlayer as any).clear(); } catch {}
+    }
+
+    // Step 2: Set currentTrack and update playback history
+    if (currentTrack && currentTrack.id !== selectedTrack.id) {
+      playbackHistory.push(currentTrack);
+      if (playbackHistory.length > 30) playbackHistory.shift();
+    }
+    currentTrack = selectedTrack;
+    setLastPlayedTrack(selectedTrack);
+    saveListenHistory(selectedTrack);
+
+    // Step 3: Set up the new upcoming queue
+    if (contextQueue && contextQueue.length > 0) {
+      const selectedIndex = contextQueue.findIndex(t => t.id === selectedTrack.id);
+      if (selectedIndex !== -1) {
+        upNextQueue = contextQueue.slice(selectedIndex + 1);
+      } else {
+        upNextQueue = contextQueue.filter(t => t.id !== selectedTrack.id);
+      }
+    } else if (!preserveExistingQueue) {
+      upNextQueue = [];
+      prefetchAutoplayQueue(selectedTrack).catch(() => {});
+    }
+
+    // Resolve audio stream URL for selectedTrack
     const downloadedTracks = getDownloadedTracks();
-    const downloadedTrack = downloadedTracks.find(t => t.id === metadata.id);
+    const downloadedTrack = downloadedTracks.find(t => t.id === selectedTrack.id);
     const offlineTracks = getOfflineTracks();
-    const offlineTrack = offlineTracks[metadata.id];
+    const offlineTrack = offlineTracks[selectedTrack.id];
     
     let playUrl = downloadedTrack?.localUri || offlineTrack?.localUri;
-    
-    if (!playUrl && metadata.url) {
-      playUrl = metadata.url;
+    if (!playUrl && selectedTrack.url) {
+      playUrl = selectedTrack.url;
     }
-    
     if (!playUrl) {
-      const stream = await getAudioStream(metadata.id);
+      const stream = await getAudioStream(selectedTrack.id);
       const resolved = typeof stream === 'string' ? stream : (stream as any)?.url;
       if (!resolved || !resolved.startsWith('http')) {
-        const msg = `No playable audio stream found for track ${metadata.id}`;
+        const msg = `No playable audio stream found for track ${selectedTrack.id}`;
         console.warn(msg);
         try {
           Alert.alert('TrackPlayer Service Error', msg);
@@ -449,110 +520,39 @@ export async function playTrack(metadata: TrackMetadata) {
       ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
       : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-    const trackPayload = {
-      id: metadata.id,
-      mediaId: metadata.id,
-      url: playUrl, // MUST be clean string URL
-      title: metadata.title || 'Unknown Title',
-      artist: metadata.artist || 'Unknown Artist',
-      artwork: metadata.artwork || undefined,
-      artworkUrl: metadata.artwork || undefined,
-      duration: metadata.duration,
-      headers: {
-        'User-Agent': matchedUA,
-        'Accept': '*/*'
-      }
-    };
+    const selectedPayload = formatForTrackPlayer(selectedTrack, playUrl, matchedUA);
 
-    // Feed next 3 to 5 tracks into ExoPlayer native queue so hasNextMediaItem signals true
-    const nextPayloads = upNextQueue.slice(0, 4).map((t) => ({
-      id: t.id,
-      mediaId: t.id,
-      url: t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`,
-      title: t.title || 'Next Track',
-      artist: t.artist || 'Unknown Artist',
-      artwork: t.artwork || undefined,
-      artworkUrl: t.artwork || undefined,
-      duration: t.duration,
-      headers: {
-        'User-Agent': matchedUA,
-        'Accept': '*/*'
-      }
-    }));
+    // Step 4: Construct native queue with selectedTrack STRICTLY at index 0
+    const nextTracksToSeed = upNextQueue.slice(0, 4);
+    const nextPayloads = nextTracksToSeed.map((t) => formatForTrackPlayer(
+      t,
+      t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`,
+      matchedUA
+    ));
 
-    // Include recent history item as previous track so hasPreviousMediaItem signals true
-    const history = getListenHistory();
-    const prevItem = history.length > 1 ? history[1] : null;
-    const prevPayload = (prevItem && prevItem.id !== metadata.id) ? {
-      id: prevItem.id,
-      mediaId: prevItem.id,
-      url: prevItem.url || `https://invidious.f5.si/latest_version?id=${prevItem.id}&itag=140`,
-      title: prevItem.title || 'Previous Track',
-      artist: prevItem.artist || 'Unknown Artist',
-      artwork: prevItem.artwork || undefined,
-      artworkUrl: prevItem.artwork || undefined,
-      duration: prevItem.duration,
-      headers: {
-        'User-Agent': matchedUA,
-        'Accept': '*/*'
-      }
-    } : null;
-
-    const queueItems: any[] = [];
-    let startIndex = 0;
-    if (prevPayload) {
-      queueItems.push(prevPayload);
-      startIndex = 1;
-    }
-    queueItems.push(trackPayload);
-    queueItems.push(...nextPayloads);
-
-    if (typeof (TrackPlayer as any).reset === 'function') {
-      try { await (TrackPlayer as any).reset(); } catch {}
-    } else if (typeof (TrackPlayer as any).clear === 'function') {
-      try { await (TrackPlayer as any).clear(); } catch {}
-    }
+    const nativeTracks = [selectedPayload, ...nextPayloads];
 
     if (typeof setMediaItems === 'function') {
-      await setMediaItems(queueItems, startIndex);
+      await setMediaItems(nativeTracks, 0);
     } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-      await (TrackPlayer as any).setMediaItems(queueItems, startIndex);
+      await (TrackPlayer as any).setMediaItems(nativeTracks, 0);
     } else if (typeof setMediaItem === 'function') {
-      await setMediaItem(trackPayload);
+      await setMediaItem(selectedPayload);
       if (nextPayloads.length > 0 && typeof (TrackPlayer as any).addMediaItems === 'function') {
         try { await (TrackPlayer as any).addMediaItems(nextPayloads); } catch {}
       }
     } else if (typeof load === 'function') {
-      await load(trackPayload);
+      await load(selectedPayload);
       if (nextPayloads.length > 0 && typeof (TrackPlayer as any).addMediaItems === 'function') {
         try { await (TrackPlayer as any).addMediaItems(nextPayloads); } catch {}
       }
     } else if (typeof (TrackPlayer as any).add === 'function') {
-      await (TrackPlayer as any).add(queueItems);
+      await (TrackPlayer as any).add(nativeTracks);
     }
-    
-    // Allow Android main looper to process queue insertion
+
     await new Promise((r) => setTimeout(r, 50));
 
-    const activeItem = typeof getActiveMediaItem === 'function' 
-      ? await getActiveMediaItem() 
-      : typeof (TrackPlayer as any).getActiveMediaItem === 'function'
-        ? await (TrackPlayer as any).getActiveMediaItem()
-        : null;
-    console.log('[LOADED ACTIVE ITEM]:', activeItem);
-
-    if (typeof (TrackPlayer as any).prepare === 'function') {
-      try { await (TrackPlayer as any).prepare(); } catch {}
-    } else if (typeof (TrackPlayer as any).retry === 'function') {
-      try { await (TrackPlayer as any).retry(); } catch {}
-    }
-    
-    setLastPlayedTrack(metadata);
-    saveListenHistory(metadata);
-    upNextQueue = upNextQueue.filter(t => t.id !== metadata.id);
-    notifyQueueChange();
-    prefetchAutoplayQueue(metadata).catch(() => {});
-    
+    // Step 5: Start playback immediately on the selected track
     const eqSettings = getEqualizerSettings();
     if (eqSettings.enabled && typeof eqSettings.soundBoost === 'number') {
       currentSoundBoostPercent = eqSettings.soundBoost;
@@ -568,10 +568,13 @@ export async function playTrack(metadata: TrackMetadata) {
       await TrackPlayer.play();
     }
 
+    // Step 6: Notify queue listeners
+    notifyQueueChange();
+
     try {
       const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
       if (isPartyActive() && !isHandlingRemoteSync()) {
-        broadcastPartyAction('TRACK_CHANGE', { track: metadata });
+        broadcastPartyAction('TRACK_CHANGE', { track: selectedTrack });
       }
     } catch {}
   } catch (error: any) {

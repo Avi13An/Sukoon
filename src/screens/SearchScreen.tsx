@@ -199,7 +199,7 @@ export function SearchScreen() {
       await playTrack({
         ...track,
         url: resolvedUrl
-      });
+      }, results);
     } catch (err: any) {
       console.error('Playback Error:', err);
       Alert.alert('Playback Execution Error', `${err?.name}: ${err?.message}`);
@@ -235,7 +235,8 @@ export function SearchScreen() {
     return (
       <TouchableOpacity 
         style={styles.resultItem} 
-        onPress={() => openOptions(item)}
+        onPress={() => handlePlayNow(item)}
+        onLongPress={() => openOptions(item)}
         activeOpacity={0.7}
         disabled={isTrackLoading}
       >
@@ -247,6 +248,13 @@ export function SearchScreen() {
           <Text style={styles.titleText} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.artistText} numberOfLines={1}>{item.artist}</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => openOptions(item)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={{ padding: 8 }}
+        >
+          <Ionicons name="ellipsis-vertical" size={18} color="#666666" />
+        </TouchableOpacity>
         {isTrackLoading && (
           <ActivityIndicator color="#ffffff" style={styles.loader} />
         )}

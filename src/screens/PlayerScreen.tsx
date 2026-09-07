@@ -4,7 +4,7 @@ import TrackPlayer, { useActiveMediaItem, useIsPlaying, RepeatMode } from '@rntp
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
-import { toggleLoopMode, playNextTrack } from '../services/TrackPlayerService';
+import { toggleLoopMode, playNextTrack, playPreviousTrack } from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AudioSettingsModal } from '../components/AudioSettingsModal';
@@ -235,7 +235,7 @@ export function PlayerScreen({ navigation }: any) {
   };
 
   const skipPrev = async () => {
-    await TrackPlayer.skipToPrevious();
+    await playPreviousTrack();
   };
 
   const formatTime = (seconds: number) => {

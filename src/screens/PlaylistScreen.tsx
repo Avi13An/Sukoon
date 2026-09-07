@@ -178,10 +178,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       return;
     }
 
-    await playTrack(playlist.tracks[0]);
-    if (playlist.tracks.length > 1) {
-      addTracks(playlist.tracks.slice(1)).catch(() => {});
-    }
+    await playTrack(playlist.tracks[0], playlist.tracks);
   };
 
   const handleSelectShuffleMode = (mode: SmartShuffleMode) => {
@@ -269,7 +266,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
 
   const handlePlayTrack = (track: TrackMetadata) => {
-    playTrack(track);
+    playTrack(track, playlist.tracks);
   };
 
   const handleRemoveTrack = (track: TrackMetadata) => {

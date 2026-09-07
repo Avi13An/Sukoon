@@ -176,9 +176,7 @@ export function HomeScreen() {
       setIsLoading(true);
       const tracks = await searchTracks(mix.query);
       if (tracks && tracks.length > 0) {
-        clearUpNextQueue();
-        tracks.slice(1, 10).forEach(t => addToUpNextQueue(t));
-        await playTrack(tracks[0]);
+        await playTrack(tracks[0], tracks);
       }
     } catch (err) {
       console.error('[HomeScreen] Error playing mood mix:', err);
