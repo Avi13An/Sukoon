@@ -13,6 +13,18 @@ import {
 import { getAudioStream, searchTracks } from './musicApi';
 import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
 
+export const Capability = {
+  Play: PlayerCommand.PlayPause,
+  Pause: PlayerCommand.PlayPause,
+  SkipToNext: PlayerCommand.Next,
+  SkipToPrevious: PlayerCommand.Previous,
+  SeekTo: PlayerCommand.Seek,
+};
+
+export const AppKilledPlaybackBehavior = {
+  StopPlaybackAndRemoveNotification: 'stop',
+};
+
 let isPlayerSetup = false;
 let isListenersAttached = false;
 let isResolvingAutoplay = false;
@@ -200,8 +212,45 @@ export async function setupPlayer(): Promise<boolean> {
         PlayerCommand.Previous,
         PlayerCommand.Seek,
       ],
-      handling: 'hybrid' // Required to fire JS background events on V5
+      handling: 'hybrid', // Required to fire JS background events on V5
+      perCommandHandling: {
+        [PlayerCommand.Next]: 'js',
+        [PlayerCommand.Previous]: 'js',
+        [PlayerCommand.PlayPause]: 'native',
+        [PlayerCommand.Seek]: 'native',
+      }
     });
+
+    if (typeof (TrackPlayer as any).updateOptions === 'function') {
+      try {
+        await (TrackPlayer as any).updateOptions({
+          android: {
+            appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+          },
+          capabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.SeekTo,
+          ],
+          notificationCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.SeekTo,
+          ],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+          ],
+        });
+      } catch (err) {
+        console.log('[TrackPlayerService] Optional updateOptions call skipped:', err);
+      }
+    }
 
     if (!isListenersAttached) {
       TrackPlayer.addEventListener(Event.PlaybackStateChanged, async (event: any) => {
@@ -222,6 +271,43 @@ export async function setupPlayer(): Promise<boolean> {
       TrackPlayer.addEventListener(queueEndedEvent as any, async () => {
         console.log('[TrackPlayerService] PlaybackQueueEnded detected, triggering autoplay...');
         await handleAutoplayTransition();
+      });
+
+      // Remote control events from lockscreen, notification shade, Bluetooth, or headset
+      TrackPlayer.addEventListener(Event.RemoteNext, async () => {
+        console.log('[TrackPlayerService] RemoteNext triggered from media notification/controls');
+        await playNextTrack();
+      });
+
+      TrackPlayer.addEventListener(Event.RemotePrevious, async () => {
+        console.log('[TrackPlayerService] RemotePrevious triggered from media notification/controls');
+        try {
+          const progress = await TrackPlayer.getProgress();
+          if (progress && progress.position > 3) {
+            await TrackPlayer.seekTo(0);
+          } else {
+            await TrackPlayer.seekTo(0);
+          }
+        } catch {
+          try { await TrackPlayer.seekTo(0); } catch {}
+        }
+      });
+
+      TrackPlayer.addEventListener(Event.RemotePlay, async () => {
+        console.log('[TrackPlayerService] RemotePlay triggered');
+        try { await TrackPlayer.play(); } catch {}
+      });
+
+      TrackPlayer.addEventListener(Event.RemotePause, async () => {
+        console.log('[TrackPlayerService] RemotePause triggered');
+        try { await TrackPlayer.pause(); } catch {}
+      });
+
+      TrackPlayer.addEventListener(Event.RemoteSeek, async (event: any) => {
+        console.log('[TrackPlayerService] RemoteSeek triggered', event?.position);
+        if (typeof event?.position === 'number') {
+          try { await TrackPlayer.seekTo(event.position); } catch {}
+        }
       });
 
       isListenersAttached = true;

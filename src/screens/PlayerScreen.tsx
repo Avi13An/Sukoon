@@ -137,13 +137,31 @@ export function PlayerScreen({ navigation }: any) {
     }
   }, [showLyrics, track]);
 
+  const [isShuffle, setIsShuffle] = useState(false);
+
   useEffect(() => {
     setRepeatMode(TrackPlayer.getRepeatMode());
+    try {
+      if (typeof TrackPlayer.isShuffleEnabled === 'function') {
+        setIsShuffle(TrackPlayer.isShuffleEnabled());
+      }
+    } catch {}
   }, []);
 
   const handleLoopToggle = async () => {
     const newMode = await toggleLoopMode();
     setRepeatMode(newMode);
+  };
+
+  const handleShuffleToggle = async () => {
+    const nextShuffle = !isShuffle;
+    setIsShuffle(nextShuffle);
+    try {
+      if (typeof TrackPlayer.setShuffleEnabled === 'function') {
+        await TrackPlayer.setShuffleEnabled(nextShuffle);
+      }
+    } catch {}
+    showToast(nextShuffle ? 'Shuffle enabled' : 'Shuffle disabled', 'shuffle');
   };
 
   const loadLyrics = async () => {
@@ -378,23 +396,29 @@ export function PlayerScreen({ navigation }: any) {
         </View>
 
         <View style={styles.buttonsRow}>
-          <TouchableOpacity onPress={handleLoopToggle} style={styles.controlBtn}>
+          <TouchableOpacity onPress={handleLoopToggle} style={styles.controlSideBtn} activeOpacity={0.7}>
             <Ionicons 
               name={repeatMode === RepeatMode.One ? "repeat-outline" : "repeat"} 
               size={24} 
               color={repeatMode === RepeatMode.Off ? "#888888" : "#00ffcc"} 
             />
           </TouchableOpacity>
-          <TouchableOpacity onPress={skipPrev} style={styles.controlBtn}>
-            <Ionicons name="play-skip-back" size={36} color="#ffffff" />
+          <TouchableOpacity onPress={skipPrev} style={styles.controlSkipBtn} activeOpacity={0.7}>
+            <Ionicons name="play-skip-back" size={34} color="#ffffff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={togglePlayback} style={styles.playPauseBtn}>
-            <Ionicons name={isPlaying ? "pause" : "play"} size={48} color="#000000" />
+          <TouchableOpacity onPress={togglePlayback} style={styles.playPauseBtn} activeOpacity={0.85}>
+            <Ionicons name={isPlaying ? "pause" : "play"} size={44} color="#000000" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={skipNext} style={styles.controlBtn}>
-            <Ionicons name="play-skip-forward" size={36} color="#ffffff" />
+          <TouchableOpacity onPress={skipNext} style={styles.controlSkipBtn} activeOpacity={0.7}>
+            <Ionicons name="play-skip-forward" size={34} color="#ffffff" />
           </TouchableOpacity>
-          <View style={{ width: 56 }} />
+          <TouchableOpacity onPress={handleShuffleToggle} style={styles.controlSideBtn} activeOpacity={0.7}>
+            <Ionicons 
+              name="shuffle" 
+              size={24} 
+              color={isShuffle ? "#00ffcc" : "#888888"} 
+            />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.secondaryActionsRow}>
@@ -614,13 +638,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   controlsContainer: {
-    paddingHorizontal: 32,
-    paddingBottom: 50,
+    width: '100%',
+    paddingHorizontal: 28,
+    paddingBottom: 48,
   },
   progressRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   timeText: {
     color: '#aaaaaa',
@@ -661,9 +687,23 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   buttonsRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-evenly',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  controlSideBtn: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  controlSkipBtn: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   controlBtn: {
     padding: 16,
@@ -679,27 +719,31 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   secondaryActionsRow: {
+    width: '100%',
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-evenly',
     alignItems: 'center',
-    marginTop: 24,
-    paddingHorizontal: 8,
+    marginTop: 26,
+    paddingHorizontal: 0,
   },
   secondaryActionBtn: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
   },
   secondaryActionText: {
     color: '#888896',
     fontSize: 11,
     fontWeight: '600',
     marginTop: 4,
+    textAlign: 'center',
   },
   playPauseBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
