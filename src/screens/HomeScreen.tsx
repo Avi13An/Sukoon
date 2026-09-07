@@ -160,10 +160,10 @@ export function HomeScreen() {
     }
   };
 
-  const handlePlayTrack = async (item: TrackMetadata) => {
+  const handlePlayTrack = async (item: TrackMetadata, contextQueue?: TrackMetadata[]) => {
     try {
       setLoadingTrackId(item.id);
-      await playTrack(item);
+      await playTrack(item, contextQueue);
     } catch (err) {
       console.error('[HomeScreen] Error playing track:', err);
     } finally {
@@ -185,7 +185,7 @@ export function HomeScreen() {
     }
   };
 
-  const renderTrackCard = ({ item }: { item: TrackMetadata }) => {
+  const renderTrackCard = (contextQueue?: TrackMetadata[]) => ({ item }: { item: TrackMetadata }) => {
     const isPlayingThis = loadingTrackId === item.id;
     const artwork = item.artwork || (item as any)?.artworkUrl || (item as any)?.thumbnail || 'https://via.placeholder.com/150';
 
@@ -193,7 +193,7 @@ export function HomeScreen() {
       <TouchableOpacity 
         style={styles.card} 
         activeOpacity={0.8}
-        onPress={() => handlePlayTrack(item)}
+        onPress={() => handlePlayTrack(item, contextQueue)}
         onLongPress={() => setPlaylistModalTrack(item)}
         disabled={isPlayingThis}
       >
@@ -348,7 +348,7 @@ export function HomeScreen() {
                 keyExtractor={(item, index) => `cat-${item.id}-${index}`}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
-                renderItem={renderTrackCard}
+                renderItem={renderTrackCard(categoryTracks)}
               />
             )}
           </View>
@@ -368,7 +368,7 @@ export function HomeScreen() {
               keyExtractor={(item, index) => `recent-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard}
+              renderItem={renderTrackCard(recentTracks.slice(0, 10))}
             />
           </View>
         )}
@@ -394,7 +394,7 @@ export function HomeScreen() {
               keyExtractor={(item, index) => `trend-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard}
+              renderItem={renderTrackCard(trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 8))}
             />
           )}
         </View>
@@ -460,7 +460,7 @@ export function HomeScreen() {
               keyExtractor={(item, index) => `rec-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard}
+              renderItem={renderTrackCard(recommendations)}
             />
           )}
         </View>

@@ -72,7 +72,7 @@ export function removeFromUpNextQueue(index: number) {
   if (index >= 0 && index < upNextQueue.length) {
     upNextQueue.splice(index, 1);
     notifyQueueChange();
-    if (upNextQueue.length < MIN_QUEUE_SIZE) {
+    if (upNextQueue.length === 0) {
       const currentTrack = getLastPlayedTrack() || undefined;
       prefetchAutoplayQueue(currentTrack).catch(() => {});
     }
@@ -142,26 +142,18 @@ export async function playNextTrack(forcedTrackIndex?: number) {
       [candidate] = upNextQueue.splice(forcedTrackIndex, 1);
       notifyQueueChange();
     } else {
-      if (upNextQueue.length === 0) {
-        const lastTrack = getLastPlayedTrack();
-        const query = lastTrack?.artist && lastTrack.artist !== 'Unknown Artist'
-          ? `${lastTrack.artist} hits`
-          : `${lastTrack?.title || 'Bollywood'} hits`;
-        const history = getListenHistory();
-        const historyIds = new Set(history.map(t => t.id));
-        if (lastTrack) historyIds.add(lastTrack.id);
-
-        const candidates = await searchTracks(query);
-        const fresh = Array.isArray(candidates) ? candidates.filter(t => t?.id && !historyIds.has(t.id)) : [];
-        if (fresh.length > 0) {
-          upNextQueue.push(...fresh.slice(0, 5));
-          notifyQueueChange();
-        }
-      }
-
+      // 1. Pull next song sequentially from upNextQueue
       if (upNextQueue.length > 0) {
         candidate = upNextQueue.shift();
         notifyQueueChange();
+      } else {
+        // 2. Only when upNextQueue is empty (i.e. the playlist has reached its final track)
+        // should it invoke prefetchAutoplayQueue(currentTrack) to smoothly transition into similar songs
+        await prefetchAutoplayQueue(currentTrack || getLastPlayedTrack() || undefined);
+        if (upNextQueue.length > 0) {
+          candidate = upNextQueue.shift();
+          notifyQueueChange();
+        }
       }
     }
 
@@ -176,9 +168,9 @@ export async function playNextTrack(forcedTrackIndex?: number) {
       }
     }
 
-    // Proactively replenish queue if below MIN_QUEUE_SIZE
-    if (upNextQueue.length < MIN_QUEUE_SIZE) {
-      prefetchAutoplayQueue(candidate || getLastPlayedTrack() || undefined).catch(() => {});
+    // Proactively stage autoplay recommendations ONLY when queue is completely empty
+    if (upNextQueue.length === 0 && candidate) {
+      prefetchAutoplayQueue(candidate).catch(() => {});
     }
   } catch (err) {
     console.error('[Queue] playNextTrack error:', err);
@@ -323,6 +315,9 @@ export async function setupPlayer(): Promise<boolean> {
       TrackPlayer.addEventListener(Event.MediaItemTransition, async (event: any) => {
         if (event?.item === null && event?.index === -1) {
           console.log('[TrackPlayerService] MediaItemTransition ended, triggering autoplay...');
+          await handleAutoplayTransition();
+        } else if (typeof event?.index === 'number' && event.index > 0) {
+          console.log('[TrackPlayerService] MediaItemTransition advanced natively to index', event.index);
           await handleAutoplayTransition();
         }
       });
@@ -479,14 +474,15 @@ export async function playTrack(
     saveListenHistory(selectedTrack);
 
     // Step 3: Set up the new upcoming queue
-    if (contextQueue && contextQueue.length > 0) {
+    if (contextQueue && contextQueue.length > 1) {
       const selectedIndex = contextQueue.findIndex(t => t.id === selectedTrack.id);
-      if (selectedIndex !== -1) {
-        upNextQueue = contextQueue.slice(selectedIndex + 1);
-      } else {
-        upNextQueue = contextQueue.filter(t => t.id !== selectedTrack.id);
+      upNextQueue = selectedIndex !== -1 ? contextQueue.slice(selectedIndex + 1) : [...contextQueue];
+      // If user selected the last track of the playlist, upNextQueue is empty
+      if (upNextQueue.length === 0 && !preserveExistingQueue) {
+        prefetchAutoplayQueue(selectedTrack).catch(() => {});
       }
     } else if (!preserveExistingQueue) {
+      // When contextQueue is NOT provided (e.g. tapping a single search result) or has <= 1 track
       upNextQueue = [];
       prefetchAutoplayQueue(selectedTrack).catch(() => {});
     }
