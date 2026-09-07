@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   FlatList,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StudioRecording } from '../utils/storage';
@@ -36,12 +37,13 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
     try {
       await playTrack({
         id: item.id,
-        title: `${item.songTitle} (Studio Cover)`,
-        artist: item.artist ? `Cover by You • ${item.artist}` : 'Vocal Cover',
+        title: item.isMasterMixed ? item.songTitle : `${item.songTitle} (Studio Take)`,
+        artist: item.artist ? `Cover by You • ${item.artist}` : 'Studio Vocal Cover',
         url: item.localUri,
         duration: item.durationSeconds,
+        artwork: item.artwork,
       });
-      showToast(`Playing "${item.songTitle}" cover`, 'musical-note');
+      showToast(`Playing "${item.songTitle}"`, 'musical-note');
       onClose();
     } catch (err: any) {
       Alert.alert('Playback Error', err.message || 'Unable to play recording.');
@@ -120,13 +122,34 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
                 onPress={() => handlePlayRecording(item)}
                 activeOpacity={0.7}
               >
-                <View style={styles.micCircle}>
-                  <Ionicons name="play" size={18} color="#00ffcc" />
-                </View>
+                {item.artwork ? (
+                  <View style={styles.coverBox}>
+                    <Image source={{ uri: item.artwork }} style={styles.coverImg} />
+                    <View style={styles.coverPlayOverlay}>
+                      <Ionicons name="play" size={14} color="#00ffcc" />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={[styles.micCircle, item.isMasterMixed && styles.masterMicCircle]}>
+                    <Ionicons 
+                      name={item.isMasterMixed ? "disc" : "mic"} 
+                      size={18} 
+                      color={item.isMasterMixed ? "#00ffcc" : "#ff3b30"} 
+                    />
+                  </View>
+                )}
                 <View style={styles.metaBox}>
-                  <Text style={styles.songTitle} numberOfLines={1}>
-                    {item.songTitle}
-                  </Text>
+                  <View style={styles.titleRow}>
+                    <Text style={styles.songTitle} numberOfLines={1}>
+                      {item.songTitle}
+                    </Text>
+                    {item.isMasterMixed && (
+                      <View style={styles.masterBadge}>
+                        <Ionicons name="sparkles" size={9} color="#000000" />
+                        <Text style={styles.masterBadgeText}>MASTER</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.artistText} numberOfLines={1}>
                     {item.artist} • {formatTime(item.durationSeconds)}
                   </Text>
@@ -236,21 +259,64 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    backgroundColor: 'rgba(255, 59, 48, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.3)',
+  },
+  masterMicCircle: {
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
     borderColor: 'rgba(0, 255, 204, 0.3)',
+  },
+  coverBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#1c1c22',
+  },
+  coverImg: {
+    width: '100%',
+    height: '100%',
+  },
+  coverPlayOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   metaBox: {
     flex: 1,
     marginLeft: 12,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
   songTitle: {
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '600',
-    marginBottom: 2,
+    flexShrink: 1,
+  },
+  masterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#00ffcc',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  masterBadgeText: {
+    color: '#000000',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   artistText: {
     color: '#888888',

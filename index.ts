@@ -1,7 +1,7 @@
 import { registerRootComponent } from 'expo';
 import TrackPlayer, { Event, PlaybackState, type BackgroundEvent } from '@rntp/player';
 import App from './App';
-import { playNextTrack, handleAutoplayTransition, PlaybackService } from './src/services/TrackPlayerService';
+import { playNextTrack, playPreviousTrack, handleAutoplayTransition, PlaybackService } from './src/services/TrackPlayerService';
 
 try {
   TrackPlayer.registerBackgroundEventHandler(() => async (event: BackgroundEvent) => {
@@ -9,16 +9,7 @@ try {
     if (event.type === Event.RemoteNext) {
       await playNextTrack();
     } else if (event.type === Event.RemotePrevious) {
-      try {
-        const p = await TrackPlayer.getProgress();
-        if (p && p.position > 3) {
-          await TrackPlayer.seekTo(0);
-        } else {
-          await TrackPlayer.seekTo(0);
-        }
-      } catch {
-        try { await TrackPlayer.seekTo(0); } catch {}
-      }
+      await playPreviousTrack();
     } else if (event.type === Event.RemotePlay) {
       try { await TrackPlayer.play(); } catch {}
     } else if (event.type === Event.RemotePause) {

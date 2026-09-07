@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TrackPlayer, { useIsPlaying } from '@rntp/player';
-import { TrackMetadata, StudioRecording } from '../utils/storage';
+import { TrackMetadata, StudioRecording, saveStudioRecording } from '../utils/storage';
 import { getLyricsWithSource, ParsedLyrics, LyricLine } from '../services/lyricsService';
 import { 
   startRecording, 
@@ -25,6 +25,8 @@ import {
   shareRecording 
 } from '../services/recordingService';
 import { setPlayerVolume } from '../services/TrackPlayerService';
+import { mixVocalWithBackingTrack } from '../services/audioMixingService';
+import { getAudioStream } from '../services/musicApi';
 import { showToast } from './ToastNotification';
 
 const { width } = Dimensions.get('window');
@@ -62,21 +64,27 @@ export function KaraokeStudioModal({
 
   const [lyricsData, setLyricsData] = useState<ParsedLyrics | null>(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
-  const [bgmVolume, setBgmVolume] = useState<number>(75); // 0 to 100
+  const [bgmVolume, setBgmVolume] = useState<number>(60); // 0 to 100, default 60%
+  const [vocalVolume, setVocalVolume] = useState<number>(100); // 0 to 100, default 100%
   const [studioState, setStudioState] = useState<StudioState>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [lastSavedRecording, setLastSavedRecording] = useState<StudioRecording | null>(null);
+  const [isMixingMaster, setIsMixingMaster] = useState<boolean>(false);
 
   const flatListRef = useRef<FlatList<LyricLine>>(null);
   const timerIntervalRef = useRef<any>(null);
-  const volumeSliderWidth = useRef<number>(width - 120);
+  const recordingStartOffsetRef = useRef<number>(0);
+  const bgmSliderWidth = useRef<number>(width - 40);
+  const vocalSliderWidth = useRef<number>(width - 40);
 
-  // Load lyrics when modal opens
+  // Load lyrics and configure monitoring volume when modal opens
   useEffect(() => {
     if (visible && track) {
       loadLyrics();
-      // Set initial BGM volume to 75%
-      setPlayerVolume(0.75).catch(() => {});
+      // Set initial BGM monitoring volume to 60%
+      setBgmVolume(60);
+      setVocalVolume(100);
+      setPlayerVolume(0.60).catch(() => {});
     } else {
       cleanupStudio();
     }
@@ -162,22 +170,40 @@ export function KaraokeStudioModal({
     }
   }, [activeLineIndex]);
 
-  // Volume PanResponder
-  const volumePanResponder = useRef(
+  // Backing Music Volume PanResponder
+  const bgmPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
         const x = evt.nativeEvent.locationX;
-        const percent = Math.round(Math.max(0, Math.min(100, (x / (volumeSliderWidth.current || 1)) * 100)));
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (bgmSliderWidth.current || 1)) * 100)));
         setBgmVolume(percent);
         setPlayerVolume(percent / 100).catch(() => {});
       },
       onPanResponderMove: (evt) => {
         const x = evt.nativeEvent.locationX;
-        const percent = Math.round(Math.max(0, Math.min(100, (x / (volumeSliderWidth.current || 1)) * 100)));
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (bgmSliderWidth.current || 1)) * 100)));
         setBgmVolume(percent);
         setPlayerVolume(percent / 100).catch(() => {});
+      },
+    })
+  ).current;
+
+  // Vocal Volume PanResponder
+  const vocalPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (vocalSliderWidth.current || 1)) * 100)));
+        setVocalVolume(percent);
+      },
+      onPanResponderMove: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const percent = Math.round(Math.max(0, Math.min(100, (x / (vocalSliderWidth.current || 1)) * 100)));
+        setVocalVolume(percent);
       },
     })
   ).current;
@@ -185,6 +211,20 @@ export function KaraokeStudioModal({
   // Recording Controls
   const handleStartRecord = async () => {
     try {
+      let startOffset = currentPosition || 0;
+      try {
+        const p = await TrackPlayer.getProgress();
+        if (p && typeof p.position === 'number' && p.position >= 0) {
+          startOffset = p.position;
+        }
+      } catch {}
+      recordingStartOffsetRef.current = startOffset;
+
+      // Ensure backing music is playing for vocal cue
+      try {
+        await TrackPlayer.play();
+      } catch {}
+
       await startRecording();
       setElapsedSeconds(0);
       setStudioState('recording');
@@ -207,6 +247,10 @@ export function KaraokeStudioModal({
   const handleStopAndSave = async () => {
     if (!track) return;
     try {
+      try {
+        await TrackPlayer.pause();
+      } catch {}
+
       const saved = await stopAndSaveRecording(track.title, track.artist, elapsedSeconds);
       if (saved) {
         setLastSavedRecording(saved);
@@ -217,6 +261,51 @@ export function KaraokeStudioModal({
     } catch (err: any) {
       showToast(err?.message || 'Could not finalize recording', 'alert-circle');
       setStudioState('idle');
+    }
+  };
+
+  const handleSaveMasterSong = async () => {
+    if (!lastSavedRecording || !track) return;
+    setIsMixingMaster(true);
+    try {
+      let backingTrackUri = track.url;
+      if (!backingTrackUri) {
+        const stream = await getAudioStream(track.id);
+        backingTrackUri = typeof stream === 'string' ? stream : (stream as any)?.url;
+      }
+      if (!backingTrackUri) {
+        throw new Error('Unable to resolve stream URL for backing track');
+      }
+
+      const mixedUri = await mixVocalWithBackingTrack({
+        vocalUri: lastSavedRecording.localUri,
+        backingTrackUri,
+        vocalVolume: vocalVolume / 100,
+        musicVolume: bgmVolume / 100,
+        startTimeSeconds: recordingStartOffsetRef.current,
+        durationSeconds: lastSavedRecording.durationSeconds,
+      });
+
+      const masterRecording: StudioRecording = {
+        id: `master_${Date.now()}`,
+        songTitle: `${track.title} (Master Cover)`,
+        artist: track.artist ? `Cover by You • ${track.artist}` : 'Studio Vocal Cover',
+        localUri: mixedUri,
+        createdAt: Date.now(),
+        durationSeconds: lastSavedRecording.durationSeconds,
+        artwork: track.artwork,
+        isMasterMixed: true,
+      };
+
+      saveStudioRecording(masterRecording);
+      showToast('Master song saved to Studio Recordings!', 'checkmark-circle');
+      cleanupStudio();
+      onClose();
+    } catch (err: any) {
+      console.error('[KaraokeStudio] Save master error:', err);
+      Alert.alert('Master Mix Error', err?.message || 'Failed to overlay vocals onto backing track.');
+    } finally {
+      setIsMixingMaster(false);
     }
   };
 
@@ -313,7 +402,7 @@ export function KaraokeStudioModal({
           </View>
         </View>
 
-        {/* BGM Cueing, Play/Pause & Volume Mixer Control */}
+        {/* BGM Cueing, Play/Pause & Dual Volume Mixer Control */}
         <View style={styles.mixerCard}>
           <View style={styles.bgmRow}>
             <TouchableOpacity 
@@ -335,19 +424,46 @@ export function KaraokeStudioModal({
                 {track?.artist || 'Cue backing track'}
               </Text>
             </View>
-            <View style={styles.bgmVolBadge}>
-              <Ionicons name="volume-medium-outline" size={14} color="#00ffcc" />
-              <Text style={styles.bgmVolText}>{bgmVolume}%</Text>
+          </View>
+
+          {/* Backing Music Volume Slider */}
+          <View style={styles.sliderSection}>
+            <View style={styles.sliderLabelRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Ionicons name="musical-notes-outline" size={13} color="#00ffcc" />
+                <Text style={styles.sliderLabel}>Backing Music Volume</Text>
+              </View>
+              <Text style={styles.sliderValueText}>{bgmVolume}%</Text>
+            </View>
+            <View 
+              style={styles.sliderContainer}
+              onLayout={(e) => { bgmSliderWidth.current = e.nativeEvent.layout.width; }}
+              {...bgmPanResponder.panHandlers}
+            >
+              <View style={styles.sliderTrack} />
+              <View style={[styles.sliderFill, { width: `${bgmVolume}%`, backgroundColor: '#00ffcc' }]} />
+              <View style={[styles.sliderThumb, { left: `${bgmVolume}%` }]} />
             </View>
           </View>
-          <View 
-            style={styles.sliderContainer}
-            onLayout={(e) => { volumeSliderWidth.current = e.nativeEvent.layout.width; }}
-            {...volumePanResponder.panHandlers}
-          >
-            <View style={styles.sliderTrack} />
-            <View style={[styles.sliderFill, { width: `${bgmVolume}%` }]} />
-            <View style={[styles.sliderThumb, { left: `${bgmVolume}%` }]} />
+
+          {/* Vocal Volume Slider */}
+          <View style={[styles.sliderSection, { marginTop: 6 }]}>
+            <View style={styles.sliderLabelRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Ionicons name="mic-outline" size={13} color="#ff3b30" />
+                <Text style={styles.sliderLabel}>Vocal Volume</Text>
+              </View>
+              <Text style={[styles.sliderValueText, { color: '#ff3b30' }]}>{vocalVolume}%</Text>
+            </View>
+            <View 
+              style={styles.sliderContainer}
+              onLayout={(e) => { vocalSliderWidth.current = e.nativeEvent.layout.width; }}
+              {...vocalPanResponder.panHandlers}
+            >
+              <View style={styles.sliderTrack} />
+              <View style={[styles.sliderFill, { width: `${vocalVolume}%`, backgroundColor: '#ff3b30' }]} />
+              <View style={[styles.sliderThumb, { left: `${vocalVolume}%` }]} />
+            </View>
           </View>
         </View>
 
@@ -395,19 +511,57 @@ export function KaraokeStudioModal({
           {studioState === 'saved' ? (
             <View style={styles.savedCard}>
               <View style={styles.savedHeaderRow}>
-                <Ionicons name="checkmark-circle" size={26} color="#00ffcc" />
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={styles.savedTitle}>Take Saved to Library!</Text>
-                  <Text style={styles.savedSubtitle}>
-                    {lastSavedRecording?.songTitle} ({formatTimer(lastSavedRecording?.durationSeconds || 0)})
+                {track?.artwork ? (
+                  <Image source={{ uri: track.artwork }} style={styles.savedCoverImg} />
+                ) : (
+                  <View style={styles.savedIconBox}>
+                    <Ionicons name="disc" size={24} color="#00ffcc" />
+                  </View>
+                )}
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.savedTitle}>Take Recorded & Ready to Mix</Text>
+                  <Text style={styles.savedSubtitle} numberOfLines={1}>
+                    {track?.title} ({formatTimer(lastSavedRecording?.durationSeconds || elapsedSeconds)})
                   </Text>
                 </View>
               </View>
 
+              {/* Volume Balance Summary */}
+              <View style={styles.mixSummaryRow}>
+                <View style={styles.mixSummaryItem}>
+                  <Ionicons name="musical-notes-outline" size={13} color="#00ffcc" />
+                  <Text style={styles.mixSummaryText}>Music: {bgmVolume}%</Text>
+                </View>
+                <View style={styles.mixSummaryItem}>
+                  <Ionicons name="mic-outline" size={13} color="#ff3b30" />
+                  <Text style={styles.mixSummaryText}>Vocals: {vocalVolume}%</Text>
+                </View>
+              </View>
+
+              {/* Master Mix Button */}
+              <TouchableOpacity 
+                style={[styles.saveMasterBtn, isMixingMaster && { opacity: 0.7 }]} 
+                onPress={handleSaveMasterSong}
+                disabled={isMixingMaster}
+                activeOpacity={0.8}
+              >
+                {isMixingMaster ? (
+                  <View style={styles.btnContentRow}>
+                    <ActivityIndicator size="small" color="#000000" />
+                    <Text style={styles.saveMasterBtnText}>Overlaying vocals onto backing track...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.btnContentRow}>
+                    <Ionicons name="sparkles" size={18} color="#000000" />
+                    <Text style={styles.saveMasterBtnText}>Save Master Song (Mix Vocals + Music)</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
               <View style={styles.savedActionsRow}>
                 <TouchableOpacity style={styles.shareTakeBtn} onPress={handleShare} activeOpacity={0.8}>
-                  <Ionicons name="share-social-outline" size={18} color="#000000" />
-                  <Text style={styles.shareTakeBtnText}>Share Audio Cover</Text>
+                  <Ionicons name="share-social-outline" size={16} color="#ffffff" />
+                  <Text style={styles.shareTakeBtnText}>Share Raw Take</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity 
@@ -419,7 +573,7 @@ export function KaraokeStudioModal({
                   }}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="refresh" size={16} color="#ffffff" />
+                  <Ionicons name="refresh" size={15} color="#888888" />
                   <Text style={styles.newTakeBtnText}>New Take</Text>
                 </TouchableOpacity>
               </View>
@@ -779,6 +933,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
   },
+  savedCoverImg: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    backgroundColor: '#222228',
+  },
+  savedIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   savedTitle: {
     color: '#ffffff',
     fontSize: 16,
@@ -789,6 +957,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  mixSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  mixSummaryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  mixSummaryText: {
+    color: '#cccccc',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveMasterBtn: {
+    backgroundColor: '#00ffcc',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  btnContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  saveMasterBtnText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   savedActionsRow: {
     flexDirection: 'row',
     gap: 10,
@@ -798,15 +1001,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#00ffcc',
+    backgroundColor: '#1e1e24',
     paddingVertical: 12,
     borderRadius: 10,
     gap: 6,
   },
   shareTakeBtnText: {
-    color: '#000000',
-    fontSize: 14,
-    fontWeight: 'bold',
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
   },
   newTakeBtn: {
     flexDirection: 'row',
@@ -822,5 +1025,24 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
+  },
+  sliderSection: {
+    marginTop: 6,
+  },
+  sliderLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  sliderLabel: {
+    color: '#888896',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sliderValueText: {
+    color: '#00ffcc',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

@@ -46,6 +46,8 @@ export interface StudioRecording {
   createdAt: number;
   durationSeconds: number;
   fileSizeBytes?: number;
+  artwork?: string;
+  isMasterMixed?: boolean;
 }
 
 const KEYS = {

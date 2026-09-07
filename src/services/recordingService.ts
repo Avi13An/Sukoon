@@ -271,8 +271,9 @@ export async function shareRecording(localUri: string, songTitle?: string): Prom
       return;
     }
 
+    const isWav = localUri.toLowerCase().endsWith('.wav');
     await Sharing.shareAsync(localUri, {
-      mimeType: 'audio/m4a',
+      mimeType: isWav ? 'audio/wav' : 'audio/m4a',
       dialogTitle: songTitle ? `Share Cover: ${songTitle}` : 'Share Studio Cover',
       UTI: 'public.audio',
     });

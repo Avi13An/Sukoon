@@ -183,6 +183,33 @@ export async function playNextTrack(forcedTrackIndex?: number) {
   }
 }
 
+export async function playPreviousTrack() {
+  try {
+    const progress = await TrackPlayer.getProgress();
+    if (progress && progress.position > 3) {
+      await TrackPlayer.seekTo(0);
+      return;
+    }
+    const history = getListenHistory();
+    const currentTrack = getLastPlayedTrack();
+    if (history.length > 1) {
+      const prevTrack = history[1];
+      if (prevTrack && prevTrack.id !== currentTrack?.id) {
+        if (currentTrack && !upNextQueue.some(t => t.id === currentTrack.id)) {
+          upNextQueue.unshift(currentTrack);
+          notifyQueueChange();
+        }
+        await playTrack(prevTrack);
+        return;
+      }
+    }
+    await TrackPlayer.seekTo(0);
+  } catch (err) {
+    console.error('[TrackPlayerService] playPreviousTrack error:', err);
+    try { await TrackPlayer.seekTo(0); } catch {}
+  }
+}
+
 let isAutoTransitioning = false;
 export async function handleAutoplayTransition() {
   if (isAutoTransitioning) return;
@@ -252,9 +279,10 @@ export async function setupPlayer(): Promise<boolean> {
             Capability.SkipToPrevious,
             Capability.SeekTo,
           ],
+          // Crucial: Android compact notification only has room for 3 actions
           compactCapabilities: [
+            Capability.SkipToPrevious,
             Capability.Play,
-            Capability.Pause,
             Capability.SkipToNext,
           ],
         });
@@ -292,16 +320,7 @@ export async function setupPlayer(): Promise<boolean> {
 
       TrackPlayer.addEventListener(Event.RemotePrevious, async () => {
         console.log('[TrackPlayerService] RemotePrevious triggered from media notification/controls');
-        try {
-          const progress = await TrackPlayer.getProgress();
-          if (progress && progress.position > 3) {
-            await TrackPlayer.seekTo(0);
-          } else {
-            await TrackPlayer.seekTo(0);
-          }
-        } catch {
-          try { await TrackPlayer.seekTo(0); } catch {}
-        }
+        await playPreviousTrack();
       });
 
       TrackPlayer.addEventListener(Event.RemotePlay, async () => {
@@ -445,30 +464,71 @@ export async function playTrack(metadata: TrackMetadata) {
       }
     };
 
+    // Feed next 3 to 5 tracks into ExoPlayer native queue so hasNextMediaItem signals true
+    const nextPayloads = upNextQueue.slice(0, 4).map((t) => ({
+      id: t.id,
+      mediaId: t.id,
+      url: t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`,
+      title: t.title || 'Next Track',
+      artist: t.artist || 'Unknown Artist',
+      artwork: t.artwork || undefined,
+      artworkUrl: t.artwork || undefined,
+      duration: t.duration,
+      headers: {
+        'User-Agent': matchedUA,
+        'Accept': '*/*'
+      }
+    }));
+
+    // Include recent history item as previous track so hasPreviousMediaItem signals true
+    const history = getListenHistory();
+    const prevItem = history.length > 1 ? history[1] : null;
+    const prevPayload = (prevItem && prevItem.id !== metadata.id) ? {
+      id: prevItem.id,
+      mediaId: prevItem.id,
+      url: prevItem.url || `https://invidious.f5.si/latest_version?id=${prevItem.id}&itag=140`,
+      title: prevItem.title || 'Previous Track',
+      artist: prevItem.artist || 'Unknown Artist',
+      artwork: prevItem.artwork || undefined,
+      artworkUrl: prevItem.artwork || undefined,
+      duration: prevItem.duration,
+      headers: {
+        'User-Agent': matchedUA,
+        'Accept': '*/*'
+      }
+    } : null;
+
+    const queueItems: any[] = [];
+    let startIndex = 0;
+    if (prevPayload) {
+      queueItems.push(prevPayload);
+      startIndex = 1;
+    }
+    queueItems.push(trackPayload);
+    queueItems.push(...nextPayloads);
+
     if (typeof (TrackPlayer as any).reset === 'function') {
       try { await (TrackPlayer as any).reset(); } catch {}
     } else if (typeof (TrackPlayer as any).clear === 'function') {
       try { await (TrackPlayer as any).clear(); } catch {}
     }
 
-    if (typeof load === 'function') {
-      await load(trackPayload);
-    } else if (typeof (TrackPlayer as any).load === 'function') {
-      await (TrackPlayer as any).load(trackPayload);
+    if (typeof setMediaItems === 'function') {
+      await setMediaItems(queueItems, startIndex);
+    } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+      await (TrackPlayer as any).setMediaItems(queueItems, startIndex);
     } else if (typeof setMediaItem === 'function') {
       await setMediaItem(trackPayload);
-    } else if (typeof (TrackPlayer as any).setMediaItem === 'function') {
-      await (TrackPlayer as any).setMediaItem(trackPayload);
-    } else if (typeof setMediaItems === 'function') {
-      await setMediaItems([trackPayload]);
-    } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-      await (TrackPlayer as any).setMediaItems([trackPayload]);
-    } else if (typeof addMediaItem === 'function') {
-      await addMediaItem(trackPayload);
-    } else if (typeof (TrackPlayer as any).addMediaItem === 'function') {
-      await (TrackPlayer as any).addMediaItem(trackPayload);
+      if (nextPayloads.length > 0 && typeof (TrackPlayer as any).addMediaItems === 'function') {
+        try { await (TrackPlayer as any).addMediaItems(nextPayloads); } catch {}
+      }
+    } else if (typeof load === 'function') {
+      await load(trackPayload);
+      if (nextPayloads.length > 0 && typeof (TrackPlayer as any).addMediaItems === 'function') {
+        try { await (TrackPlayer as any).addMediaItems(nextPayloads); } catch {}
+      }
     } else if (typeof (TrackPlayer as any).add === 'function') {
-      await (TrackPlayer as any).add(trackPayload);
+      await (TrackPlayer as any).add(queueItems);
     }
     
     // Allow Android main looper to process queue insertion
