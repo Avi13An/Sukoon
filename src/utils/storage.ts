@@ -32,7 +32,15 @@ export interface Playlist {
   tracks: TrackMetadata[];
 }
 
+export interface UserAccount {
+  username: string;
+  passwordHash: string;
+  createdAt: number;
+}
+
 const KEYS = {
+  ACTIVE_SESSION: '@sukoon_active_session',
+  USERS_DB: '@sukoon_users_db',
   PLAYLISTS: 'PLAYLISTS',
   CUSTOM_PLAYLISTS: '@sukoon_custom_playlists',
   OFFLINE_TRACKS: 'OFFLINE_TRACKS',
@@ -44,26 +52,105 @@ const KEYS = {
   EQUALIZER_SETTINGS: '@sukoon_equalizer_settings',
 };
 
+export function getActiveUser(): string | null {
+  return storage.getString(KEYS.ACTIVE_SESSION) || storage.getString(KEYS.MY_USERNAME) || null;
+}
+
+export function setActiveUser(username: string): void {
+  const clean = username.trim().toLowerCase();
+  storage.set(KEYS.ACTIVE_SESSION, clean);
+  storage.set(KEYS.MY_USERNAME, clean);
+}
+
+export function clearActiveSession(): void {
+  storage.remove(KEYS.ACTIVE_SESSION);
+  storage.remove(KEYS.MY_USERNAME);
+}
+
+export function getUsersDb(): Record<string, UserAccount> {
+  const data = storage.getString(KEYS.USERS_DB);
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch {}
+  }
+  return {};
+}
+
+export function registerUser(username: string, password: string): { success: boolean; error?: string } {
+  const cleanUser = username.trim().toLowerCase();
+  const cleanPass = password.trim();
+  if (cleanUser.length < 3) {
+    return { success: false, error: 'Username must be at least 3 characters.' };
+  }
+  if (cleanPass.length < 4) {
+    return { success: false, error: 'Password must be at least 4 characters.' };
+  }
+
+  const db = getUsersDb();
+  if (db[cleanUser]) {
+    return { success: false, error: 'Username is already taken.' };
+  }
+
+  db[cleanUser] = {
+    username: cleanUser,
+    passwordHash: cleanPass,
+    createdAt: Date.now(),
+  };
+
+  storage.set(KEYS.USERS_DB, JSON.stringify(db));
+  setActiveUser(cleanUser);
+  return { success: true };
+}
+
+export function loginUser(username: string, password: string): { success: boolean; error?: string } {
+  const cleanUser = username.trim().toLowerCase();
+  const cleanPass = password.trim();
+  const db = getUsersDb();
+  const user = db[cleanUser];
+
+  if (!user || user.passwordHash !== cleanPass) {
+    return { success: false, error: 'Invalid username or password.' };
+  }
+
+  setActiveUser(cleanUser);
+  return { success: true };
+}
+
+export function clearDownloadedTracksStorage(): void {
+  storage.remove(KEYS.DOWNLOADED_TRACKS);
+  storage.remove(KEYS.OFFLINE_TRACKS);
+}
+
 export function getMyUsername(): string | null {
-  return storage.getString(KEYS.MY_USERNAME) || null;
+  return getActiveUser();
 }
 
 export function setMyUsername(username: string) {
-  storage.set(KEYS.MY_USERNAME, username);
+  setActiveUser(username);
 }
 
-export function getCustomPlaylists(): Playlist[] {
+export function getUserPlaylistsKey(username?: string | null): string {
+  const user = username || getActiveUser() || 'guest';
+  return `@sukoon_user_${user.toLowerCase()}_playlists`;
+}
+
+export function getCustomPlaylists(username?: string): Playlist[] {
+  const key = getUserPlaylistsKey(username);
   let playlists: Playlist[] = [];
-  const data = storage.getString(KEYS.CUSTOM_PLAYLISTS);
+  const data = storage.getString(key);
   if (data) {
     try {
       playlists = JSON.parse(data);
     } catch {}
   } else {
-    const legacyData = storage.getString(KEYS.PLAYLISTS);
-    if (legacyData) {
+    // If no user-specific key exists yet, check legacy storage keys for smooth migration
+    const legacyCustom = storage.getString(KEYS.CUSTOM_PLAYLISTS);
+    const legacyPlaylists = storage.getString(KEYS.PLAYLISTS);
+    const raw = legacyCustom || legacyPlaylists;
+    if (raw) {
       try {
-        const legacy: any[] = JSON.parse(legacyData);
+        const legacy: any[] = JSON.parse(raw);
         playlists = legacy.map(p => ({
           id: p.id || Date.now().toString(),
           shareCode: p.shareCode || ('SK-' + Math.random().toString(36).substring(2, 8).toUpperCase()),
@@ -74,6 +161,9 @@ export function getCustomPlaylists(): Playlist[] {
           isImported: p.isImported || false,
           tracks: p.tracks || []
         }));
+        if (playlists.length > 0) {
+          saveCustomPlaylists(playlists, username);
+        }
       } catch {}
     }
   }
@@ -88,14 +178,15 @@ export function getCustomPlaylists(): Playlist[] {
   });
 
   if (needsSave) {
-    saveCustomPlaylists(playlists);
+    saveCustomPlaylists(playlists, username);
   }
 
   return playlists;
 }
 
-export function saveCustomPlaylists(playlists: Playlist[]) {
-  storage.set(KEYS.CUSTOM_PLAYLISTS, JSON.stringify(playlists));
+export function saveCustomPlaylists(playlists: Playlist[], username?: string) {
+  const key = getUserPlaylistsKey(username);
+  storage.set(key, JSON.stringify(playlists));
 }
 
 export function createPlaylist(name: string, description?: string, coverImage?: string): Playlist {

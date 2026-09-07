@@ -518,19 +518,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   categoryChip: {
-    backgroundColor: '#0d0d0d',
+    backgroundColor: '#0c0c0c',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#222222',
+    borderColor: '#1c1c1c',
   },
   categoryChipActive: {
     backgroundColor: '#00ffcc',
     borderColor: '#00ffcc',
   },
   categoryChipText: {
-    color: '#a0a0ab',
+    color: '#8e8e98',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -539,7 +539,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   section: {
-    marginBottom: 28,
+    marginBottom: 30,
     paddingHorizontal: 16,
   },
   sectionHeaderRow: {
@@ -549,8 +549,9 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
+    letterSpacing: 0.3,
   },
   sectionAccent: {
     color: '#00ffcc',
@@ -571,7 +572,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   subtitle: {
-    color: '#777782',
+    color: '#8e8e98',
     fontSize: 13,
     marginTop: 4,
     marginBottom: 14,
@@ -591,13 +592,13 @@ const styles = StyleSheet.create({
   thumbnailContainer: {
     width: 140,
     height: 140,
-    borderRadius: 12,
-    backgroundColor: '#0d0d0d',
+    borderRadius: 14,
+    backgroundColor: '#0c0c0c',
     marginBottom: 8,
     position: 'relative',
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#222222',
+    borderColor: '#1c1c1c',
   },
   thumbnail: {
     width: '100%',
@@ -690,11 +691,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   placeholder: {
-    backgroundColor: '#0d0d0d',
+    backgroundColor: '#0c0c0c',
     padding: 20,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#222222',
+    borderColor: '#1c1c1c',
   },
   placeholderText: {
     color: '#777785',

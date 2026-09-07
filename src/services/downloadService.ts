@@ -6,7 +6,9 @@ import {
   getDownloadedTracks, 
   saveDownloadedTrack, 
   deleteDownloadedTrackStorage, 
-  isTrackDownloaded 
+  isTrackDownloaded,
+  clearActiveSession,
+  clearDownloadedTracksStorage
 } from '../utils/storage';
 
 const DOWNLOAD_DIR = `${FileSystem.documentDirectory}downloads/`;
@@ -134,4 +136,22 @@ export async function downloadPlaylistTracks(
       onTrackProgress(completed, tracks.length);
     }
   }
+}
+
+export async function clearAllDownloads(): Promise<void> {
+  try {
+    const dirInfo = await FileSystem.getInfoAsync(DOWNLOAD_DIR);
+    if (dirInfo.exists) {
+      await FileSystem.deleteAsync(DOWNLOAD_DIR, { idempotent: true });
+    }
+    await FileSystem.makeDirectoryAsync(DOWNLOAD_DIR, { intermediates: true });
+  } catch (err) {
+    console.error('[DownloadService] Failed to clear downloads directory:', err);
+  }
+}
+
+export async function logoutUser(): Promise<void> {
+  clearActiveSession();
+  clearDownloadedTracksStorage();
+  await clearAllDownloads();
 }

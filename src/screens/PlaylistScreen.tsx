@@ -12,6 +12,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { showToast } from '../components/ToastNotification';
 import Animated, { 
   useSharedValue, 
   useAnimatedScrollHandler, 
@@ -129,9 +130,9 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       await sharePlaylist(playlist, shareUsername.trim());
       setIsShareModalVisible(false);
       setShareUsername('');
-      Alert.alert('Success', 'Playlist shared successfully!');
+      showToast('Playlist shared successfully!', 'checkmark-circle');
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to share playlist');
+      showToast(e?.message || 'Failed to share playlist', 'alert-circle');
     }
   };
 
@@ -139,9 +140,9 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     if (!playlist.shareCode) return;
     try {
       await Clipboard.setStringAsync(playlist.shareCode);
-      Alert.alert('Share Code Copied', `Share Code ${playlist.shareCode} copied!`);
+      showToast(`Share code ${playlist.shareCode} copied!`, 'copy-outline');
     } catch {
-      Alert.alert('Share Code', `Share Code: ${playlist.shareCode}`);
+      showToast(`Share Code: ${playlist.shareCode}`, 'copy-outline');
     }
   };
 
@@ -165,8 +166,10 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
               await deleteDownloadedTrack(track.id);
               const usage = await getOfflineStorageUsage();
               setStorageSize(usage.formattedSize);
+              showToast(`Deleted "${track.title}" from offline downloads`, 'trash-outline');
             } else {
               removeTrackFromPlaylist(playlist.id, track.id);
+              showToast(`Removed from "${playlist.name}"`, 'trash-outline');
             }
             setPlaylist(prev => ({
               ...prev,

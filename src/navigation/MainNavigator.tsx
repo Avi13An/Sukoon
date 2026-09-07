@@ -10,10 +10,11 @@ import { SearchScreen } from '../screens/SearchScreen';
 import { LibraryScreen } from '../screens/LibraryScreen';
 import { PlaylistScreen } from '../screens/PlaylistScreen';
 import { PlayerScreen } from '../screens/PlayerScreen';
+import { AuthScreen } from '../screens/AuthScreen';
 import { SetupScreen } from '../screens/SetupScreen';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { SyncPromptModal } from '../components/SyncPromptModal';
-import { getMyUsername } from '../utils/storage';
+import { getActiveUser } from '../utils/storage';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -76,19 +77,20 @@ const appTheme = {
 };
 
 export function MainNavigator() {
-  const hasUsername = !!getMyUsername();
+  const hasSession = !!getActiveUser();
 
   return (
     <NavigationContainer theme={appTheme}>
       <RootStack.Navigator 
-        initialRouteName={hasUsername ? 'MainTabs' : 'Setup'}
+        initialRouteName={hasSession ? 'MainTabs' : 'Auth'}
         screenOptions={{ headerShown: false, presentation: 'fullScreenModal' }}
       >
-        <RootStack.Screen name="Setup" component={SetupScreen} />
+        <RootStack.Screen name="Auth" component={AuthScreen} />
+        <RootStack.Screen name="Setup" component={AuthScreen} />
         <RootStack.Screen name="MainTabs" component={TabNavigator} />
         <RootStack.Screen name="Player" component={PlayerScreen} />
       </RootStack.Navigator>
-      {hasUsername && <SyncPromptModal />}
+      {hasSession && <SyncPromptModal />}
     </NavigationContainer>
   );
 }

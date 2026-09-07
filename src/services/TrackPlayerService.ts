@@ -11,6 +11,7 @@ import {
   TrackMetadata 
 } from '../utils/storage';
 import { getAudioStream, searchTracks } from './musicApi';
+import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
 
 let isPlayerSetup = false;
 let isListenersAttached = false;
@@ -56,7 +57,8 @@ export function removeFromUpNextQueue(index: number) {
     upNextQueue.splice(index, 1);
     notifyQueueChange();
     if (upNextQueue.length < MIN_QUEUE_SIZE) {
-      prefetchAutoplayQueue().catch(() => {});
+      const currentTrack = getLastPlayedTrack() || undefined;
+      prefetchAutoplayQueue(currentTrack).catch(() => {});
     }
   }
 }
@@ -170,6 +172,10 @@ export async function playNextTrack(forcedTrackIndex?: number) {
 }
 
 export async function handleAutoplayTransition() {
+  if (await handleTrackEndedForSleepTimer()) {
+    console.log('[Autoplay] Sleep timer ended or paused playback');
+    return;
+  }
   const repeatMode = TrackPlayer.getRepeatMode();
   if (repeatMode !== RepeatMode.Off) {
     console.log('[Autoplay] Repeat mode active, skipping autoplay');
@@ -224,6 +230,7 @@ export async function setupPlayer(): Promise<boolean> {
     isPlayerSetup = true;
     // Allow Android MediaController async connection to finish
     await new Promise((r) => setTimeout(r, 150));
+    await applySoundBoost(currentSoundBoostPercent);
     return true;
   } catch (e: any) {
     if (e?.message?.includes('already set up') || e?.message?.includes('Already set up')) {
@@ -239,14 +246,14 @@ let currentSoundBoostPercent = 0;
 try {
   const initialEq = getEqualizerSettings();
   if (initialEq && typeof initialEq.soundBoost === 'number') {
-    currentSoundBoostPercent = initialEq.soundBoost;
+    currentSoundBoostPercent = initialEq.enabled ? initialEq.soundBoost : 0;
   }
 } catch {}
 
 export async function applySoundBoost(boostPercent: number) {
   currentSoundBoostPercent = Math.max(0, Math.min(100, boostPercent));
-  // Base volume is 0.72. 100% boost scales it smoothly to 1.0 (true hardware ceiling)
-  const calculatedVolume = 0.72 + (currentSoundBoostPercent / 100) * 0.28;
+  // Baseline volume is 0.60 at 0% boost, scaling to 1.00 at 100% boost for an immediate, significant loudness jump
+  const calculatedVolume = 0.60 + (currentSoundBoostPercent / 100) * 0.40;
   if (typeof TrackPlayer.setVolume === 'function') {
     await TrackPlayer.setVolume(calculatedVolume);
   }
@@ -377,8 +384,11 @@ export async function playTrack(metadata: TrackMetadata) {
     const eqSettings = getEqualizerSettings();
     if (eqSettings.enabled && typeof eqSettings.soundBoost === 'number') {
       currentSoundBoostPercent = eqSettings.soundBoost;
+    } else if (!eqSettings.enabled) {
+      currentSoundBoostPercent = 0;
     }
     await applySoundBoost(currentSoundBoostPercent);
+    resetSleepPaused();
 
     if (typeof play === 'function') {
       await play();

@@ -16,12 +16,14 @@ import {
   getCustomPlaylists, 
   createPlaylist, 
   deletePlaylist, 
-  getDownloadedTracks,
+  getDownloadedTracks, 
   importPlaylistByCode,
+  getActiveUser,
   Playlist, 
   DownloadedTrack 
 } from '../utils/storage';
-import { getOfflineStorageUsage } from '../services/downloadService';
+import { getOfflineStorageUsage, logoutUser } from '../services/downloadService';
+import { showToast } from '../components/ToastNotification';
 
 export function LibraryScreen({ navigation }: any) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -32,8 +34,10 @@ export function LibraryScreen({ navigation }: any) {
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
   const [importShareCode, setImportShareCode] = useState('');
+  const [activeUsername, setActiveUsername] = useState<string | null>(getActiveUser());
 
   const refreshLibrary = useCallback(async () => {
+    setActiveUsername(getActiveUser());
     setPlaylists(getCustomPlaylists());
     const downloaded = getDownloadedTracks();
     setDownloadedTracks(downloaded);
@@ -65,7 +69,7 @@ export function LibraryScreen({ navigation }: any) {
   const handleCreatePlaylist = () => {
     const trimmed = newPlaylistName.trim();
     if (!trimmed) {
-      Alert.alert('Error', 'Please enter a playlist name.');
+      showToast('Please enter a playlist name', 'alert-circle');
       return;
     }
     createPlaylist(trimmed, newPlaylistDesc.trim());
@@ -73,26 +77,24 @@ export function LibraryScreen({ navigation }: any) {
     setNewPlaylistDesc('');
     setIsCreateModalVisible(false);
     refreshLibrary();
+    showToast(`Playlist "${trimmed}" created!`, 'checkmark-circle');
   };
 
   const handleImportPlaylist = () => {
     const code = importShareCode.trim();
     if (!code) {
-      Alert.alert('Error', 'Please enter a valid share code (e.g. SK-XXXXXX).');
+      showToast('Please enter a valid share code', 'alert-circle');
       return;
     }
     const imported = importPlaylistByCode(code);
     if (!imported) {
-      Alert.alert(
-        'Playlist Not Found', 
-        `No playlist with share code "${code.toUpperCase()}" was found on this device. Please verify the code and try again.`
-      );
+      showToast(`Playlist "${code.toUpperCase()}" not found`, 'alert-circle');
       return;
     }
     setImportShareCode('');
     setIsImportModalVisible(false);
     refreshLibrary();
-    Alert.alert('Shared / Read-Only', `"${imported.name}" has been imported to your library as read-only!`);
+    showToast(`"${imported.name}" imported as read-only!`, 'download-outline');
   };
 
   const handleDeletePlaylist = (playlist: Playlist) => {
@@ -107,6 +109,29 @@ export function LibraryScreen({ navigation }: any) {
           onPress: () => {
             deletePlaylist(playlist.id);
             refreshLibrary();
+            showToast(`Deleted "${playlist.name}"`, 'trash-outline');
+          }
+        }
+      ]
+    );
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out? Local downloads will be cleared, but your playlists remain saved.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Log Out', 
+          style: 'destructive',
+          onPress: async () => {
+            await logoutUser();
+            showToast('Logged out successfully', 'log-out-outline');
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Auth' }],
+            });
           }
         }
       ]
@@ -115,6 +140,24 @@ export function LibraryScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
+      {/* User Profile Bar */}
+      <View style={styles.topProfileRow}>
+        <View style={styles.userProfileInfo}>
+          <View style={styles.avatarIconBadge}>
+            <Ionicons name="person" size={14} color="#00ffcc" />
+          </View>
+          <Text style={styles.profileUsernameText}>{activeUsername || 'User'}</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.logoutBtn} 
+          onPress={handleLogout}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="log-out-outline" size={15} color="#ff5252" />
+          <Text style={styles.logoutBtnText}>Log Out</Text>
+        </TouchableOpacity>
+      </View>
+
       <Text style={styles.headerTitle}>Your Library</Text>
 
       <TouchableOpacity style={styles.downloadCard} onPress={navigateToDownloads} activeOpacity={0.7}>
@@ -296,6 +339,51 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
     padding: 16,
+  },
+  topProfileRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  userProfileInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  avatarIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileUsernameText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 82, 82, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 82, 82, 0.25)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 5,
+  },
+  logoutBtnText: {
+    color: '#ff5252',
+    fontSize: 12,
+    fontWeight: '600',
   },
   headerTitle: {
     color: '#ffffff',

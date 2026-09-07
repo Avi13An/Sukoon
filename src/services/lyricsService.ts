@@ -28,15 +28,7 @@ export interface ParsedLyrics {
 }
 
 function transliterateIfNeeded(text: string | null): string | null {
-  if (!text) return text;
-  
-  // Devanagari Unicode block: 0900-097F
-  const devanagariRegex = /[\u0900-\u097F]/;
-  if (devanagariRegex.test(text)) {
-    try {
-      return Sanscript.t(text, 'devanagari', 'itrans');
-    } catch {}
-  }
+  // Native Hindi / Devanagari script is preserved directly without converting to ITRANS
   return text;
 }
 
@@ -44,8 +36,20 @@ export function sanitizeLyricText(text: string): string {
   if (!text) return '';
   const trimmed = text.trim();
   if (!trimmed) return '';
-  // Clean strange alternating/erratic casing (e.g. "eVerYOne" -> "Everyone")
-  const lower = trimmed.toLowerCase();
+
+  // Devanagari Unicode block: 0900-097F
+  // If Devanagari is detected: return the original string trimmed, WITHOUT lowercasing, title-casing, or altering words.
+  if (/[\u0900-\u097F]/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Strip structural bracket tags like [Verse 1], [Chorus], (Instrumental)
+  const cleaned = trimmed
+    .replace(/^\[.*?\]\s*/g, '')
+    .replace(/^\(.*?\)\s*/g, '');
+
+  const textToCase = cleaned || trimmed;
+  const lower = textToCase.toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 

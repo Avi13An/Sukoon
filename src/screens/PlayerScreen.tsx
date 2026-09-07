@@ -11,6 +11,9 @@ import { AudioSettingsModal } from '../components/AudioSettingsModal';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { QueueModal } from '../components/QueueModal';
 import { LyricsModal } from '../components/LyricsModal';
+import { SleepTimerModal } from '../components/SleepTimerModal';
+import { showToast } from '../components/ToastNotification';
+import { subscribeToSleepTimer, SleepTimerState, getSleepTimerState } from '../services/sleepTimerService';
 import { TrackMetadata } from '../utils/storage';
 
 const { width } = Dimensions.get('window');
@@ -21,8 +24,10 @@ export function PlayerScreen({ navigation }: any) {
   
   const [currentPos, setCurrentPos] = useState(0);
   const [currentDur, setCurrentDur] = useState(0);
+  const isTransitioningRef = useRef(false);
 
   useEffect(() => {
+    isTransitioningRef.current = false;
     let isMounted = true;
     const interval = setInterval(async () => {
       try {
@@ -31,6 +36,14 @@ export function PlayerScreen({ navigation }: any) {
           setCurrentPos(p.position);
           const validDur = p.duration > 0 ? p.duration : ((track as any)?.duration || 0);
           if (validDur > 0) setCurrentDur(validDur);
+
+          // Continuous Autoplay transition safeguard:
+          // If duration > 5s and position is within 0.8s of the end, trigger next track
+          if (validDur > 5 && p.position >= validDur - 0.8 && !isTransitioningRef.current) {
+            isTransitioningRef.current = true;
+            console.log('[PlayerScreen] Reached song end threshold, auto-transitioning next track...');
+            playNextTrack().catch(() => {});
+          }
         }
       } catch {}
     }, 500);
@@ -90,6 +103,16 @@ export function PlayerScreen({ navigation }: any) {
 
   const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
   const [isAudioSettingsVisible, setIsAudioSettingsVisible] = useState(false);
+  const [isSleepTimerVisible, setIsSleepTimerVisible] = useState(false);
+  const [sleepState, setSleepState] = useState<SleepTimerState>(getSleepTimerState());
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSleepTimer((s) => {
+      setSleepState(s);
+    });
+    return unsubscribe;
+  }, []);
+
   const [isPlaylistModalVisible, setIsPlaylistModalVisible] = useState(false);
   const [isQueueModalVisible, setIsQueueModalVisible] = useState(false);
   const [isLyricsModalVisible, setIsLyricsModalVisible] = useState(false);
@@ -203,6 +226,7 @@ export function PlayerScreen({ navigation }: any) {
             onPress: async () => {
               await deleteDownloadedTrack(trackId);
               setIsDownloaded(false);
+              showToast('Removed from offline downloads', 'trash-outline');
             }
           }
         ]
@@ -225,9 +249,9 @@ export function PlayerScreen({ navigation }: any) {
         setDownloadProgress(p);
       });
       setIsDownloaded(true);
-      Alert.alert('Downloaded', `"${track.title}" is saved for offline listening!`);
+      showToast(`"${track.title}" saved for offline listening!`, 'arrow-down-circle');
     } catch (err: any) {
-      Alert.alert('Download Error', err?.message || 'Could not download track');
+      showToast(err?.message || 'Could not download track', 'alert-circle');
     } finally {
       setIsDownloading(false);
     }
@@ -258,8 +282,16 @@ export function PlayerScreen({ navigation }: any) {
           <Ionicons name="chevron-down" size={32} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Now Playing</Text>
-        <TouchableOpacity style={styles.headerIcon} onPress={() => setIsAudioSettingsVisible(true)}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#ffffff" />
+        <TouchableOpacity 
+          style={styles.headerIcon} 
+          onPress={() => setIsSleepTimerVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons 
+            name={sleepState.isActive ? "moon" : "moon-outline"} 
+            size={24} 
+            color={sleepState.isActive ? "#00ffcc" : "#ffffff"} 
+          />
         </TouchableOpacity>
       </View>
 
@@ -432,6 +464,7 @@ export function PlayerScreen({ navigation }: any) {
       )}
 
       <AudioSettingsModal visible={isAudioSettingsVisible} onClose={() => setIsAudioSettingsVisible(false)} />
+      <SleepTimerModal visible={isSleepTimerVisible} onClose={() => setIsSleepTimerVisible(false)} />
       
       <AddToPlaylistModal
         visible={isPlaylistModalVisible}

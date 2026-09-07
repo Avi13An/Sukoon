@@ -20,6 +20,7 @@ import {
   createPlaylist, 
   addTrackToPlaylist 
 } from '../utils/storage';
+import { showToast } from './ToastNotification';
 
 interface AddToPlaylistModalProps {
   visible: boolean;
@@ -41,16 +42,16 @@ export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistMod
   const handleCreateAndAdd = () => {
     const trimmed = newPlaylistName.trim();
     if (!trimmed) {
-      Alert.alert('Error', 'Please enter a playlist name.');
+      showToast('Please enter a playlist name', 'alert-circle');
       return;
     }
 
     const newPlaylist = createPlaylist(trimmed);
     if (track) {
       addTrackToPlaylist(newPlaylist.id, track);
-      Alert.alert('Success', `Created "${trimmed}" and added "${track.title}"`);
+      showToast(`Created "${trimmed}" and added track`, 'checkmark-circle');
     } else {
-      Alert.alert('Success', `Created playlist "${trimmed}"`);
+      showToast(`Created playlist "${trimmed}"`, 'checkmark-circle');
     }
 
     setNewPlaylistName('');
@@ -61,9 +62,9 @@ export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistMod
     if (!track) return;
     const added = addTrackToPlaylist(playlist.id, track);
     if (added) {
-      Alert.alert('Added', `Added "${track.title}" to "${playlist.name}"`);
+      showToast(`Added to "${playlist.name}"`, 'checkmark-circle');
     } else {
-      Alert.alert('Already Added', `"${track.title}" is already in "${playlist.name}"`);
+      showToast(`Already in "${playlist.name}"`, 'information-circle');
     }
     onClose();
   };
