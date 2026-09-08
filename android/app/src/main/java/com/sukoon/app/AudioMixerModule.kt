@@ -37,30 +37,39 @@ class AudioMixerModule(private val reactContext: ReactApplicationContext) :
     ) {
         Thread {
             try {
+                val cleanVocalPath = if (vocalPath.startsWith("file://")) vocalPath.substring(7) else vocalPath
+                val cleanMusicPath = if (musicPath.startsWith("file://")) musicPath.substring(7) else musicPath
+                val cleanOutputPath = if (outputPath.startsWith("file://")) outputPath.substring(7) else outputPath
+
+                val vocalFile = File(cleanVocalPath)
+                if (!vocalFile.exists()) {
+                    throw IllegalArgumentException("Vocal file does not exist: $cleanVocalPath")
+                }
+
+                val musicFile = File(cleanMusicPath)
+                if (!musicFile.exists()) {
+                    throw IllegalArgumentException("Backing music file does not exist: $cleanMusicPath")
+                }
+
                 // 1. Decode Vocals
-                val decodedVocal = decodeAudioToPcm(vocalPath)
+                val decodedVocal = decodeAudioToPcm(cleanVocalPath)
                 val vocalDurationMs = (decodedVocal.samples.size / decodedVocal.channelCount).toDouble() / decodedVocal.sampleRate * 1000.0
 
                 // 2. Decode Backing Track Segment
-                val decodedMusic = try {
-                    decodeAudioToPcm(musicPath, startTimeMs, vocalDurationMs + 2000.0)
-                } catch (musicErr: Exception) {
-                    DecodedAudioTrack(ShortArray(0), 44100, 2)
-                }
+                val decodedMusic = decodeAudioToPcm(cleanMusicPath, startTimeMs, vocalDurationMs + 1000.0)
 
-                // 3. Convert both to standard 44.1kHz Stereo PCM
+                // 3. Convert both to standard 44.1kHz Stereo PCM (mono vocal -> stereo [V0, V0, V1, V1])
                 val vocalStereo = convertTo44100Stereo(decodedVocal)
                 val musicStereo = convertTo44100Stereo(decodedMusic)
 
-                // 4. Digital Makeup Gain / Pre-Amp (+6dB nominal boost = 2.0x factor)
-                // Compensates for phone microphone distance/nominal recording levels (-20dB to -14dB)
-                val VOCAL_MAKEUP_GAIN = 2.0f
+                // 4. Mix formulation with headroom
+                val VOCAL_MAKEUP_GAIN = 1.5f
                 val effectiveVocalVolume = vocalVolume * VOCAL_MAKEUP_GAIN
 
-                val numFrames = Math.max(vocalStereo.size / 2, 44100) // At least 1 second
-                val mixedStereo = ShortArray(numFrames * 2)
+                val totalFrames = if (vocalStereo.size > 0) vocalStereo.size / 2 else (musicStereo.size / 2)
+                val mixedStereo = ShortArray(totalFrames * 2)
 
-                for (i in 0 until numFrames) {
+                for (i in 0 until totalFrames) {
                     val vL = if (i * 2 < vocalStereo.size) vocalStereo[i * 2].toFloat() else 0f
                     val vR = if (i * 2 + 1 < vocalStereo.size) vocalStereo[i * 2 + 1].toFloat() else 0f
 
@@ -70,14 +79,19 @@ class AudioMixerModule(private val reactContext: ReactApplicationContext) :
                     val mixL = (vL * effectiveVocalVolume + mL * musicVolume).toInt()
                     val mixR = (vR * effectiveVocalVolume + mR * musicVolume).toInt()
 
-                    // Soft clamp to prevent digital clipping
+                    // Soft clamp to prevent digital clipping [-32768, 32767]
                     mixedStereo[i * 2] = Math.max(-32768, Math.min(32767, mixL)).toShort()
                     mixedStereo[i * 2 + 1] = Math.max(-32768, Math.min(32767, mixR)).toShort()
                 }
 
-                // 5. Encode clean 44.1kHz 192kbps AAC M4A output
-                encodePcmToM4a(mixedStereo, outputPath, 44100, 192000)
-                promise.resolve(outputPath)
+                // 5. Encode clean 44.1kHz 192kbps AAC M4A output via MediaCodec & MediaMuxer
+                encodePcmToM4a(mixedStereo, cleanOutputPath, 44100, 192000)
+
+                val vocalCount = vocalStereo.size
+                val musicCount = musicStereo.size
+                android.util.Log.i("AudioMixerModule", "AudioMixer: Successfully mixed $vocalCount vocal samples with $musicCount music samples into $cleanOutputPath")
+
+                promise.resolve(cleanOutputPath)
             } catch (e: Throwable) {
                 promise.reject("AUDIO_MIX_ERROR", e.message, e)
             }
@@ -128,6 +142,11 @@ class AudioMixerModule(private val reactContext: ReactApplicationContext) :
         maxDurationMs: Double = -1.0
     ): DecodedAudioTrack {
         val cleanPath = if (filePath.startsWith("file://")) filePath.substring(7) else filePath
+        val file = File(cleanPath)
+        if (!file.exists()) {
+            throw IllegalArgumentException("Audio file does not exist: $cleanPath")
+        }
+
         val extractor = MediaExtractor()
         extractor.setDataSource(cleanPath)
 
@@ -152,7 +171,7 @@ class AudioMixerModule(private val reactContext: ReactApplicationContext) :
 
         val targetStartUs = (startOffsetMs * 1000.0).toLong()
         if (targetStartUs > 0) {
-            extractor.seekTo(targetStartUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            extractor.seekTo(targetStartUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
         }
 
         val mime = format.getString(MediaFormat.KEY_MIME) ?: MediaFormat.MIMETYPE_AUDIO_AAC

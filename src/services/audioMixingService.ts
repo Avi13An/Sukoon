@@ -27,71 +27,78 @@ async function ensureRecordingsDirectory(): Promise<void> {
 }
 
 /**
- * Mixes a vocal recording on top of a backing music track with custom volume balance
- * using the hardware-accelerated Native Android MediaCodec engine (zero screeching / distortion).
+ * Mixes vocal recording with backing music track.
+ * Guarantees backing track is a local file, cleans file:// prefixes,
+ * calls native AudioMixerModule, and cleans up temporary backing downloads.
  */
-export async function mixVocalWithBackingTrack(params: MixParams): Promise<string> {
-  const {
-    vocalUri,
-    backingTrackUri,
-    vocalVolume = 1.0,
-    musicVolume = 0.6,
-    startTimeSeconds = 0,
-    durationSeconds,
-  } = params;
-
+export async function mixVocalWithMusic(
+  vocalUri: string,
+  musicUri: string,
+  startTimeMs: number,
+  vocalVol: number = 1.0,
+  musicVol: number = 0.6
+): Promise<string> {
   await ensureRecordingsDirectory();
 
-  let tempDownloadedBackingPath: string | null = null;
+  let localMusicPath: string | null = null;
   try {
-    // 1. Resolve Backing Track (download locally if remote stream URL)
-    let resolvedBackingUri = backingTrackUri;
-    if (backingTrackUri.startsWith('http://') || backingTrackUri.startsWith('https://')) {
-      const timestamp = Date.now();
-      tempDownloadedBackingPath = `${FileSystem.cacheDirectory}temp_backing_${timestamp}.m4a`;
-      const downloadResult = await FileSystem.downloadAsync(backingTrackUri, tempDownloadedBackingPath);
-      resolvedBackingUri = downloadResult.uri;
+    let finalMusicPath = musicUri.replace('file://', '');
+
+    // Check if musicUri is remote
+    if (musicUri.startsWith('http://') || musicUri.startsWith('https://')) {
+      localMusicPath = `${FileSystem.cacheDirectory}temp_backing_${Date.now()}.mp3`;
+      const downloadRes = await FileSystem.downloadAsync(musicUri, localMusicPath);
+      finalMusicPath = downloadRes.uri.replace('file://', '');
     }
 
-    const timestamp = Date.now();
-    const outputFilename = `master_${timestamp}.m4a`;
-    const outputPath = `${RECORDINGS_DIR}${outputFilename}`;
-    const startTimeMs = Math.max(0, (startTimeSeconds || 0) * 1000);
+    const finalVocalPath = vocalUri.replace('file://', '');
+    const outputPath = `${FileSystem.documentDirectory}mastered_${Date.now()}.m4a`.replace('file://', '');
 
-    // 2. Hardware-accelerated Native Android MediaCodec / MediaMuxer Engine
     const { AudioMixerModule } = NativeModules;
     if (AudioMixerModule && typeof AudioMixerModule.mixTracks === 'function') {
       console.log('[audioMixingService] Invoking native MediaCodec mixer engine...');
       const mixedPath = await AudioMixerModule.mixTracks(
-        vocalUri,
-        resolvedBackingUri,
+        finalVocalPath,
+        finalMusicPath,
         outputPath,
-        vocalVolume,
-        musicVolume,
+        vocalVol,
+        musicVol,
         startTimeMs
       );
       console.log(`[audioMixingService] Native mixer generated clean master at: ${mixedPath}`);
       return mixedPath || outputPath;
     }
 
-    // 3. Graceful fallback if native module is not linked
+    // Graceful fallback if native module is not linked
     console.warn('[audioMixingService] AudioMixerModule not found, creating master copy...');
-    const fallbackFilename = `master_${timestamp}.m4a`;
-    const fallbackPath = `${RECORDINGS_DIR}${fallbackFilename}`;
     await FileSystem.copyAsync({
       from: vocalUri,
-      to: fallbackPath,
+      to: `file://${outputPath}`,
     });
-    return fallbackPath;
+    return outputPath;
   } catch (error: any) {
     console.error('[audioMixingService] Error mixing audio:', error);
     throw error;
   } finally {
-    // Clean up temporary downloaded backing track
-    if (tempDownloadedBackingPath) {
+    if (localMusicPath) {
       try {
-        await FileSystem.deleteAsync(tempDownloadedBackingPath, { idempotent: true });
+        await FileSystem.deleteAsync(localMusicPath, { idempotent: true });
       } catch {}
     }
   }
+}
+
+/**
+ * Mixes a vocal recording on top of a backing music track with custom volume balance
+ * using the hardware-accelerated Native Android MediaCodec engine (zero screeching / distortion).
+ */
+export async function mixVocalWithBackingTrack(params: MixParams): Promise<string> {
+  const startTimeMs = Math.max(0, (params.startTimeSeconds || 0) * 1000);
+  return mixVocalWithMusic(
+    params.vocalUri,
+    params.backingTrackUri,
+    startTimeMs,
+    params.vocalVolume ?? 1.0,
+    params.musicVolume ?? 0.6
+  );
 }
