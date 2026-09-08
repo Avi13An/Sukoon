@@ -7,7 +7,6 @@ import {
   getLastPlayedTrack, 
   saveListenHistory, 
   getListenHistory, 
-  getEqualizerSettings, 
   TrackMetadata 
 } from '../utils/storage';
 import { getAudioStream, searchTracks, getAlgorithmicRecommendations } from './musicApi';
@@ -368,8 +367,8 @@ export async function handleActiveTrackChanged(event: any) {
       }
     } catch {}
     try {
-      const { syncAudioSession } = require('./audioFxService');
-      syncAudioSession();
+      const { syncSoundBoostSession } = require('./soundBoostService');
+      syncSoundBoostSession();
     } catch {}
   }
 
@@ -647,8 +646,8 @@ export async function setupPlayer(): Promise<boolean> {
     await new Promise((r) => setTimeout(r, 150));
     await applySoundBoost(currentSoundBoostPercent);
     try {
-      const { syncAudioSession } = require('./audioFxService');
-      syncAudioSession();
+      const { syncSoundBoostSession } = require('./soundBoostService');
+      syncSoundBoostSession();
     } catch {}
     return true;
   } catch (e: any) {
@@ -663,10 +662,8 @@ export async function setupPlayer(): Promise<boolean> {
 
 let currentSoundBoostPercent = 0;
 try {
-  const initialEq = getEqualizerSettings();
-  if (initialEq && typeof initialEq.soundBoost === 'number') {
-    currentSoundBoostPercent = initialEq.enabled ? initialEq.soundBoost : 0;
-  }
+  const { getSoundBoostPercent } = require('./soundBoostService');
+  currentSoundBoostPercent = getSoundBoostPercent();
 } catch {}
 
 export async function applySoundBoost(boostPercent: number) {
@@ -882,8 +879,8 @@ export async function playTrack(
         }
       } catch {}
       try {
-        const { syncAudioSession } = require('./audioFxService');
-        syncAudioSession();
+        const { syncSoundBoostSession } = require('./soundBoostService');
+        syncSoundBoostSession();
       } catch {}
 
       // Asynchronously pre-resolve streams for the buffered tracks in native queue
@@ -991,8 +988,8 @@ export async function playTrack(
         }
       } catch {}
       try {
-        const { syncAudioSession } = require('./audioFxService');
-        syncAudioSession();
+        const { syncSoundBoostSession } = require('./soundBoostService');
+        syncSoundBoostSession();
       } catch {}
 
       (async () => {
@@ -1092,8 +1089,8 @@ export async function playTrack(
       }
     } catch {}
     try {
-      const { syncAudioSession } = require('./audioFxService');
-      syncAudioSession();
+      const { syncSoundBoostSession } = require('./soundBoostService');
+      syncSoundBoostSession();
     } catch {}
   } catch (error: any) {
     console.error('[TrackPlayerService] playTrack error:', error);

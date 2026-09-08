@@ -84,7 +84,6 @@ const KEYS = {
   MY_USERNAME: 'MY_USERNAME',
   RECENT_SEARCHES: '@sukoon_recent_searches',
   LISTEN_HISTORY: '@sukoon_listen_history',
-  EQUALIZER_SETTINGS: '@sukoon_equalizer_settings',
 };
 
 // Event subscription for playlist & user data changes
@@ -852,81 +851,6 @@ export const AsyncStorage = {
     storage.clearAll();
   }
 };
-
-export type EqualizerPresetName = 'Flat' | 'Bass Boost' | 'Vocal' | 'Pop' | 'Rock' | 'Electronic' | 'Custom';
-
-export interface EqualizerSettings {
-  enabled: boolean;
-  preset: EqualizerPresetName;
-  bassBoost: number; // 0 to 100
-  soundBoost: number; // 0 to 100
-  bands: { [frequency: string]: number }; // in dB (-10 to +10)
-}
-
-export const DEFAULT_EQ_BANDS: { [frequency: string]: number } = {
-  '60Hz': 0,
-  '230Hz': 0,
-  '910Hz': 0,
-  '3.6kHz': 0,
-  '14kHz': 0,
-};
-
-export const EQUALIZER_PRESETS: Record<
-  'Flat' | 'Bass Boost' | 'Vocal' | 'Pop' | 'Rock' | 'Electronic',
-  { bassBoost: number; bands: { [frequency: string]: number } }
-> = {
-  'Flat': {
-    bassBoost: 0,
-    bands: { '60Hz': 0, '230Hz': 0, '910Hz': 0, '3.6kHz': 0, '14kHz': 0 },
-  },
-  'Bass Boost': {
-    bassBoost: 75,
-    bands: { '60Hz': 8, '230Hz': 5, '910Hz': -1, '3.6kHz': 1, '14kHz': 2 },
-  },
-  'Vocal': {
-    bassBoost: 15,
-    bands: { '60Hz': -3, '230Hz': 2, '910Hz': 7, '3.6kHz': 5, '14kHz': 0 },
-  },
-  'Pop': {
-    bassBoost: 40,
-    bands: { '60Hz': 3, '230Hz': 6, '910Hz': 2, '3.6kHz': 4, '14kHz': 5 },
-  },
-  'Rock': {
-    bassBoost: 50,
-    bands: { '60Hz': 6, '230Hz': 4, '910Hz': -2, '3.6kHz': 3, '14kHz': 6 },
-  },
-  'Electronic': {
-    bassBoost: 65,
-    bands: { '60Hz': 7, '230Hz': 5, '910Hz': 0, '3.6kHz': 3, '14kHz': 6 },
-  },
-};
-
-export const DEFAULT_EQUALIZER_SETTINGS: EqualizerSettings = {
-  enabled: true,
-  preset: 'Flat',
-  bassBoost: 0,
-  soundBoost: 0,
-  bands: { ...DEFAULT_EQ_BANDS },
-};
-
-export function getEqualizerSettings(): EqualizerSettings {
-  const data = storage.getString(KEYS.EQUALIZER_SETTINGS);
-  if (data) {
-    try {
-      const parsed = JSON.parse(data);
-      return {
-        ...DEFAULT_EQUALIZER_SETTINGS,
-        ...parsed,
-        bands: { ...DEFAULT_EQ_BANDS, ...(parsed.bands || {}) },
-      };
-    } catch {}
-  }
-  return { ...DEFAULT_EQUALIZER_SETTINGS, bands: { ...DEFAULT_EQ_BANDS } };
-}
-
-export function saveEqualizerSettings(settings: EqualizerSettings): void {
-  storage.set(KEYS.EQUALIZER_SETTINGS, JSON.stringify(settings));
-}
 
 export function getStudioRecordings(): StudioRecording[] {
   const data = storage.getString(KEYS.STUDIO_RECORDINGS);

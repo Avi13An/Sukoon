@@ -1,5 +1,4 @@
-import React from 'react';
-import { EqualizerModal } from './EqualizerModal';
+import { SoundBoostModal } from './SoundBoostModal';
 
-export const AudioSettingsModal = EqualizerModal;
-export default EqualizerModal;
+export const AudioSettingsModal = SoundBoostModal;
+export default SoundBoostModal;
