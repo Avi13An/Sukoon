@@ -345,6 +345,10 @@ export async function handleActiveTrackChanged(event: any) {
         syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
     } catch {}
+    try {
+      const { syncAudioSession } = require('./audioFxService');
+      syncAudioSession();
+    } catch {}
   }
 
   // Replenish native ExoPlayer buffer and maintain minimum 10 songs:
@@ -620,6 +624,10 @@ export async function setupPlayer(): Promise<boolean> {
     // Allow Android MediaController async connection to finish
     await new Promise((r) => setTimeout(r, 150));
     await applySoundBoost(currentSoundBoostPercent);
+    try {
+      const { syncAudioSession } = require('./audioFxService');
+      syncAudioSession();
+    } catch {}
     return true;
   } catch (e: any) {
     if (e?.message?.includes('already set up') || e?.message?.includes('Already set up')) {
@@ -851,6 +859,10 @@ export async function playTrack(
           syncService.broadcastTrackChange(currentTrack, upNextQueue);
         }
       } catch {}
+      try {
+        const { syncAudioSession } = require('./audioFxService');
+        syncAudioSession();
+      } catch {}
 
       // Asynchronously pre-resolve streams for the buffered tracks in native queue
       (async () => {
@@ -956,6 +968,10 @@ export async function playTrack(
           syncService.broadcastTrackChange(currentTrack, upNextQueue);
         }
       } catch {}
+      try {
+        const { syncAudioSession } = require('./audioFxService');
+        syncAudioSession();
+      } catch {}
 
       (async () => {
         try {
@@ -1052,6 +1068,10 @@ export async function playTrack(
       if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
         syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
+    } catch {}
+    try {
+      const { syncAudioSession } = require('./audioFxService');
+      syncAudioSession();
     } catch {}
   } catch (error: any) {
     console.error('[TrackPlayerService] playTrack error:', error);

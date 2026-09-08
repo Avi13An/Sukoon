@@ -7,7 +7,7 @@ import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
 import { toggleLoopMode, playNextTrack, playPreviousTrack, getCurrentTrack } from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
-import { AudioSettingsModal } from '../components/AudioSettingsModal';
+import { EqualizerModal } from '../components/EqualizerModal';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { QueueModal } from '../components/QueueModal';
 import { LyricsModal } from '../components/LyricsModal';
@@ -634,7 +634,7 @@ export function PlayerScreen({ navigation }: any) {
             onPress={() => setIsAudioSettingsVisible(true)}
           >
             <Ionicons name="options-outline" size={22} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Audio FX</Text>
+            <Text style={styles.secondaryActionText}>Equalizer</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -668,7 +668,7 @@ export function PlayerScreen({ navigation }: any) {
         onClose={() => setIsPartyModalVisible(false)}
       />
 
-      <AudioSettingsModal visible={isAudioSettingsVisible} onClose={() => setIsAudioSettingsVisible(false)} />
+      <EqualizerModal visible={isAudioSettingsVisible} onClose={() => setIsAudioSettingsVisible(false)} />
       <SleepTimerModal visible={isSleepTimerVisible} onClose={() => setIsSleepTimerVisible(false)} />
       
       <AddToPlaylistModal
