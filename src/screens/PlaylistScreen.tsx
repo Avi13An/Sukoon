@@ -236,24 +236,27 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
 
   const handleShare = async () => {
-    if (!shareUsername.trim()) return;
     try {
-      await sharePlaylist(playlist, shareUsername.trim());
+      const code = await sharePlaylist(playlist);
+      await Clipboard.setStringAsync(code);
       setIsShareModalVisible(false);
       setShareUsername('');
-      showToast('Playlist shared successfully!', 'checkmark-circle');
+      showToast(`Playlist shared! Code ${code} copied!`, 'checkmark-circle');
     } catch (e: any) {
       showToast(e?.message || 'Failed to share playlist', 'alert-circle');
     }
   };
 
   const handleCopyShareCode = async () => {
-    if (!playlist.shareCode) return;
     try {
-      await Clipboard.setStringAsync(playlist.shareCode);
-      showToast(`Share code ${playlist.shareCode} copied!`, 'copy-outline');
+      const code = await sharePlaylist(playlist);
+      await Clipboard.setStringAsync(code);
+      showToast(`Share code ${code} copied!`, 'copy-outline');
     } catch {
-      showToast(`Share Code: ${playlist.shareCode}`, 'copy-outline');
+      if (playlist.shareCode) {
+        await Clipboard.setStringAsync(playlist.shareCode);
+        showToast(`Share code ${playlist.shareCode} copied!`, 'copy-outline');
+      }
     }
   };
 

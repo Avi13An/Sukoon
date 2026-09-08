@@ -120,7 +120,7 @@ export function PartyModal({ visible, onClose }: Props) {
             </View>
             <View>
               <Text style={styles.title}>Sukoon Jam</Text>
-              <Text style={styles.subtitle}>Real-Time 2-Device Party Sync</Text>
+              <Text style={styles.subtitle}>Real-Time Multi-Device Party Sync</Text>
             </View>
           </View>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -162,13 +162,16 @@ export function PartyModal({ visible, onClose }: Props) {
               />
               <Text style={styles.roleText}>
                 You are currently the <Text style={styles.roleHighlight}>{partyState.role?.toUpperCase()}</Text>
+                {partyState.role === 'host' && (
+                  <Text style={styles.roleSubtext}> • {(partyState.clientCount || 0) + 1} devices connected</Text>
+                )}
               </Text>
             </View>
 
             <View style={styles.infoBox}>
               <Ionicons name="sync" size={20} color="#00ffcc" style={{ marginTop: 2 }} />
               <Text style={styles.infoText}>
-                Both devices are now synchronized. Any play, pause, seek, or song change will reflect on both phones in real-time.
+                All connected devices are synchronized. Any play, pause, seek, or song change reflects across all devices in real-time.
               </Text>
             </View>
 
@@ -428,6 +431,11 @@ const styles = StyleSheet.create({
   roleHighlight: {
     color: '#00ffcc',
     fontWeight: 'bold',
+  },
+  roleSubtext: {
+    color: '#888899',
+    fontSize: 12,
+    fontWeight: 'normal',
   },
   infoBox: {
     flexDirection: 'row',

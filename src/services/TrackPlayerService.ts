@@ -99,6 +99,26 @@ export function clearUpNextQueue() {
   notifyQueueChange();
 }
 
+export async function syncQueueFromHost(hostTrack: TrackMetadata | null, hostQueue: TrackMetadata[]) {
+  if (Array.isArray(hostQueue)) {
+    upNextQueue = [...hostQueue];
+    notifyQueueChange();
+    try {
+      const nativeQueue = await getNativeQueue();
+      const activeIndex = (await getNativeActiveIndex()) ?? 0;
+      const remainingAhead = nativeQueue.length - 1 - activeIndex;
+      if (remainingAhead < 2 && upNextQueue.length > 0) {
+        const nextBatch = upNextQueue.slice(0, 3);
+        const batchPayloads = await Promise.all(nextBatch.map(async (t) => {
+          const u = await resolveStreamUrl(t);
+          return formatForTrackPlayer(t, u);
+        }));
+        await addTracksToNativeQueue(batchPayloads);
+      }
+    } catch {}
+  }
+}
+
 export async function getNativeQueue(): Promise<any[]> {
   try {
     if (typeof (TrackPlayer as any).getQueue === 'function') {
@@ -167,6 +187,12 @@ export async function maintainMinimumQueue(
   minSize = 10, 
   sessionId?: number
 ): Promise<TrackMetadata[]> {
+  try {
+    const syncService = require('./syncService');
+    if (typeof syncService.isGuest === 'function' && syncService.isGuest()) {
+      return [];
+    }
+  } catch {}
   const assignedSessionId = typeof sessionId === 'number' ? sessionId : activeQueueSessionId;
   if (isMaintainingQueue) return [];
   if (!currentTrack || upNextQueue.length >= minSize) return [];
@@ -292,7 +318,13 @@ export async function handleActiveTrackChanged(event: any) {
     try {
       const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
       if (isPartyActive() && !isHandlingRemoteSync()) {
-        broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
+        broadcastPartyAction('TRACK_CHANGE', { track: currentTrack, queue: upNextQueue });
+      }
+    } catch {}
+    try {
+      const syncService = require('./syncService');
+      if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+        syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
     } catch {}
   }
@@ -507,27 +539,59 @@ export async function setupPlayer(): Promise<boolean> {
       TrackPlayer.addEventListener(Event.RemoteNext, async () => {
         console.log('[TrackPlayerService] RemoteNext triggered from media notification/controls');
         await playNextTrack();
+        try {
+          const syncService = require('./syncService');
+          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+            syncService.broadcastTrackChange(currentTrack, upNextQueue);
+          }
+        } catch {}
       });
 
       TrackPlayer.addEventListener(Event.RemotePrevious, async () => {
         console.log('[TrackPlayerService] RemotePrevious triggered from media notification/controls');
         await playPreviousTrack();
+        try {
+          const syncService = require('./syncService');
+          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+            syncService.broadcastTrackChange(currentTrack, upNextQueue);
+          }
+        } catch {}
       });
 
       TrackPlayer.addEventListener(Event.RemotePlay, async () => {
         console.log('[TrackPlayerService] RemotePlay triggered');
         try { await TrackPlayer.play(); } catch {}
+        try {
+          const syncService = require('./syncService');
+          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+            const p = (await TrackPlayer.getProgress())?.position || 0;
+            syncService.broadcastPlay(p);
+          }
+        } catch {}
       });
 
       TrackPlayer.addEventListener(Event.RemotePause, async () => {
         console.log('[TrackPlayerService] RemotePause triggered');
         try { await TrackPlayer.pause(); } catch {}
+        try {
+          const syncService = require('./syncService');
+          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+            const p = (await TrackPlayer.getProgress())?.position || 0;
+            syncService.broadcastPause(p);
+          }
+        } catch {}
       });
 
       TrackPlayer.addEventListener(Event.RemoteSeek, async (event: any) => {
         console.log('[TrackPlayerService] RemoteSeek triggered', event?.position);
         if (typeof event?.position === 'number') {
           try { await TrackPlayer.seekTo(event.position); } catch {}
+          try {
+            const syncService = require('./syncService');
+            if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+              syncService.broadcastSeek(event.position);
+            }
+          } catch {}
         }
       });
 
@@ -707,7 +771,13 @@ export async function playTrack(
       try {
         const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
         if (isPartyActive() && !isHandlingRemoteSync()) {
-          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
+          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack, queue: upNextQueue });
+        }
+      } catch {}
+      try {
+        const syncService = require('./syncService');
+        if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+          syncService.broadcastTrackChange(currentTrack, upNextQueue);
         }
       } catch {}
 
@@ -802,7 +872,13 @@ export async function playTrack(
       try {
         const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
         if (isPartyActive() && !isHandlingRemoteSync()) {
-          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
+          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack, queue: upNextQueue });
+        }
+      } catch {}
+      try {
+        const syncService = require('./syncService');
+        if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+          syncService.broadcastTrackChange(currentTrack, upNextQueue);
         }
       } catch {}
 
@@ -889,7 +965,13 @@ export async function playTrack(
     try {
       const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
       if (isPartyActive() && !isHandlingRemoteSync()) {
-        broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
+        broadcastPartyAction('TRACK_CHANGE', { track: currentTrack, queue: upNextQueue });
+      }
+    } catch {}
+    try {
+      const syncService = require('./syncService');
+      if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+        syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
     } catch {}
   } catch (error: any) {

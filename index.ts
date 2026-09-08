@@ -8,23 +8,51 @@ import {
   handleActiveTrackChanged,
   handleEmergencyQueueEnded,
   PlaybackService,
+  getCurrentTrack,
+  getUpNextQueue,
 } from './src/services/TrackPlayerService';
+import * as syncService from './src/services/syncService';
 
 try {
   TrackPlayer.registerBackgroundEventHandler(() => async (event: BackgroundEvent) => {
     console.log('[TrackPlayer BackgroundEvent]:', event.type);
     if (event.type === Event.RemoteNext) {
       await playNextTrack();
+      if (syncService.isHost()) {
+        syncService.broadcastTrackChange(getCurrentTrack(), getUpNextQueue());
+      }
     } else if (event.type === Event.RemotePrevious) {
       await playPreviousTrack();
+      if (syncService.isHost()) {
+        syncService.broadcastTrackChange(getCurrentTrack(), getUpNextQueue());
+      }
     } else if (event.type === Event.RemotePlay) {
       try { await TrackPlayer.play(); } catch {}
+      if (syncService.isHost()) {
+        try {
+          const p = await TrackPlayer.getProgress();
+          syncService.broadcastPlay(p?.position || 0);
+        } catch {
+          syncService.broadcastPlay(0);
+        }
+      }
     } else if (event.type === Event.RemotePause) {
       try { await TrackPlayer.pause(); } catch {}
+      if (syncService.isHost()) {
+        try {
+          const p = await TrackPlayer.getProgress();
+          syncService.broadcastPause(p?.position || 0);
+        } catch {
+          syncService.broadcastPause(0);
+        }
+      }
     } else if (event.type === Event.RemoteSeek) {
       const pos = (event as any).position;
       if (typeof pos === 'number') {
         try { await TrackPlayer.seekTo(pos); } catch {}
+        if (syncService.isHost()) {
+          syncService.broadcastSeek(pos);
+        }
       }
     } else if (
       event.type === Event.MediaItemTransition ||

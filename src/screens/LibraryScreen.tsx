@@ -32,6 +32,10 @@ import { StudioRecordingsModal } from '../components/StudioRecordingsModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { getStudioRecordings } from '../services/recordingService';
 import { showToast } from '../components/ToastNotification';
+import { 
+  fetchSharedPlaylistFromCloud, 
+  importPlaylistByCode as importCloudPlaylist 
+} from '../services/cloudPlaylistService';
 
 export function LibraryScreen({ navigation }: any) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -99,15 +103,30 @@ export function LibraryScreen({ navigation }: any) {
     showToast(`Playlist "${trimmed}" created!`, 'checkmark-circle');
   };
 
-  const handleFindPlaylist = () => {
+  const [isSearchingPlaylist, setIsSearchingPlaylist] = useState(false);
+
+  const handleFindPlaylist = async () => {
     const code = importShareCode.trim().toUpperCase();
     if (!code) {
       showToast('Please enter a valid share code', 'alert-circle');
       return;
     }
-    const found = getPlaylistByShareCode(code);
+
+    // 1. Check local device first
+    let found = getPlaylistByShareCode(code);
     if (!found) {
-      showToast(`Playlist "${code}" not found`, 'alert-circle');
+      setIsSearchingPlaylist(true);
+      try {
+        found = (await fetchSharedPlaylistFromCloud(code)) || undefined;
+      } catch (err) {
+        console.warn('[LibraryScreen] Cloud playlist lookup warning:', err);
+      } finally {
+        setIsSearchingPlaylist(false);
+      }
+    }
+
+    if (!found) {
+      showToast('Playlist code not found. Please check the code.', 'alert-circle');
       return;
     }
     setFoundPreviewPlaylist(found);
@@ -124,16 +143,29 @@ export function LibraryScreen({ navigation }: any) {
     navigation.navigate('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
   };
 
-  const handleImportViewOnly = () => {
+  const handleImportViewOnly = async () => {
     if (!foundPreviewPlaylist) return;
-    const imported = importPlaylistByCode(foundPreviewPlaylist.shareCode, foundPreviewPlaylist);
-    setFoundPreviewPlaylist(null);
-    setImportShareCode('');
-    setIsImportModalVisible(false);
-    refreshLibrary();
-    showToast('Playlist imported as view-only.', 'download-outline');
-    if (imported) {
-      navigation.navigate('PlaylistDetail', { playlist: imported, playlistId: imported.id });
+    try {
+      const imported = await importCloudPlaylist(foundPreviewPlaylist.shareCode);
+      setFoundPreviewPlaylist(null);
+      setImportShareCode('');
+      setIsImportModalVisible(false);
+      refreshLibrary();
+      showToast('Playlist imported as view-only.', 'download-outline');
+      if (imported) {
+        navigation.navigate('PlaylistDetail', { playlist: imported, playlistId: imported.id });
+      }
+    } catch {
+      // Local fallback
+      const imported = importPlaylistByCode(foundPreviewPlaylist.shareCode, foundPreviewPlaylist);
+      setFoundPreviewPlaylist(null);
+      setImportShareCode('');
+      setIsImportModalVisible(false);
+      refreshLibrary();
+      showToast('Playlist imported as view-only.', 'download-outline');
+      if (imported) {
+        navigation.navigate('PlaylistDetail', { playlist: imported, playlistId: imported.id });
+      }
     }
   };
 
