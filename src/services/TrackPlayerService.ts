@@ -1,5 +1,5 @@
 import TrackPlayer, { Event, RepeatMode, PlayerCommand, PlaybackState } from '@rntp/player';
-import { Alert } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { 
   getOfflineTracks, 
   getDownloadedTracks, 
@@ -323,7 +323,7 @@ export async function handleActiveTrackChanged(event: any) {
     } catch {}
     try {
       const syncService = require('./syncService');
-      if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+      if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
         syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
     } catch {}
@@ -541,7 +541,7 @@ export async function setupPlayer(): Promise<boolean> {
         await playNextTrack();
         try {
           const syncService = require('./syncService');
-          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+          if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
             syncService.broadcastTrackChange(currentTrack, upNextQueue);
           }
         } catch {}
@@ -552,7 +552,7 @@ export async function setupPlayer(): Promise<boolean> {
         await playPreviousTrack();
         try {
           const syncService = require('./syncService');
-          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+          if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
             syncService.broadcastTrackChange(currentTrack, upNextQueue);
           }
         } catch {}
@@ -563,7 +563,7 @@ export async function setupPlayer(): Promise<boolean> {
         try { await TrackPlayer.play(); } catch {}
         try {
           const syncService = require('./syncService');
-          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+          if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
             const p = (await TrackPlayer.getProgress())?.position || 0;
             syncService.broadcastPlay(p);
           }
@@ -575,7 +575,7 @@ export async function setupPlayer(): Promise<boolean> {
         try { await TrackPlayer.pause(); } catch {}
         try {
           const syncService = require('./syncService');
-          if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+          if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
             const p = (await TrackPlayer.getProgress())?.position || 0;
             syncService.broadcastPause(p);
           }
@@ -588,7 +588,7 @@ export async function setupPlayer(): Promise<boolean> {
           try { await TrackPlayer.seekTo(event.position); } catch {}
           try {
             const syncService = require('./syncService');
-            if (typeof syncService.isHost === 'function' && syncService.isHost()) {
+            if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
               syncService.broadcastSeek(event.position);
             }
           } catch {}
@@ -690,6 +690,55 @@ export function formatForTrackPlayer(metadata: TrackMetadata, resolvedUrl?: stri
   };
 }
 
+export async function executeSeamlessTransition(
+  track: TrackMetadata,
+  playUrl: string,
+  matchedUA?: string
+): Promise<void> {
+  const formatted = formatForTrackPlayer(track, playUrl, matchedUA);
+  try {
+    if (typeof (TrackPlayer as any).add === 'function') {
+      await (TrackPlayer as any).add([formatted], 0);
+    } else if (typeof (TrackPlayer as any).insertMediaItem === 'function') {
+      await (TrackPlayer as any).insertMediaItem(0, formatted);
+    } else if (typeof (TrackPlayer as any).addMediaItems === 'function') {
+      await (TrackPlayer as any).addMediaItems([formatted]);
+    }
+  } catch (err) {
+    console.warn('[TrackPlayerService] add track error in seamless transition:', err);
+  }
+
+  try {
+    if (typeof (TrackPlayer as any).skip === 'function') {
+      await (TrackPlayer as any).skip(0);
+    } else if (typeof (TrackPlayer as any).skipToIndex === 'function') {
+      await (TrackPlayer as any).skipToIndex(0);
+    }
+  } catch (err) {
+    console.warn('[TrackPlayerService] skip error in seamless transition:', err);
+  }
+
+  try {
+    const currentQueue = await getNativeQueue();
+    if (currentQueue.length > 2) {
+      if (typeof (TrackPlayer as any).remove === 'function') {
+        await (TrackPlayer as any).remove([1]);
+      } else if (typeof (TrackPlayer as any).removeMediaItem === 'function') {
+        await (TrackPlayer as any).removeMediaItem(1);
+      }
+    }
+  } catch {}
+
+  await applySoundBoost(currentSoundBoostPercent);
+  resetSleepPaused();
+
+  if (typeof play === 'function') {
+    await play();
+  } else {
+    await TrackPlayer.play();
+  }
+}
+
 export async function playTrack(
   selectedTrack: TrackMetadata, 
   contextQueue?: TrackMetadata[],
@@ -720,13 +769,6 @@ export async function playTrack(
       setLastPlayedTrack(currentTrack);
       saveListenHistory(currentTrack);
 
-      if (typeof (TrackPlayer as any).reset === 'function') {
-        try { await (TrackPlayer as any).reset(); } catch {}
-      }
-      if (typeof (TrackPlayer as any).clear === 'function') {
-        try { await (TrackPlayer as any).clear(); } catch {}
-      }
-
       let playUrl = await resolveStreamUrl(currentTrack);
       if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
         const msg = `No playable audio stream found for track ${currentTrack.id}`;
@@ -740,28 +782,39 @@ export async function playTrack(
         ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
         : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-      const seed = [
-        formatForTrackPlayer(currentTrack, playUrl, matchedUA),
-        ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
-      ];
-
-      if (typeof setMediaItems === 'function') {
-        await setMediaItems(seed, 0);
-      } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-        await (TrackPlayer as any).setMediaItems(seed, 0);
-      } else if (typeof (TrackPlayer as any).add === 'function') {
-        await (TrackPlayer as any).add(seed);
+      if (AppState.currentState !== 'active') {
+        await executeSeamlessTransition(currentTrack, playUrl, matchedUA);
       } else {
-        await addTracksToNativeQueue(seed);
-      }
+        if (typeof (TrackPlayer as any).reset === 'function') {
+          try { await (TrackPlayer as any).reset(); } catch {}
+        }
+        if (typeof (TrackPlayer as any).clear === 'function') {
+          try { await (TrackPlayer as any).clear(); } catch {}
+        }
 
-      await applySoundBoost(currentSoundBoostPercent);
-      resetSleepPaused();
+        const seed = [
+          formatForTrackPlayer(currentTrack, playUrl, matchedUA),
+          ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
+        ];
 
-      if (typeof play === 'function') {
-        await play();
-      } else {
-        await TrackPlayer.play();
+        if (typeof setMediaItems === 'function') {
+          await setMediaItems(seed, 0);
+        } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+          await (TrackPlayer as any).setMediaItems(seed, 0);
+        } else if (typeof (TrackPlayer as any).add === 'function') {
+          await (TrackPlayer as any).add(seed);
+        } else {
+          await addTracksToNativeQueue(seed);
+        }
+
+        await applySoundBoost(currentSoundBoostPercent);
+        resetSleepPaused();
+
+        if (typeof play === 'function') {
+          await play();
+        } else {
+          await TrackPlayer.play();
+        }
       }
 
       notifyQueueListeners();
@@ -776,7 +829,7 @@ export async function playTrack(
       } catch {}
       try {
         const syncService = require('./syncService');
-        if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+        if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
           syncService.broadcastTrackChange(currentTrack, upNextQueue);
         }
       } catch {}
@@ -820,13 +873,6 @@ export async function playTrack(
         ? clonedContext.slice(selectedIndex + 1) 
         : clonedContext.filter(t => t.id !== selectedTrack.id);
 
-      if (typeof (TrackPlayer as any).reset === 'function') {
-        try { await (TrackPlayer as any).reset(); } catch {}
-      }
-      if (typeof (TrackPlayer as any).clear === 'function') {
-        try { await (TrackPlayer as any).clear(); } catch {}
-      }
-
       let playUrl = await resolveStreamUrl(currentTrack);
       if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
         const msg = `No playable audio stream found for track ${currentTrack.id}`;
@@ -840,28 +886,39 @@ export async function playTrack(
         ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
         : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-      const seed = [
-        formatForTrackPlayer(currentTrack, playUrl, matchedUA),
-        ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
-      ];
-
-      if (typeof setMediaItems === 'function') {
-        await setMediaItems(seed, 0);
-      } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-        await (TrackPlayer as any).setMediaItems(seed, 0);
-      } else if (typeof (TrackPlayer as any).add === 'function') {
-        await (TrackPlayer as any).add(seed);
+      if (AppState.currentState !== 'active') {
+        await executeSeamlessTransition(currentTrack, playUrl, matchedUA);
       } else {
-        await addTracksToNativeQueue(seed);
-      }
+        if (typeof (TrackPlayer as any).reset === 'function') {
+          try { await (TrackPlayer as any).reset(); } catch {}
+        }
+        if (typeof (TrackPlayer as any).clear === 'function') {
+          try { await (TrackPlayer as any).clear(); } catch {}
+        }
 
-      await applySoundBoost(currentSoundBoostPercent);
-      resetSleepPaused();
+        const seed = [
+          formatForTrackPlayer(currentTrack, playUrl, matchedUA),
+          ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
+        ];
 
-      if (typeof play === 'function') {
-        await play();
-      } else {
-        await TrackPlayer.play();
+        if (typeof setMediaItems === 'function') {
+          await setMediaItems(seed, 0);
+        } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+          await (TrackPlayer as any).setMediaItems(seed, 0);
+        } else if (typeof (TrackPlayer as any).add === 'function') {
+          await (TrackPlayer as any).add(seed);
+        } else {
+          await addTracksToNativeQueue(seed);
+        }
+
+        await applySoundBoost(currentSoundBoostPercent);
+        resetSleepPaused();
+
+        if (typeof play === 'function') {
+          await play();
+        } else {
+          await TrackPlayer.play();
+        }
       }
 
       notifyQueueListeners();
@@ -877,7 +934,7 @@ export async function playTrack(
       } catch {}
       try {
         const syncService = require('./syncService');
-        if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+        if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
           syncService.broadcastTrackChange(currentTrack, upNextQueue);
         }
       } catch {}
@@ -915,13 +972,6 @@ export async function playTrack(
     setLastPlayedTrack(currentTrack);
     saveListenHistory(currentTrack);
 
-    if (typeof (TrackPlayer as any).reset === 'function') {
-      try { await (TrackPlayer as any).reset(); } catch {}
-    }
-    if (typeof (TrackPlayer as any).clear === 'function') {
-      try { await (TrackPlayer as any).clear(); } catch {}
-    }
-
     let playUrl = await resolveStreamUrl(currentTrack);
     if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
       const msg = `No playable audio stream found for track ${currentTrack.id}`;
@@ -935,25 +985,36 @@ export async function playTrack(
       ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
       : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-    const seed = [formatForTrackPlayer(currentTrack, playUrl, matchedUA)];
-
-    if (typeof setMediaItems === 'function') {
-      await setMediaItems(seed, 0);
-    } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-      await (TrackPlayer as any).setMediaItems(seed, 0);
-    } else if (typeof (TrackPlayer as any).add === 'function') {
-      await (TrackPlayer as any).add(seed);
+    if (AppState.currentState !== 'active') {
+      await executeSeamlessTransition(currentTrack, playUrl, matchedUA);
     } else {
-      await addTracksToNativeQueue(seed);
-    }
+      if (typeof (TrackPlayer as any).reset === 'function') {
+        try { await (TrackPlayer as any).reset(); } catch {}
+      }
+      if (typeof (TrackPlayer as any).clear === 'function') {
+        try { await (TrackPlayer as any).clear(); } catch {}
+      }
 
-    await applySoundBoost(currentSoundBoostPercent);
-    resetSleepPaused();
+      const seed = [formatForTrackPlayer(currentTrack, playUrl, matchedUA)];
 
-    if (typeof play === 'function') {
-      await play();
-    } else {
-      await TrackPlayer.play();
+      if (typeof setMediaItems === 'function') {
+        await setMediaItems(seed, 0);
+      } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+        await (TrackPlayer as any).setMediaItems(seed, 0);
+      } else if (typeof (TrackPlayer as any).add === 'function') {
+        await (TrackPlayer as any).add(seed);
+      } else {
+        await addTracksToNativeQueue(seed);
+      }
+
+      await applySoundBoost(currentSoundBoostPercent);
+      resetSleepPaused();
+
+      if (typeof play === 'function') {
+        await play();
+      } else {
+        await TrackPlayer.play();
+      }
     }
 
     notifyQueueListeners();
@@ -970,7 +1031,7 @@ export async function playTrack(
     } catch {}
     try {
       const syncService = require('./syncService');
-      if (typeof syncService.isHost === 'function' && syncService.isHost() && !syncService.isHandlingRemoteSync()) {
+      if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
         syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
     } catch {}

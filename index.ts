@@ -18,17 +18,17 @@ try {
     console.log('[TrackPlayer BackgroundEvent]:', event.type);
     if (event.type === Event.RemoteNext) {
       await playNextTrack();
-      if (syncService.isHost()) {
+      if (syncService.isSyncActive()) {
         syncService.broadcastTrackChange(getCurrentTrack(), getUpNextQueue());
       }
     } else if (event.type === Event.RemotePrevious) {
       await playPreviousTrack();
-      if (syncService.isHost()) {
+      if (syncService.isSyncActive()) {
         syncService.broadcastTrackChange(getCurrentTrack(), getUpNextQueue());
       }
     } else if (event.type === Event.RemotePlay) {
       try { await TrackPlayer.play(); } catch {}
-      if (syncService.isHost()) {
+      if (syncService.isSyncActive()) {
         try {
           const p = await TrackPlayer.getProgress();
           syncService.broadcastPlay(p?.position || 0);
@@ -38,7 +38,7 @@ try {
       }
     } else if (event.type === Event.RemotePause) {
       try { await TrackPlayer.pause(); } catch {}
-      if (syncService.isHost()) {
+      if (syncService.isSyncActive()) {
         try {
           const p = await TrackPlayer.getProgress();
           syncService.broadcastPause(p?.position || 0);
@@ -50,7 +50,7 @@ try {
       const pos = (event as any).position;
       if (typeof pos === 'number') {
         try { await TrackPlayer.seekTo(pos); } catch {}
-        if (syncService.isHost()) {
+        if (syncService.isSyncActive()) {
           syncService.broadcastSeek(pos);
         }
       }

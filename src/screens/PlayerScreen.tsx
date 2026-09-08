@@ -41,18 +41,35 @@ export function PlayerScreen({ navigation }: any) {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
   const [optimisticSeekPos, setOptimisticSeekPos] = useState<number | null>(null);
-  const [sliderLayout, setSliderLayout] = useState({ width: 0, pageX: 0 });
-  const sliderRef = useRef<View>(null);
+  const [sliderWidth, setSliderWidth] = useState(0);
+
+  const currentTrack = getCurrentTrack();
 
   // Fallback Polling Loop (ensures timer NEVER freezes even if background native events lag)
   useEffect(() => {
     let isMounted = true;
     const timer = setInterval(async () => {
       try {
-        const p = await TrackPlayer.getProgress();
-        if (isMounted && p) {
-          if (typeof p.position === 'number' && p.position >= 0) setPollingPosition(p.position);
-          if (typeof p.duration === 'number' && p.duration > 0) setPollingDuration(p.duration);
+        let pos = 0;
+        let dur = 0;
+        if (typeof (TrackPlayer as any).getPosition === 'function') {
+          pos = await (TrackPlayer as any).getPosition();
+        }
+        if (typeof (TrackPlayer as any).getDuration === 'function') {
+          dur = await (TrackPlayer as any).getDuration();
+        }
+        if (!pos && !dur) {
+          const p = await TrackPlayer.getProgress();
+          pos = p?.position || 0;
+          dur = p?.duration || 0;
+        }
+        if (isMounted) {
+          if (typeof pos === 'number' && !isNaN(pos) && pos >= 0) {
+            setPollingPosition(pos);
+          }
+          if (typeof dur === 'number' && !isNaN(dur) && dur > 0) {
+            setPollingDuration(dur);
+          }
         }
       } catch {}
     }, 250);
@@ -60,32 +77,44 @@ export function PlayerScreen({ navigation }: any) {
       isMounted = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [currentTrack?.id]);
 
-  const currentTrack = getCurrentTrack();
-
-  // Fallback for duration (supports numeric seconds, ms, or mm:ss string)
-  const getDurationSeconds = (): number => {
-    if (progress && progress.duration > 0) return progress.duration;
-    if (pollingDuration > 0) return pollingDuration;
-    const d = ((track as any)?.duration || currentTrack?.duration);
-    if (typeof d === 'number') return d > 10000 ? d / 1000 : d;
-    if (typeof d === 'string' && d.includes(':')) {
-      const parts = d.split(':').map(Number);
-      return parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
+  // Universal Track Duration Parser (supports numeric seconds, ms > 10000, mm:ss or hh:mm:ss)
+  const parseDurationToSeconds = (val: any): number => {
+    if (typeof val === 'number') {
+      if (isNaN(val) || val <= 0) return 0;
+      return val > 10000 ? val / 1000 : val;
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed.includes(':')) {
+        const parts = trimmed.split(':').map(Number);
+        if (parts.length === 2) return (parts[0] * 60) + parts[1];
+        if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+      }
+      const parsed = parseFloat(trimmed);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed > 10000 ? parsed / 1000 : parsed;
+      }
     }
     return 0;
   };
 
-  const duration = Math.max(getDurationSeconds(), 1);
-  const livePos = (progress && progress.position > 0) ? progress.position : pollingPosition;
-  
-  // Display position priority: Scrubbing > Optimistic Hold > Live Position
+  // Duration Priority: Native ExoPlayer duration > Polling duration > Metadata duration
+  const rawDuration = pollingDuration > 0 
+    ? pollingDuration 
+    : (progress.duration > 0 ? progress.duration : parseDurationToSeconds(currentTrack?.duration));
+  const duration = Math.max(rawDuration, 1);
+
+  // Position Priority: User Scrubbing > Optimistic Seek Hold > Polled Position > useProgress
+  const rawPos = pollingPosition > 0 ? pollingPosition : progress.position;
   const currentPos = isScrubbing 
     ? scrubPosition 
-    : (optimisticSeekPos !== null ? optimisticSeekPos : livePos);
+    : (optimisticSeekPos !== null ? optimisticSeekPos : rawPos);
 
-  const progressPercent = Math.max(0, Math.min(100, (currentPos / duration) * 100));
+  const progressPercent = duration > 1 
+    ? Math.max(0, Math.min(100, (currentPos / duration) * 100)) 
+    : 0;
 
   const effectiveDuration = duration;
   const displayPosition = currentPos;
@@ -124,52 +153,35 @@ export function PlayerScreen({ navigation }: any) {
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (evt, gestureState) => {
+        onPanResponderGrant: (evt) => {
           setIsScrubbing(true);
-          sliderRef.current?.measure((x, y, width, height, pageX) => {
-            if (width > 0) {
-              setSliderLayout({ width, pageX });
-              const touchX = Math.max(0, Math.min(width, gestureState.x0 - pageX));
-              const targetTime = (touchX / width) * duration;
-              setScrubPosition(targetTime);
-            }
-          });
+          const touchX = Math.max(0, Math.min(sliderWidth, evt.nativeEvent.locationX));
+          setScrubPosition((touchX / (sliderWidth || 1)) * duration);
         },
         onPanResponderMove: (evt, gestureState) => {
-          const width = sliderLayout.width || 1;
-          const touchX = Math.max(0, Math.min(width, gestureState.moveX - sliderLayout.pageX));
-          const targetTime = (touchX / width) * duration;
-          setScrubPosition(targetTime);
+          const touchX = Math.max(0, Math.min(sliderWidth, evt.nativeEvent.locationX + gestureState.dx));
+          setScrubPosition((touchX / (sliderWidth || 1)) * duration);
         },
-        onPanResponderRelease: async (evt, gestureState) => {
-          const width = sliderLayout.width || 1;
-          const touchX = Math.max(0, Math.min(width, gestureState.moveX - sliderLayout.pageX));
-          const finalSeek = Math.max(0, Math.min(duration, (touchX / width) * duration));
-          
-          // 1. Hold the position optimistically so it DOES NOT snap to 0
+        onPanResponderRelease: async () => {
+          const finalSeek = Math.max(0, Math.min(duration, scrubPosition));
           setOptimisticSeekPos(finalSeek);
-          setScrubPosition(finalSeek);
-          
-          // 2. Perform native seek
           try {
             await TrackPlayer.seekTo(finalSeek);
             if (partyStateRef.current.isActive) {
               broadcastPartyAction('SEEK', { position: finalSeek });
             }
           } catch {}
-          
-          // 3. Release lock after native player catches up (500ms grace period)
           setTimeout(() => {
             setIsScrubbing(false);
             setOptimisticSeekPos(null);
-          }, 500);
+          }, 400);
         },
         onPanResponderTerminate: () => {
           setIsScrubbing(false);
           setOptimisticSeekPos(null);
         },
       }),
-    [duration, sliderLayout]
+    [duration, sliderWidth, scrubPosition]
   );
 
   const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
@@ -217,7 +229,7 @@ export function PlayerScreen({ navigation }: any) {
         });
       } catch {}
     }
-  }, [currentPos, syncedLines, currentLyricIndex]);
+  }, [currentPos, syncedLines]);
 
   useEffect(() => {
     if (showLyrics && track && !lyricsData && !lyricsLoading) {
@@ -539,12 +551,7 @@ export function PlayerScreen({ navigation }: any) {
         {/* Scrubber Container */}
         <View
           collapsable={false}
-          ref={sliderRef}
-          onLayout={() => {
-            sliderRef.current?.measure((x, y, width, height, pageX) => {
-              if (width > 0) setSliderLayout({ width, pageX });
-            });
-          }}
+          onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
           {...panResponder.panHandlers}
           style={styles.sliderContainer}
         >

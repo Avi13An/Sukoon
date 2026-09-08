@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import mqtt, { MqttClient } from 'mqtt';
 import TrackPlayer from '@rntp/player';
 import { 
@@ -11,7 +12,6 @@ import { getActiveUser, TrackMetadata } from '../utils/storage';
 import { supabase } from './supabase';
 
 const BROKER_URL = 'wss://broker.hivemq.com:8884/mqtt';
-const CLIENT_ID_PREFIX = 'sukoon_sync_';
 
 export interface ConnectedClient {
   clientId: string;
@@ -29,6 +29,7 @@ export interface SyncMessage {
     | 'SYNC_PAUSE' 
     | 'SYNC_SEEK' 
     | 'SYNC_TRACK_CHANGE' 
+    | 'SYNC_QUEUE_UPDATE'
     | 'SYNC_REQUEST';
   senderId: string;
   targetClientId?: string;
@@ -48,8 +49,18 @@ let isHostState = false;
 let isGuestState = false;
 let isSyncingState = false;
 let isHandlingRemoteAction = false;
+let lastKnownTrack: TrackMetadata | null = null;
+let lastKnownQueue: TrackMetadata[] = [];
 
-const myClientId = `${CLIENT_ID_PREFIX}${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+const myClientId = `client_${Math.random().toString(36).substring(2, 9)}`;
+
+function safeToast(message: string, icon?: any) {
+  if (AppState.currentState === 'active') {
+    try {
+      showToast(message, icon);
+    } catch {}
+  }
+}
 
 type StatusListener = (syncing: boolean, host: boolean, roomCode: string | null, clientCount: number) => void;
 const statusListeners: StatusListener[] = [];
@@ -147,7 +158,7 @@ function connectToMqttRoom(roomCode: string, onConnected?: () => void) {
     currentClient?.subscribe(topic, { qos: 0 }, (err) => {
       if (err) {
         console.error('[SyncService] Subscribe error:', err);
-        showToast('Failed to connect to room topic', 'alert-circle');
+        safeToast('Failed to connect to room topic', 'alert-circle');
       } else {
         if (onConnected) onConnected();
         notifyStatus();
@@ -157,28 +168,31 @@ function connectToMqttRoom(roomCode: string, onConnected?: () => void) {
 
   currentClient.on('message', async (_topic, payload) => {
     try {
-      const msg: SyncMessage = JSON.parse(payload.toString());
+      let msg: SyncMessage;
+      try {
+        msg = JSON.parse(payload.toString());
+      } catch (parseErr) {
+        console.warn('Sync handler error (JSON parse):', parseErr);
+        return;
+      }
+
       if (!msg || msg.senderId === myClientId) return;
 
       // Handle targeted messages
       if (msg.targetClientId && msg.targetClientId !== myClientId) return;
 
-      // ==========================================
-      // HOST-SIDE PROCESSING
-      // ==========================================
+      // 1. Host-side registration & handshake
       if (isHostState) {
         if (msg.type === 'CLIENT_JOIN') {
-          // Register client in registry
           connectedClients.set(msg.senderId, {
             clientId: msg.senderId,
             username: msg.username || 'User',
             joinedAt: Date.now(),
           });
           const totalDevices = connectedClients.size + 1;
-          showToast(`User joined the jam (Total: ${totalDevices} devices)`, 'people');
+          safeToast(`User joined the jam (Total: ${totalDevices} devices)`, 'people');
           notifyStatus();
 
-          // Immediately dispatch full ROOM_SNAPSHOT to this guest
           let isPlaying = false;
           try {
             if (typeof (TrackPlayer as any).isPlaying === 'function') {
@@ -195,14 +209,15 @@ function connectToMqttRoom(roomCode: string, onConnected?: () => void) {
             position = p?.position || 0;
           } catch {}
 
+          const currentQ = getUpNextQueue();
           sendSyncMessage({
             type: 'ROOM_SNAPSHOT',
             senderId: myClientId,
             targetClientId: msg.senderId,
-            track: getCurrentTrack(),
+            track: getCurrentTrack() || lastKnownTrack,
             position,
             isPlaying,
-            queue: getUpNextQueue(),
+            queue: currentQ.length > 0 ? currentQ : lastKnownQueue,
             playlistTitle: 'Party Jam',
             timestamp: Date.now(),
           });
@@ -212,7 +227,7 @@ function connectToMqttRoom(roomCode: string, onConnected?: () => void) {
         if (msg.type === 'CLIENT_LEAVE') {
           connectedClients.delete(msg.senderId);
           notifyStatus();
-          showToast('A guest left the party', 'exit-outline');
+          safeToast('A participant left the jam', 'exit-outline');
           return;
         }
 
@@ -228,107 +243,120 @@ function connectToMqttRoom(roomCode: string, onConnected?: () => void) {
           } catch {}
 
           const p = await TrackPlayer.getProgress();
+          const currentQ = getUpNextQueue();
           sendSyncMessage({
             type: 'SYNC_STATE',
             senderId: myClientId,
             targetClientId: msg.senderId,
-            track: getCurrentTrack(),
+            track: getCurrentTrack() || lastKnownTrack,
             position: p?.position || 0,
             isPlaying,
-            queue: getUpNextQueue(),
+            queue: currentQ.length > 0 ? currentQ : lastKnownQueue,
             timestamp: Date.now(),
           });
           return;
         }
       }
 
-      // ==========================================
-      // GUEST-SIDE PROCESSING
-      // ==========================================
-      if (isGuestState) {
-        isHandlingRemoteAction = true;
-        try {
-          switch (msg.type) {
-            case 'ROOM_SNAPSHOT':
-            case 'SYNC_STATE': {
-              const active = getCurrentTrack();
-              if (msg.track && (!active || active.id !== msg.track.id)) {
-                await playTrack(msg.track, undefined, { fromQueue: true });
-              }
-              if (typeof msg.position === 'number') {
-                const latency = (Date.now() - msg.timestamp) / 1000;
-                await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
-              }
-              if (msg.isPlaying) {
-                await TrackPlayer.play();
-              } else {
-                await TrackPlayer.pause();
-              }
-
-              // Overwrite guest's in-memory queue & replenish ExoPlayer buffer
-              if (Array.isArray(msg.queue)) {
-                await syncQueueFromHost(msg.track || null, msg.queue);
-              }
-
-              showToast(`Synchronized with Party ${activeRoomCode}!`, 'sparkles');
-              break;
+      // 2. Democratic collaborative jam action processing (Host AND Guests)
+      isHandlingRemoteAction = true;
+      try {
+        switch (msg.type) {
+          case 'ROOM_SNAPSHOT':
+          case 'SYNC_STATE': {
+            const active = getCurrentTrack();
+            if (msg.track && (!active || active.id !== msg.track.id)) {
+              await playTrack(msg.track, undefined, { fromQueue: true });
             }
-
-            case 'SYNC_PLAY': {
-              if (typeof msg.position === 'number') {
-                const latency = (Date.now() - msg.timestamp) / 1000;
-                await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
-              }
+            if (typeof msg.position === 'number') {
+              const latency = (Date.now() - msg.timestamp) / 1000;
+              await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
+            }
+            if (msg.isPlaying) {
               await TrackPlayer.play();
-              break;
-            }
-
-            case 'SYNC_PAUSE': {
-              if (typeof msg.position === 'number') {
-                await TrackPlayer.seekTo(msg.position);
-              }
+            } else {
               await TrackPlayer.pause();
-              break;
             }
 
-            case 'SYNC_SEEK': {
-              if (typeof msg.position === 'number') {
+            // Overwrite in-memory queue & replenish ExoPlayer buffer
+            if (Array.isArray(msg.queue)) {
+              await syncQueueFromHost(msg.track || null, msg.queue);
+            }
+
+            safeToast(`Synchronized with Party ${activeRoomCode}!`, 'sparkles');
+            break;
+          }
+
+          case 'SYNC_PLAY': {
+            if (typeof msg.position === 'number') {
+              const latency = (Date.now() - msg.timestamp) / 1000;
+              await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
+            }
+            await TrackPlayer.play();
+            break;
+          }
+
+          case 'SYNC_PAUSE': {
+            if (typeof msg.position === 'number') {
+              await TrackPlayer.seekTo(msg.position);
+            }
+            await TrackPlayer.pause();
+            break;
+          }
+
+          case 'SYNC_SEEK': {
+            if (typeof msg.position === 'number') {
+              const latency = (Date.now() - msg.timestamp) / 1000;
+              await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
+            }
+            break;
+          }
+
+          case 'SYNC_TRACK_CHANGE': {
+            if (isHostState) {
+              lastKnownTrack = msg.track || null;
+              if (Array.isArray(msg.queue)) lastKnownQueue = msg.queue;
+            }
+            if (msg.track) {
+              safeToast(`Jam: Playing ${msg.track.title || 'Song'}`, 'musical-notes');
+              await playTrack(msg.track, undefined, { fromQueue: true });
+              if (typeof msg.position === 'number' && msg.position > 0) {
                 const latency = (Date.now() - msg.timestamp) / 1000;
                 await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
               }
-              break;
             }
-
-            case 'SYNC_TRACK_CHANGE': {
-              if (msg.track) {
-                showToast(`Party: Playing ${msg.track.title || 'Song'}`, 'musical-notes');
-                await playTrack(msg.track, undefined, { fromQueue: true });
-                if (typeof msg.position === 'number' && msg.position > 0) {
-                  const latency = (Date.now() - msg.timestamp) / 1000;
-                  await TrackPlayer.seekTo(Math.max(0, msg.position + latency));
-                }
-              }
-              if (Array.isArray(msg.queue)) {
-                await syncQueueFromHost(msg.track || null, msg.queue);
-              }
-              break;
+            if (Array.isArray(msg.queue)) {
+              await syncQueueFromHost(msg.track || null, msg.queue);
             }
-
-            case 'CLIENT_LEAVE': {
-              if (msg.senderId !== myClientId) {
-                showToast('Host ended party or peer disconnected', 'information-circle-outline');
-              }
-              break;
-            }
+            break;
           }
-        } finally {
-          setTimeout(() => {
-            isHandlingRemoteAction = false;
-          }, 600);
+
+          case 'SYNC_QUEUE_UPDATE': {
+            if (isHostState && Array.isArray(msg.queue)) {
+              lastKnownQueue = msg.queue;
+            }
+            if (Array.isArray(msg.queue)) {
+              await syncQueueFromHost(null, msg.queue);
+            }
+            break;
+          }
+
+          case 'CLIENT_LEAVE': {
+            if (msg.senderId !== myClientId) {
+              safeToast('A participant disconnected', 'information-circle-outline');
+            }
+            break;
+          }
         }
+      } catch (actionErr) {
+        console.warn('Sync handler error (action):', actionErr);
+      } finally {
+        setTimeout(() => {
+          isHandlingRemoteAction = false;
+        }, 600);
       }
     } catch (err) {
-      console.error('[SyncService] Message parsing error:', err);
+      console.warn('Sync handler error:', err);
     }
   });
 
@@ -358,7 +386,7 @@ export async function hostSyncSession(roomCodeOrUsername?: string): Promise<stri
   connectedClients.clear();
 
   connectToMqttRoom(code, () => {
-    showToast(`Party room created: ${code}`, 'sparkles');
+    safeToast(`Party room created: ${code}`, 'sparkles');
   });
 
   notifyStatus();
@@ -415,36 +443,54 @@ export function disconnectSync(): void {
 }
 
 /**
- * Broadcast play event to all connected clients
+ * Broadcast play event to all connected clients (Democratic)
  */
 export function broadcastPlay(position?: number): void {
-  if (!isHost()) return;
+  if (!isSyncActive() || isHandlingRemoteAction) return;
+  let pos = position;
+  if (typeof pos !== 'number') {
+    try {
+      const p = TrackPlayer.getProgress();
+      pos = p?.position || 0;
+    } catch {
+      pos = 0;
+    }
+  }
   sendSyncMessage({
     type: 'SYNC_PLAY',
     senderId: myClientId,
-    position,
+    position: pos,
     timestamp: Date.now(),
   });
 }
 
 /**
- * Broadcast pause event to all connected clients
+ * Broadcast pause event to all connected clients (Democratic)
  */
 export function broadcastPause(position?: number): void {
-  if (!isHost()) return;
+  if (!isSyncActive() || isHandlingRemoteAction) return;
+  let pos = position;
+  if (typeof pos !== 'number') {
+    try {
+      const p = TrackPlayer.getProgress();
+      pos = p?.position || 0;
+    } catch {
+      pos = 0;
+    }
+  }
   sendSyncMessage({
     type: 'SYNC_PAUSE',
     senderId: myClientId,
-    position,
+    position: pos,
     timestamp: Date.now(),
   });
 }
 
 /**
- * Broadcast seek event to all connected clients
+ * Broadcast seek event to all connected clients (Democratic)
  */
 export function broadcastSeek(position: number): void {
-  if (!isHost()) return;
+  if (!isSyncActive() || isHandlingRemoteAction) return;
   sendSyncMessage({
     type: 'SYNC_SEEK',
     senderId: myClientId,
@@ -454,21 +500,42 @@ export function broadcastSeek(position: number): void {
 }
 
 /**
- * Broadcast track change + full upNextQueue to all connected clients
+ * Broadcast track change + full upNextQueue to all connected clients (Democratic)
  */
 export function broadcastTrackChange(track: TrackMetadata | null, queue?: TrackMetadata[]): void {
-  if (!isHost()) return;
+  if (!isSyncActive() || isHandlingRemoteAction) return;
+  const currentQ = queue || getUpNextQueue();
+  if (isHostState) {
+    lastKnownTrack = track;
+    lastKnownQueue = currentQ;
+  }
   sendSyncMessage({
     type: 'SYNC_TRACK_CHANGE',
     senderId: myClientId,
     track,
-    queue: queue || getUpNextQueue(),
+    queue: currentQ,
     timestamp: Date.now(),
   });
 }
 
 /**
- * Broadcast full sync state to all connected clients
+ * Broadcast queue reorder/update to all connected clients (Democratic)
+ */
+export function broadcastQueueUpdate(queue: TrackMetadata[]): void {
+  if (!isSyncActive() || isHandlingRemoteAction) return;
+  if (isHostState) {
+    lastKnownQueue = queue;
+  }
+  sendSyncMessage({
+    type: 'SYNC_QUEUE_UPDATE',
+    senderId: myClientId,
+    queue,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Broadcast full sync state to all connected clients (Democratic)
  */
 export function broadcastSyncState(
   track: TrackMetadata | null, 
@@ -476,14 +543,19 @@ export function broadcastSyncState(
   isPlaying: boolean, 
   queue?: TrackMetadata[]
 ): void {
-  if (!isHost()) return;
+  if (!isSyncActive() || isHandlingRemoteAction) return;
+  const currentQ = queue || getUpNextQueue();
+  if (isHostState) {
+    lastKnownTrack = track;
+    lastKnownQueue = currentQ;
+  }
   sendSyncMessage({
     type: 'SYNC_STATE',
     senderId: myClientId,
     track,
     position,
     isPlaying,
-    queue: queue || getUpNextQueue(),
+    queue: currentQ,
     timestamp: Date.now(),
   });
 }

@@ -67,7 +67,7 @@ export function broadcastPartyAction(
   action: 'PLAY' | 'PAUSE' | 'SEEK' | 'TRACK_CHANGE',
   payload?: { track?: TrackMetadata | null; position?: number; queue?: TrackMetadata[] }
 ): void {
-  if (!syncService.isHost() || syncService.isHandlingRemoteSync()) return;
+  if (!syncService.isSyncActive() || syncService.isHandlingRemoteSync()) return;
 
   switch (action) {
     case 'PLAY':
