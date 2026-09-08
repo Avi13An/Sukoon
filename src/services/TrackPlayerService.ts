@@ -34,6 +34,7 @@ let activeQueueSessionId = 0;
 let upNextQueue: TrackMetadata[] = [];
 let playbackHistory: TrackMetadata[] = [];
 let currentTrack: TrackMetadata | null = null;
+const playedTrackIds = new Set<string>();
 const queueListeners: Array<(queue: TrackMetadata[]) => void> = [];
 
 export function getCurrentTrack(): TrackMetadata | null {
@@ -60,7 +61,6 @@ export function subscribeToQueue(callback: (queue: TrackMetadata[]) => void) {
   };
 }
 
-
 export function getUpNextQueue(): TrackMetadata[] {
   return [...upNextQueue];
 }
@@ -75,23 +75,24 @@ export function addToUpNextQueue(track: TrackMetadata) {
 
 export const MIN_QUEUE_SIZE = 10;
 
-export function removeFromUpNextQueue(index: number) {
+export function removeTrackFromQueue(index: number) {
   if (index >= 0 && index < upNextQueue.length) {
     upNextQueue.splice(index, 1);
     notifyQueueChange();
-    if (upNextQueue.length === 0) {
-      const currentTrack = getLastPlayedTrack() || undefined;
-      prefetchAutoplayQueue(currentTrack, activeQueueSessionId).catch(() => {});
+    if (upNextQueue.length < 10) {
+      maintainMinimumQueue(10).catch(() => {});
     }
   }
 }
+export const removeFromUpNextQueue = removeTrackFromQueue;
 
-export function reorderUpNextQueue(fromIndex: number, toIndex: number) {
+export function reorderQueue(fromIndex: number, toIndex: number) {
   if (fromIndex < 0 || fromIndex >= upNextQueue.length || toIndex < 0 || toIndex >= upNextQueue.length) return;
   const [movedItem] = upNextQueue.splice(fromIndex, 1);
   upNextQueue.splice(toIndex, 0, movedItem);
   notifyQueueChange();
 }
+export const reorderUpNextQueue = reorderQueue;
 
 export function clearUpNextQueue() {
   upNextQueue = [];
@@ -156,28 +157,27 @@ export async function resolveStreamUrl(track: TrackMetadata): Promise<string> {
   return playUrl || `https://invidious.f5.si/latest_version?id=${track.id}&itag=140`;
 }
 
-export async function prefetchAutoplayQueue(
-  targetTrack?: TrackMetadata,
+let isMaintainingQueue = false;
+
+export async function maintainMinimumQueue(
+  minSize = 10, 
   sessionId?: number
 ): Promise<TrackMetadata[]> {
   const assignedSessionId = typeof sessionId === 'number' ? sessionId : activeQueueSessionId;
+  if (isMaintainingQueue) return [];
+  if (!currentTrack || upNextQueue.length >= minSize) return [];
+
+  isMaintainingQueue = true;
   const added: TrackMetadata[] = [];
   try {
-    const baseTrack = targetTrack || currentTrack || getLastPlayedTrack();
+    const baseTrack = currentTrack;
     if (!baseTrack) return [];
 
-    // Stale guard: user changed songs while this fetch was scheduled
     if (assignedSessionId !== activeQueueSessionId) {
-      console.log('[Autoplay] Dropping stale prefetch before start');
+      console.log('[Queue] Dropping maintainMinimumQueue (session mismatch)');
       return [];
     }
 
-    const history = getListenHistory();
-    const historyIds = new Set(history.map(t => t.id));
-    historyIds.add(baseTrack.id);
-    upNextQueue.forEach(t => historyIds.add(t.id));
-
-    // Build targeted recommendations based on artist, genre, and track vibe
     const queries: string[] = [];
     if (baseTrack.artist && baseTrack.artist !== 'Unknown Artist') {
       queries.push(`${baseTrack.artist} songs`);
@@ -192,71 +192,60 @@ export async function prefetchAutoplayQueue(
       queries.push(`${(baseTrack as any).genre} trending`);
     }
     if (queries.length === 0) {
-      queries.push(`${baseTrack.title} radio`);
+      queries.push(`${baseTrack.title || 'trending'} radio`);
     }
-
-    const freshRecommendations: TrackMetadata[] = [];
 
     for (const q of queries) {
-      if (assignedSessionId !== activeQueueSessionId) {
-        console.log('[Autoplay] Dropping in-flight recommendation fetch (session mismatch)');
-        return [];
-      }
-      if (freshRecommendations.length >= MIN_QUEUE_SIZE) break;
+      if (assignedSessionId !== activeQueueSessionId) return [];
+      if (upNextQueue.length >= minSize) break;
 
       const candidates = await searchTracks(q);
+      if (assignedSessionId !== activeQueueSessionId) return [];
+
       if (Array.isArray(candidates) && candidates.length > 0) {
-        const filtered = candidates.filter(t => t?.id && !historyIds.has(t.id));
-        for (const cand of filtered) {
-          if (freshRecommendations.length >= MIN_QUEUE_SIZE) break;
-          historyIds.add(cand.id);
-          freshRecommendations.push(cand);
+        const freshTracks = candidates.filter(
+          t => t?.id &&
+               !playedTrackIds.has(t.id) &&
+               t.id !== currentTrack?.id &&
+               !upNextQueue.some(qItem => qItem.id === t.id)
+        );
+
+        for (const cand of freshTracks) {
+          if (upNextQueue.length >= minSize) break;
+          upNextQueue.push(cand);
+          added.push(cand);
         }
       }
     }
 
-    // Stale guard: user changed songs while this fetch was in-flight!
-    if (assignedSessionId !== activeQueueSessionId) {
-      console.log('[Autoplay] Dropping stale recommendations from previous song');
-      return [];
-    }
+    if (assignedSessionId !== activeQueueSessionId) return [];
 
-    // Overwrite or populate upNextQueue strictly if session is still active
-    if (upNextQueue.length === 0) {
-      upNextQueue = [...freshRecommendations];
-      added.push(...freshRecommendations);
-    } else {
-      for (const rec of freshRecommendations) {
-        if (!upNextQueue.some(t => t.id === rec.id)) {
-          upNextQueue.push(rec);
-          added.push(rec);
-        }
-      }
-    }
+    // Ensure native ExoPlayer has at least 2 tracks ahead
+    const nativeQueue = await getNativeQueue();
+    const activeIndex = (await getNativeActiveIndex()) ?? 0;
+    const remainingAhead = nativeQueue.length - 1 - activeIndex;
 
-    // Feed the first 2 matching recommendations into native ExoPlayer queue
-    if (freshRecommendations.length > 0) {
-      const nextToSeed = freshRecommendations.slice(0, 2);
-      const resolvedAdds = await Promise.all(nextToSeed.map(async (t) => {
+    if (remainingAhead < 2 && upNextQueue.length > 0) {
+      const nextBatch = upNextQueue.slice(0, 3);
+      const batchPayloads = await Promise.all(nextBatch.map(async (t) => {
         const u = await resolveStreamUrl(t);
         return formatForTrackPlayer(t, u);
       }));
-
-      if (assignedSessionId !== activeQueueSessionId) {
-        console.log('[Autoplay] Dropping resolved recommendations (session changed)');
-        return [];
-      }
-
-      await addTracksToNativeQueue(resolvedAdds);
+      if (assignedSessionId !== activeQueueSessionId) return [];
+      await addTracksToNativeQueue(batchPayloads);
     }
 
-    notifyQueueChange();
-    console.log(`[Autoplay] Queue updated for session #${assignedSessionId}. Staged: ${upNextQueue.length}, fresh: ${added.length}`);
+    notifyQueueListeners();
+    console.log(`[Queue] maintainMinimumQueue updated (size: ${upNextQueue.length}, added: ${added.length})`);
   } catch (err) {
-    console.error('[Autoplay] Error prefetching autoplay queue:', err);
+    console.error('[Queue] Error in maintainMinimumQueue:', err);
+  } finally {
+    isMaintainingQueue = false;
   }
   return added;
 }
+
+export const prefetchAutoplayQueue = maintainMinimumQueue;
 
 export async function handleActiveTrackChanged(event: any) {
   if (!event) return;
@@ -276,6 +265,8 @@ export async function handleActiveTrackChanged(event: any) {
     if (nextIndex !== -1) {
       currentTrack = upNextQueue[nextIndex];
       upNextQueue = upNextQueue.slice(nextIndex + 1);
+    } else if (upNextQueue.length > 0) {
+      currentTrack = upNextQueue.shift()!;
     } else {
       currentTrack = {
         id: activeTrackId,
@@ -286,8 +277,12 @@ export async function handleActiveTrackChanged(event: any) {
         url: typeof activeTrack.url === 'string' ? activeTrack.url : undefined,
       };
     }
-    setLastPlayedTrack(currentTrack);
-    saveListenHistory(currentTrack);
+
+    if (currentTrack?.id) {
+      playedTrackIds.add(currentTrack.id);
+      setLastPlayedTrack(currentTrack);
+      saveListenHistory(currentTrack);
+    }
     notifyQueueChange();
 
     try {
@@ -298,35 +293,20 @@ export async function handleActiveTrackChanged(event: any) {
     } catch {}
   }
 
-  // Replenish native ExoPlayer queue so it never runs out (rolling queue)
+  // Replenish native ExoPlayer buffer and maintain minimum 10 songs:
   try {
     const nativeQueue = await getNativeQueue();
-    const activeIndex = typeof event.index === 'number' ? event.index : await getNativeActiveIndex();
+    const activeIndex = (await getNativeActiveIndex()) ?? 0;
     const remainingAhead = nativeQueue.length - 1 - activeIndex;
 
-    // If fewer than 2 songs ahead in native queue, feed more from upNextQueue
-    if (remainingAhead < 2) {
-      if (upNextQueue.length > 0) {
-        const nextToSeed = upNextQueue.shift();
-        if (nextToSeed) {
-          const resolvedUrl = await resolveStreamUrl(nextToSeed);
-          await addTracksToNativeQueue([formatForTrackPlayer(nextToSeed, resolvedUrl)]);
-          notifyQueueChange();
-        }
-      } else {
-        // Playlist reached the end: prefetch and append autoplay recommendations
-        const newTracks = await prefetchAutoplayQueue(currentTrack || undefined, activeQueueSessionId);
-        if (newTracks && newTracks.length > 0) {
-          const toAdd = newTracks.slice(0, 2);
-          const resolvedAdds = await Promise.all(toAdd.map(async (t) => {
-            const u = await resolveStreamUrl(t);
-            return formatForTrackPlayer(t, u);
-          }));
-          await addTracksToNativeQueue(resolvedAdds);
-          notifyQueueChange();
-        }
-      }
+    if (remainingAhead < 2 && upNextQueue.length > 0) {
+      const nextToSeed = upNextQueue[0];
+      const resolvedUrl = await resolveStreamUrl(nextToSeed);
+      await addTracksToNativeQueue([formatForTrackPlayer(nextToSeed, resolvedUrl)]);
     }
+
+    // Ensure queue always has >= 10 songs ahead without repeating played tracks
+    await maintainMinimumQueue(10);
   } catch (replenishErr) {
     console.warn('[Queue] Replenish error in handleActiveTrackChanged:', replenishErr);
   }
@@ -341,23 +321,13 @@ export async function handleEmergencyQueueEnded() {
     if (repeatMode !== RepeatMode.Off) return;
 
     if (upNextQueue.length > 0) {
-      const next = upNextQueue.shift();
-      if (next) {
-        const u = await resolveStreamUrl(next);
-        await addTracksToNativeQueue([formatForTrackPlayer(next, u)]);
-        await TrackPlayer.play();
-        notifyQueueChange();
-      }
+      const next = upNextQueue[0];
+      await playTrack(next, undefined, { fromQueue: true });
     } else {
-      const newTracks = await prefetchAutoplayQueue(currentTrack || getLastPlayedTrack() || undefined, activeQueueSessionId);
-      if (newTracks && newTracks.length > 0) {
-        const next = upNextQueue.shift();
-        if (next) {
-          const u = await resolveStreamUrl(next);
-          await addTracksToNativeQueue([formatForTrackPlayer(next, u)]);
-          await TrackPlayer.play();
-          notifyQueueChange();
-        }
+      await maintainMinimumQueue(10);
+      if (upNextQueue.length > 0) {
+        const next = upNextQueue[0];
+        await playTrack(next, undefined, { fromQueue: true });
       }
     }
   } catch (err) {
@@ -377,50 +347,23 @@ export async function playNextTrack(forcedTrackIndex?: number) {
 
   try {
     if (typeof forcedTrackIndex === 'number' && forcedTrackIndex >= 0 && forcedTrackIndex < upNextQueue.length) {
-      const [chosen] = upNextQueue.splice(forcedTrackIndex, 1);
-      notifyQueueChange();
+      const chosen = upNextQueue[forcedTrackIndex];
       if (chosen) {
-        await playTrack(chosen, undefined, true);
+        await playTrack(chosen, undefined, { fromQueue: true });
       }
       return;
     }
 
-    const nativeQueue = await getNativeQueue();
-    const activeIndex = await getNativeActiveIndex();
-    if (typeof activeIndex === 'number' && activeIndex < nativeQueue.length - 1) {
-      if (typeof (TrackPlayer as any).skipToNext === 'function') {
-        await (TrackPlayer as any).skipToNext();
-        return;
-      }
+    if (upNextQueue.length > 0) {
+      const next = upNextQueue[0];
+      await playTrack(next, undefined, { fromQueue: true });
+      return;
     }
 
+    await maintainMinimumQueue(10);
     if (upNextQueue.length > 0) {
-      const next = upNextQueue.shift();
-      if (next) {
-        const resolvedUrl = await resolveStreamUrl(next);
-        await addTracksToNativeQueue([formatForTrackPlayer(next, resolvedUrl)]);
-        notifyQueueChange();
-        if (typeof (TrackPlayer as any).skipToNext === 'function') {
-          await (TrackPlayer as any).skipToNext();
-        } else {
-          await TrackPlayer.play();
-        }
-      }
-    } else {
-      const newTracks = await prefetchAutoplayQueue(currentTrack || undefined);
-      if (newTracks && newTracks.length > 0) {
-        const next = upNextQueue.shift();
-        if (next) {
-          const resolvedUrl = await resolveStreamUrl(next);
-          await addTracksToNativeQueue([formatForTrackPlayer(next, resolvedUrl)]);
-          notifyQueueChange();
-          if (typeof (TrackPlayer as any).skipToNext === 'function') {
-            await (TrackPlayer as any).skipToNext();
-          } else {
-            await TrackPlayer.play();
-          }
-        }
-      }
+      const next = upNextQueue[0];
+      await playTrack(next, undefined, { fromQueue: true });
     }
   } catch (err) {
     console.error('[Queue] playNextTrack error:', err);
@@ -681,12 +624,12 @@ export function formatForTrackPlayer(metadata: TrackMetadata, resolvedUrl?: stri
 export async function playTrack(
   selectedTrack: TrackMetadata, 
   contextQueue?: TrackMetadata[],
-  preserveExistingQueue = false
+  options?: { fromQueue?: boolean } | boolean
 ) {
+  const isFromQueue = typeof options === 'boolean' ? options : options?.fromQueue === true;
+  const inQueue = upNextQueue.some(t => t.id === selectedTrack.id);
+
   isLoadingTrack = true;
-  // Step 1: Invalidate all previous background recommendation tasks
-  activeQueueSessionId++;
-  const currentSessionId = activeQueueSessionId;
 
   try {
     const isPlayerReady = await setupPlayer();
@@ -694,46 +637,215 @@ export async function playTrack(
       throw new Error('TrackPlayer setup failed or service unavailable');
     }
 
-    // Step 2: Wipe active player queue ONLY for manual user selections (when preserveExistingQueue is false)
-    if (!preserveExistingQueue) {
-      upNextQueue = []; // Strictly wipe any previous queue immediately!
+    // CASE A: Song is selected directly from the active queue OR exists in upNextQueue
+    if (isFromQueue || inQueue) {
+      const queueIndex = upNextQueue.findIndex(t => t.id === selectedTrack.id);
+      if (queueIndex !== -1) {
+        currentTrack = upNextQueue[queueIndex];
+        // Slice queue so everything AFTER this song remains upcoming in order
+        upNextQueue = upNextQueue.slice(queueIndex + 1);
+      } else {
+        currentTrack = selectedTrack;
+      }
+      playedTrackIds.add(currentTrack.id);
+      setLastPlayedTrack(currentTrack);
+      saveListenHistory(currentTrack);
+
       if (typeof (TrackPlayer as any).reset === 'function') {
         try { await (TrackPlayer as any).reset(); } catch {}
       }
       if (typeof (TrackPlayer as any).clear === 'function') {
         try { await (TrackPlayer as any).clear(); } catch {}
       }
-    }
 
-    // Set currentTrack and update playback history
-    if (currentTrack && currentTrack.id !== selectedTrack.id) {
-      playbackHistory.push(currentTrack);
-      if (playbackHistory.length > 30) playbackHistory.shift();
-    }
-    currentTrack = selectedTrack;
-    setLastPlayedTrack(selectedTrack);
-    saveListenHistory(selectedTrack);
-
-    // Step 3: Set up the new upcoming queue
-    if (contextQueue && contextQueue.length > 0) {
-      const selectedIndex = contextQueue.findIndex(t => t.id === selectedTrack.id);
-      upNextQueue = selectedIndex !== -1 ? contextQueue.slice(selectedIndex + 1) : [...contextQueue];
-      if (upNextQueue.length === 0 && !preserveExistingQueue) {
-        prefetchAutoplayQueue(selectedTrack, currentSessionId).catch(() => {});
+      let playUrl = await resolveStreamUrl(currentTrack);
+      if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
+        const msg = `No playable audio stream found for track ${currentTrack.id}`;
+        console.warn(msg);
+        try { Alert.alert('TrackPlayer Service Error', msg); } catch {}
+        throw new Error(msg);
       }
-    } else if (!preserveExistingQueue) {
-      upNextQueue = []; // Strictly wipe previous genre recommendations!
-      prefetchAutoplayQueue(selectedTrack, currentSessionId).catch(() => {});
+
+      const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
+      const matchedUA = isIosStream
+        ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
+        : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
+
+      const seed = [
+        formatForTrackPlayer(currentTrack, playUrl, matchedUA),
+        ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
+      ];
+
+      if (typeof setMediaItems === 'function') {
+        await setMediaItems(seed, 0);
+      } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+        await (TrackPlayer as any).setMediaItems(seed, 0);
+      } else if (typeof (TrackPlayer as any).add === 'function') {
+        await (TrackPlayer as any).add(seed);
+      } else {
+        await addTracksToNativeQueue(seed);
+      }
+
+      await applySoundBoost(currentSoundBoostPercent);
+      resetSleepPaused();
+
+      if (typeof play === 'function') {
+        await play();
+      } else {
+        await TrackPlayer.play();
+      }
+
+      notifyQueueListeners();
+      setTimeout(() => { isLoadingTrack = false; }, 1200);
+      maintainMinimumQueue(10).catch(() => {});
+
+      try {
+        const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
+        if (isPartyActive() && !isHandlingRemoteSync()) {
+          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
+        }
+      } catch {}
+
+      // Asynchronously pre-resolve streams for the buffered tracks in native queue
+      (async () => {
+        try {
+          const buffered = upNextQueue.slice(0, 3);
+          for (let i = 0; i < buffered.length; i++) {
+            const t = buffered[i];
+            const streamUrl = await resolveStreamUrl(t);
+            if (streamUrl && streamUrl !== t.url) {
+              t.url = streamUrl;
+              if (typeof (TrackPlayer as any).replaceMediaItem === 'function') {
+                try {
+                  await (TrackPlayer as any).replaceMediaItem(i + 1, formatForTrackPlayer(t, streamUrl, matchedUA));
+                } catch {}
+              }
+            }
+          }
+        } catch {}
+      })();
+
+      return;
     }
 
-    // Resolve audio stream URL for selectedTrack
-    let playUrl = await resolveStreamUrl(selectedTrack);
-    if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
-      const msg = `No playable audio stream found for track ${selectedTrack.id}`;
-      console.warn(msg);
+    // CASE B: Song is from a Playlist or Album context (contextQueue && contextQueue.length > 0)
+    if (contextQueue && contextQueue.length > 0) {
+      activeQueueSessionId++;
+      const currentSession = activeQueueSessionId;
+      const clonedContext = [...contextQueue];
+      const selectedIndex = clonedContext.findIndex(t => t.id === selectedTrack.id);
+      currentTrack = selectedTrack;
+      playedTrackIds.clear();
+      playedTrackIds.add(currentTrack.id);
+      setLastPlayedTrack(currentTrack);
+      saveListenHistory(currentTrack);
+
+      // Set upNextQueue strictly to all subsequent songs in that exact playlist order
+      upNextQueue = selectedIndex !== -1 
+        ? clonedContext.slice(selectedIndex + 1) 
+        : clonedContext.filter(t => t.id !== selectedTrack.id);
+
+      if (typeof (TrackPlayer as any).reset === 'function') {
+        try { await (TrackPlayer as any).reset(); } catch {}
+      }
+      if (typeof (TrackPlayer as any).clear === 'function') {
+        try { await (TrackPlayer as any).clear(); } catch {}
+      }
+
+      let playUrl = await resolveStreamUrl(currentTrack);
+      if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
+        const msg = `No playable audio stream found for track ${currentTrack.id}`;
+        console.warn(msg);
+        try { Alert.alert('TrackPlayer Service Error', msg); } catch {}
+        throw new Error(msg);
+      }
+
+      const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
+      const matchedUA = isIosStream
+        ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
+        : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
+
+      const seed = [
+        formatForTrackPlayer(currentTrack, playUrl, matchedUA),
+        ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
+      ];
+
+      if (typeof setMediaItems === 'function') {
+        await setMediaItems(seed, 0);
+      } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+        await (TrackPlayer as any).setMediaItems(seed, 0);
+      } else if (typeof (TrackPlayer as any).add === 'function') {
+        await (TrackPlayer as any).add(seed);
+      } else {
+        await addTracksToNativeQueue(seed);
+      }
+
+      await applySoundBoost(currentSoundBoostPercent);
+      resetSleepPaused();
+
+      if (typeof play === 'function') {
+        await play();
+      } else {
+        await TrackPlayer.play();
+      }
+
+      notifyQueueListeners();
+      setTimeout(() => { isLoadingTrack = false; }, 1200);
+      // Only append recommendations if playlist has fewer than 10 tracks
+      maintainMinimumQueue(10, currentSession).catch(() => {});
+
       try {
-        Alert.alert('TrackPlayer Service Error', msg);
+        const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
+        if (isPartyActive() && !isHandlingRemoteSync()) {
+          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
+        }
       } catch {}
+
+      (async () => {
+        try {
+          const buffered = upNextQueue.slice(0, 3);
+          for (let i = 0; i < buffered.length; i++) {
+            if (currentSession !== activeQueueSessionId) return;
+            const t = buffered[i];
+            const streamUrl = await resolveStreamUrl(t);
+            if (currentSession !== activeQueueSessionId) return;
+            if (streamUrl && streamUrl !== t.url) {
+              t.url = streamUrl;
+              if (typeof (TrackPlayer as any).replaceMediaItem === 'function') {
+                try {
+                  await (TrackPlayer as any).replaceMediaItem(i + 1, formatForTrackPlayer(t, streamUrl, matchedUA));
+                } catch {}
+              }
+            }
+          }
+        } catch {}
+      })();
+
+      return;
+    }
+
+    // CASE C: Brand-new song selected outside the queue (from Home / Search) without context
+    activeQueueSessionId++;
+    const currentSession = activeQueueSessionId;
+    currentTrack = selectedTrack;
+    upNextQueue = [];
+    playedTrackIds.clear();
+    playedTrackIds.add(currentTrack.id);
+    setLastPlayedTrack(currentTrack);
+    saveListenHistory(currentTrack);
+
+    if (typeof (TrackPlayer as any).reset === 'function') {
+      try { await (TrackPlayer as any).reset(); } catch {}
+    }
+    if (typeof (TrackPlayer as any).clear === 'function') {
+      try { await (TrackPlayer as any).clear(); } catch {}
+    }
+
+    let playUrl = await resolveStreamUrl(currentTrack);
+    if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
+      const msg = `No playable audio stream found for track ${currentTrack.id}`;
+      console.warn(msg);
+      try { Alert.alert('TrackPlayer Service Error', msg); } catch {}
       throw new Error(msg);
     }
 
@@ -742,41 +854,18 @@ export async function playTrack(
       ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
       : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
 
-    const selectedPayload = formatForTrackPlayer(selectedTrack, playUrl, matchedUA);
+    const seed = [formatForTrackPlayer(currentTrack, playUrl, matchedUA)];
 
-    // Step 4: Seed native queue with selectedTrack PLUS next 3 tracks
-    const nextTracksToSeed = upNextQueue.slice(0, 3);
-    const nextPayloads = nextTracksToSeed.map((t) => formatForTrackPlayer(
-      t,
-      t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`,
-      matchedUA
-    ));
-
-    const initialNativeQueue = [selectedPayload, ...nextPayloads];
-
-    if (!preserveExistingQueue) {
-      if (typeof setMediaItems === 'function') {
-        await setMediaItems(initialNativeQueue, 0);
-      } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-        await (TrackPlayer as any).setMediaItems(initialNativeQueue, 0);
-      } else if (typeof (TrackPlayer as any).add === 'function') {
-        await (TrackPlayer as any).add(initialNativeQueue);
-      } else {
-        await addTracksToNativeQueue(initialNativeQueue);
-      }
+    if (typeof setMediaItems === 'function') {
+      await setMediaItems(seed, 0);
+    } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
+      await (TrackPlayer as any).setMediaItems(seed, 0);
+    } else if (typeof (TrackPlayer as any).add === 'function') {
+      await (TrackPlayer as any).add(seed);
     } else {
-      await addTracksToNativeQueue([selectedPayload]);
+      await addTracksToNativeQueue(seed);
     }
 
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Step 5: Start playback immediately on the selected track
-    const eqSettings = getEqualizerSettings();
-    if (eqSettings.enabled && typeof eqSettings.soundBoost === 'number') {
-      currentSoundBoostPercent = eqSettings.soundBoost;
-    } else if (!eqSettings.enabled) {
-      currentSoundBoostPercent = 0;
-    }
     await applySoundBoost(currentSoundBoostPercent);
     resetSleepPaused();
 
@@ -786,44 +875,22 @@ export async function playTrack(
       await TrackPlayer.play();
     }
 
-    // Step 6: Notify queue listeners
-    notifyQueueChange();
+    notifyQueueListeners();
+    setTimeout(() => { isLoadingTrack = false; }, 1200);
 
-    // Asynchronously pre-resolve streams for the 3 buffered tracks in native queue
-    (async () => {
-      try {
-        const buffered = upNextQueue.slice(0, 3);
-        for (let i = 0; i < buffered.length; i++) {
-          if (currentSessionId !== activeQueueSessionId) return;
-          const t = buffered[i];
-          const streamUrl = await resolveStreamUrl(t);
-          if (currentSessionId !== activeQueueSessionId) return;
-          if (streamUrl && streamUrl !== t.url) {
-            t.url = streamUrl;
-            if (typeof (TrackPlayer as any).replaceMediaItem === 'function') {
-              try {
-                await (TrackPlayer as any).replaceMediaItem(i + 1, formatForTrackPlayer(t, streamUrl, matchedUA));
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-    })();
+    // Populate fresh 10-song queue for this new genre/song
+    maintainMinimumQueue(10, currentSession).catch(() => {});
 
     try {
       const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
       if (isPartyActive() && !isHandlingRemoteSync()) {
-        broadcastPartyAction('TRACK_CHANGE', { track: selectedTrack });
+        broadcastPartyAction('TRACK_CHANGE', { track: currentTrack });
       }
     } catch {}
   } catch (error: any) {
     console.error('[TrackPlayerService] playTrack error:', error);
     isLoadingTrack = false;
     throw error;
-  } finally {
-    setTimeout(() => {
-      isLoadingTrack = false;
-    }, 1200);
   }
 }
 

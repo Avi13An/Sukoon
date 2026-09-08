@@ -17,11 +17,11 @@ import {
 } from '../utils/storage';
 import { 
   subscribeToQueue, 
-  removeFromUpNextQueue, 
-  reorderUpNextQueue, 
+  removeTrackFromQueue, 
+  reorderQueue, 
   clearUpNextQueue, 
-  playNextTrack, 
-  prefetchAutoplayQueue 
+  playTrack, 
+  maintainMinimumQueue 
 } from '../services/TrackPlayerService';
 
 const { height } = Dimensions.get('window');
@@ -50,16 +50,16 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
     return () => unsubscribe();
   }, []);
 
-  const handlePlayIndex = async (index: number) => {
+  const handlePlaySong = async (item: TrackMetadata) => {
     onClose();
-    await playNextTrack(index);
+    await playTrack(item, undefined, { fromQueue: true });
   };
 
   const handleGenerateSongs = async () => {
     if (isGenerating) return;
     setIsGenerating(true);
     try {
-      await prefetchAutoplayQueue(currentTrack || undefined);
+      await maintainMinimumQueue(10);
     } finally {
       setIsGenerating(false);
     }
@@ -186,7 +186,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
                   return (
                     <TouchableOpacity 
                       style={styles.queueItem}
-                      onPress={() => handlePlayIndex(index)}
+                      onPress={() => handlePlaySong(item)}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.itemIndex}>#{index + 1}</Text>
@@ -217,7 +217,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
                       <View style={styles.actionsRow}>
                         <TouchableOpacity 
                           style={[styles.actionBtn, isFirst && styles.actionBtnDisabled]}
-                          onPress={() => !isFirst && reorderUpNextQueue(index, index - 1)}
+                          onPress={() => !isFirst && reorderQueue(index, index - 1)}
                           disabled={isFirst}
                           hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                         >
@@ -230,7 +230,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
 
                         <TouchableOpacity 
                           style={[styles.actionBtn, isLast && styles.actionBtnDisabled]}
-                          onPress={() => !isLast && reorderUpNextQueue(index, index + 1)}
+                          onPress={() => !isLast && reorderQueue(index, index + 1)}
                           disabled={isLast}
                           hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                         >
@@ -243,7 +243,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
 
                         <TouchableOpacity 
                           style={styles.actionBtn}
-                          onPress={() => removeFromUpNextQueue(index)}
+                          onPress={() => removeTrackFromQueue(index)}
                           hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                         >
                           <Ionicons name="close-circle-outline" size={18} color="#ff5555" />
