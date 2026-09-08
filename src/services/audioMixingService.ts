@@ -1,6 +1,10 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { NativeModules, Platform } from 'react-native';
 
+/**
+ * @deprecated Audio mixing has been deprecated. The app now directly captures and stores
+ * studio-grade high-fidelity raw vocal takes without post-processing distortion or telephony downsampling.
+ */
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
 
 export interface MixParams {

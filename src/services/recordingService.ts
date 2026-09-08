@@ -162,11 +162,9 @@ export function isRecordingPaused(): boolean {
   return isRecordingState && isPausedState;
 }
 
-export async function stopAndSaveRecording(
-  songTitle: string,
-  artist: string,
+export async function finishVocalTake(
   explicitDurationSeconds?: number
-): Promise<StudioRecording | null> {
+): Promise<{ localUri: string; durationSeconds: number } | null> {
   if (!activeRecorder && !isRecordingState) {
     return null;
   }
@@ -201,7 +199,7 @@ export async function stopAndSaveRecording(
     await ensureRecordingsDir();
 
     const timestamp = Date.now();
-    const fileName = `cover_${timestamp}.m4a`;
+    const fileName = `take_${timestamp}.m4a`;
     const destinationUri = `${RECORDINGS_DIR}${fileName}`;
 
     if (recordedUri) {
@@ -234,12 +232,10 @@ export async function stopAndSaveRecording(
     }
 
     // Digital Makeup Gain / Pre-Amp:
-    // Phone microphones record at nominal levels (-20dB to -14dB).
-    // Apply a +7dB nominal gain boost so recorded vocal presence matches stock phone recorder loudness.
     const { AudioMixerModule } = NativeModules;
     if (AudioMixerModule && typeof AudioMixerModule.applyMakeupGain === 'function') {
       try {
-        const boostedFileName = `cover_boosted_${timestamp}.m4a`;
+        const boostedFileName = `take_boosted_${timestamp}.m4a`;
         const boostedUri = `${RECORDINGS_DIR}${boostedFileName}`;
         const res = await AudioMixerModule.applyMakeupGain(finalLocalUri, boostedUri, 7.0);
         if (res) {
@@ -250,18 +246,6 @@ export async function stopAndSaveRecording(
       }
     }
 
-    const newRecording: StudioRecording = {
-      id: `rec_${timestamp}`,
-      songTitle: songTitle || 'Untitled Cover',
-      artist: artist || 'Karaoke Studio',
-      createdAt: timestamp,
-      durationSeconds: durationSeconds,
-      localUri: finalLocalUri,
-    };
-
-    saveStudioRecording(newRecording);
-    showToast('Cover saved to Studio recordings!', 'checkmark-circle');
-
     // Reset audio mode back to normal playback
     try {
       await setAudioModeAsync({
@@ -270,10 +254,13 @@ export async function stopAndSaveRecording(
       });
     } catch {}
 
-    return newRecording;
+    return {
+      localUri: finalLocalUri,
+      durationSeconds,
+    };
   } catch (err: any) {
-    console.error('[recordingService] stopAndSaveRecording error:', err);
-    showToast(err?.message || 'Failed to save recording', 'alert-circle');
+    console.error('[recordingService] finishVocalTake error:', err);
+    showToast(err?.message || 'Failed to capture vocal take', 'alert-circle');
     isRecordingState = false;
     isPausedState = false;
     activeRecorder = null;
@@ -281,7 +268,49 @@ export async function stopAndSaveRecording(
   }
 }
 
-export async function discardRecording(): Promise<void> {
+export function saveRecording(
+  songTitle: string,
+  artist: string,
+  localUri: string,
+  durationSeconds: number,
+  artwork?: string
+): StudioRecording {
+  const timestamp = Date.now();
+  const newRecording: StudioRecording = {
+    id: `rec_${timestamp}`,
+    songTitle: songTitle || 'Untitled Vocal Take',
+    artist: artist || 'Karaoke Studio',
+    createdAt: timestamp,
+    durationSeconds: durationSeconds,
+    localUri: localUri,
+    artwork,
+    isMasterMixed: false,
+  };
+
+  saveStudioRecording(newRecording);
+  showToast('Raw vocal take saved to Studio Recordings!', 'checkmark-circle');
+  return newRecording;
+}
+
+export async function stopAndSaveRecording(
+  songTitle: string,
+  artist: string,
+  explicitDurationSeconds?: number
+): Promise<StudioRecording | null> {
+  const take = await finishVocalTake(explicitDurationSeconds);
+  if (!take) return null;
+  return saveRecording(songTitle, artist, take.localUri, take.durationSeconds);
+}
+
+export async function discardRecording(targetUri?: string): Promise<void> {
+  if (targetUri) {
+    try {
+      await FileSystem.deleteAsync(targetUri, { idempotent: true });
+    } catch (e) {
+      console.warn('[recordingService] target discard error:', e);
+    }
+  }
+
   if (activeRecorder) {
     try {
       const tempUri = activeRecorder.uri;

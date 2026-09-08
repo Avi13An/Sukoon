@@ -24,6 +24,9 @@ import {
   getActiveUser,
   onPlaylistsChanged,
   isLikedSongsPlaylist,
+  getCollaborativePlaylists,
+  deleteCollaborativePlaylist,
+  CollaborativePlaylist,
   Playlist, 
   DownloadedTrack 
 } from '../utils/storage';
@@ -36,9 +39,12 @@ import {
   fetchSharedPlaylistFromCloud, 
   importPlaylistByCode as importCloudPlaylist 
 } from '../services/cloudPlaylistService';
+import { createCollaborativePlaylist } from '../services/collabPlaylistService';
 
 export function LibraryScreen({ navigation }: any) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [collabPlaylists, setCollabPlaylists] = useState<CollaborativePlaylist[]>([]);
+  const [activeTab, setActiveTab] = useState<'my_playlists' | 'shared_playlists'>('my_playlists');
   const [downloadedTracks, setDownloadedTracks] = useState<DownloadedTrack[]>([]);
   const [storageUsage, setStorageUsage] = useState<string>('0 MB');
   const [isStudioModalVisible, setIsStudioModalVisible] = useState(false);
@@ -51,9 +57,16 @@ export function LibraryScreen({ navigation }: any) {
   const [foundPreviewPlaylist, setFoundPreviewPlaylist] = useState<Playlist | null>(null);
   const [activeUsername, setActiveUsername] = useState<string | null>(getActiveUser());
 
+  // Collab Playlist Creation State
+  const [isCreateCollabModalVisible, setIsCreateCollabModalVisible] = useState(false);
+  const [collabFriendUsername, setCollabFriendUsername] = useState('');
+  const [collabTitle, setCollabTitle] = useState('');
+  const [isCreatingCollab, setIsCreatingCollab] = useState(false);
+
   const refreshLibrary = useCallback(async () => {
     setActiveUsername(getActiveUser());
     setPlaylists(getUserPlaylists());
+    setCollabPlaylists(getCollaborativePlaylists());
     const downloaded = getDownloadedTracks();
     setDownloadedTracks(downloaded);
     const usage = await getOfflineStorageUsage();
@@ -101,6 +114,77 @@ export function LibraryScreen({ navigation }: any) {
     setIsCreateModalVisible(false);
     refreshLibrary();
     showToast(`Playlist "${trimmed}" created!`, 'checkmark-circle');
+  };
+
+  const getCollaboratorName = (item: CollaborativePlaylist) => {
+    const current = (activeUsername || '').toLowerCase();
+    const peer = item.collaborators?.find(c => c.toLowerCase() !== current);
+    return peer || item.collaborators?.[1] || 'Friend';
+  };
+
+  const handleCreateCollab = async () => {
+    const friend = collabFriendUsername.trim();
+    const title = collabTitle.trim();
+    if (!friend) {
+      showToast("Please enter your friend's username", 'alert-circle');
+      return;
+    }
+    if (!title) {
+      showToast('Please enter a playlist title', 'alert-circle');
+      return;
+    }
+    setIsCreatingCollab(true);
+    try {
+      const created = await createCollaborativePlaylist(title, friend);
+      setIsCreateCollabModalVisible(false);
+      setCollabFriendUsername('');
+      setCollabTitle('');
+      refreshLibrary();
+      navigation.navigate('PlaylistDetail', {
+        isCollaborative: true,
+        collabId: created.id,
+        playlist: {
+          id: created.id,
+          name: created.title,
+          shareCode: created.id,
+          createdAt: created.updatedAt,
+          tracks: created.tracks,
+        },
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to create shared playlist', 'alert-circle');
+    } finally {
+      setIsCreatingCollab(false);
+    }
+  };
+
+  const navigateToCollabPlaylist = (item: CollaborativePlaylist) => {
+    navigation.navigate('PlaylistDetail', {
+      isCollaborative: true,
+      collabId: item.id,
+      playlist: {
+        id: item.id,
+        name: item.title,
+        shareCode: item.id,
+        createdAt: item.updatedAt,
+        tracks: item.tracks,
+      },
+    });
+  };
+
+  const handleDeleteCollabPlaylist = (item: CollaborativePlaylist) => {
+    setConfirmModal({
+      visible: true,
+      title: 'Delete Shared Playlist',
+      message: `Delete collaborative playlist "${item.title}"?`,
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: () => {
+        deleteCollaborativePlaylist(item.id);
+        refreshLibrary();
+        showToast(`Deleted "${item.title}"`, 'trash-outline');
+      },
+    });
   };
 
   const [isSearchingPlaylist, setIsSearchingPlaylist] = useState(false);
@@ -280,87 +364,190 @@ export function LibraryScreen({ navigation }: any) {
         </View>
       </TouchableOpacity>
 
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Your Playlists</Text>
-        <View style={styles.headerButtonsRow}>
-          <TouchableOpacity 
-            style={styles.importPlaylistBtn} 
-            onPress={() => setIsImportModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="download-outline" size={16} color="#00ffcc" />
-            <Text style={styles.importPlaylistBtnText}>Import</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.newPlaylistBtn} 
-            onPress={() => setIsCreateModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="add" size={18} color="#000000" />
-            <Text style={styles.newPlaylistBtnText}>New</Text>
-          </TouchableOpacity>
-        </View>
+      {/* Segmented Section Tab Switcher */}
+      <View style={styles.tabSwitcher}>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'my_playlists' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('my_playlists')}
+          activeOpacity={0.8}
+        >
+          <Ionicons 
+            name="albums" 
+            size={15} 
+            color={activeTab === 'my_playlists' ? '#000000' : '#888896'} 
+          />
+          <Text style={[styles.tabButtonText, activeTab === 'my_playlists' && styles.tabButtonTextActive]}>
+            My Playlists ({playlists.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'shared_playlists' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('shared_playlists')}
+          activeOpacity={0.8}
+        >
+          <Ionicons 
+            name="people" 
+            size={15} 
+            color={activeTab === 'shared_playlists' ? '#000000' : '#888896'} 
+          />
+          <Text style={[styles.tabButtonText, activeTab === 'shared_playlists' && styles.tabButtonTextActive]}>
+            Shared Playlists ({collabPlaylists.length})
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={playlists}
-        keyExtractor={(item) => item.id}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            style={styles.playlistCard} 
-            onPress={() => navigateToPlaylist(item)}
-            onLongPress={() => !item.isImported && !isLikedSongsPlaylist(item) && handleDeletePlaylist(item)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.playlistImageContainer}>
-              {item.coverImage ? (
-                <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
-              ) : (
-                <View style={styles.playlistPlaceholder}>
-                  <Ionicons 
-                    name={isLikedSongsPlaylist(item) ? "heart" : "musical-notes"} 
-                    size={36} 
-                    color={isLikedSongsPlaylist(item) ? "#FF3B30" : "#555555"} 
-                  />
-                </View>
-              )}
-              {item.isImported ? (
-                <View style={styles.sharedBadge}>
-                  <Ionicons name="lock-closed" size={10} color="#000000" />
-                  <Text style={styles.sharedBadgeText}>Shared / Read-Only</Text>
-                </View>
-              ) : isLikedSongsPlaylist(item) ? (
-                <View style={[styles.sharedBadge, { backgroundColor: 'rgba(255, 59, 48, 0.2)', borderColor: '#FF3B30', borderWidth: 1 }]}>
-                  <Ionicons name="heart" size={10} color="#FF3B30" />
-                  <Text style={[styles.sharedBadgeText, { color: '#FF3B30' }]}>Protected</Text>
-                </View>
-              ) : (
-                <TouchableOpacity 
-                  style={styles.deleteIconBtn}
-                  onPress={() => handleDeletePlaylist(item)}
-                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#ff5252" />
-                </TouchableOpacity>
-              )}
+      {activeTab === 'my_playlists' ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Playlists</Text>
+            <View style={styles.headerButtonsRow}>
+              <TouchableOpacity 
+                style={styles.importPlaylistBtn} 
+                onPress={() => setIsImportModalVisible(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="download-outline" size={16} color="#00ffcc" />
+                <Text style={styles.importPlaylistBtnText}>Import</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.newPlaylistBtn} 
+                onPress={() => setIsCreateModalVisible(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add" size={18} color="#000000" />
+                <Text style={styles.newPlaylistBtnText}>New</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
-            <Text style={styles.playlistCount}>
-              {item.tracks.length} {item.tracks.length === 1 ? 'track' : 'tracks'}
-            </Text>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="albums-outline" size={48} color="#444444" />
-            <Text style={styles.emptyText}>No custom playlists yet.</Text>
-            <Text style={styles.emptySubtext}>Create one using "+ New Playlist" above!</Text>
           </View>
-        }
-      />
+
+          <FlatList
+            data={playlists}
+            keyExtractor={(item) => item.id}
+            numColumns={2}
+            columnWrapperStyle={styles.row}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.playlistCard} 
+                onPress={() => navigateToPlaylist(item)}
+                onLongPress={() => !item.isImported && !isLikedSongsPlaylist(item) && handleDeletePlaylist(item)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.playlistImageContainer}>
+                  {item.coverImage ? (
+                    <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
+                  ) : (
+                    <View style={styles.playlistPlaceholder}>
+                      <Ionicons 
+                        name={isLikedSongsPlaylist(item) ? "heart" : "musical-notes"} 
+                        size={36} 
+                        color={isLikedSongsPlaylist(item) ? "#FF3B30" : "#555555"} 
+                      />
+                    </View>
+                  )}
+                  {item.isImported ? (
+                    <View style={styles.sharedBadge}>
+                      <Ionicons name="lock-closed" size={10} color="#000000" />
+                      <Text style={styles.sharedBadgeText}>Shared / Read-Only</Text>
+                    </View>
+                  ) : isLikedSongsPlaylist(item) ? (
+                    <View style={[styles.sharedBadge, { backgroundColor: 'rgba(255, 59, 48, 0.2)', borderColor: '#FF3B30', borderWidth: 1 }]}>
+                      <Ionicons name="heart" size={10} color="#FF3B30" />
+                      <Text style={[styles.sharedBadgeText, { color: '#FF3B30' }]}>Protected</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity 
+                      style={styles.deleteIconBtn}
+                      onPress={() => handleDeletePlaylist(item)}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#ff5252" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.playlistCount}>
+                  {item.tracks.length} {item.tracks.length === 1 ? 'track' : 'tracks'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="albums-outline" size={48} color="#444444" />
+                <Text style={styles.emptyText}>No custom playlists yet.</Text>
+                <Text style={styles.emptySubtext}>Create one using "+ New" above!</Text>
+              </View>
+            }
+          />
+        </>
+      ) : (
+        <>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Shared Playlists</Text>
+              <Text style={styles.sectionSubtitle}>2-User Real-time Collaborative Playlists</Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.newCollabBtn} 
+              onPress={() => setIsCreateCollabModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="people" size={16} color="#000000" />
+              <Text style={styles.newCollabBtnText}>+ New Shared</Text>
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={collabPlaylists}
+            keyExtractor={(item) => item.id}
+            numColumns={2}
+            columnWrapperStyle={styles.row}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.playlistCard} 
+                onPress={() => navigateToCollabPlaylist(item)}
+                onLongPress={() => handleDeleteCollabPlaylist(item)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.playlistImageContainer}>
+                  <View style={[styles.playlistPlaceholder, { backgroundColor: '#131826', borderColor: '#1F293D', borderWidth: 1 }]}>
+                    <Ionicons name="people" size={36} color="#06B6D4" />
+                  </View>
+                  <View style={styles.collabLiveBadge}>
+                    <View style={styles.greenDot} />
+                    <Text style={styles.collabLiveBadgeText}>Live Sync</Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.deleteIconBtn}
+                    onPress={() => handleDeleteCollabPlaylist(item)}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#ff5252" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.playlistName} numberOfLines={1}>{item.title}</Text>
+                <Text style={styles.collabSharedWithText} numberOfLines={1}>
+                  Shared with @{getCollaboratorName(item)}
+                </Text>
+                <Text style={styles.playlistCount}>
+                  {item.tracks?.length || 0} {item.tracks?.length === 1 ? 'track' : 'tracks'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={48} color="#444444" />
+                <Text style={styles.emptyText}>No Shared Playlists Yet</Text>
+                <Text style={styles.emptySubtext}>
+                  Create a collaborative playlist and invite a friend to add and listen together!
+                </Text>
+              </View>
+            }
+          />
+        </>
+      )}
 
       {/* Create Playlist Modal */}
       {isCreateModalVisible && (
@@ -524,6 +711,62 @@ export function LibraryScreen({ navigation }: any) {
                   </View>
                 </View>
               )}
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Create Collaborative Playlist Modal */}
+      {isCreateCollabModalVisible && (
+        <Modal
+          visible={isCreateCollabModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIsCreateCollabModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.collabModalHeaderRow}>
+                <Ionicons name="people" size={24} color="#06B6D4" />
+                <Text style={[styles.modalTitle, { marginLeft: 8 }]}>New Shared Playlist</Text>
+              </View>
+              <Text style={styles.collabModalSubtitle}>
+                Invite a friend to create a 2-user real-time playlist. Changes sync instantly on both phones!
+              </Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Friend's Username (e.g. alex)"
+                placeholderTextColor="#777777"
+                value={collabFriendUsername}
+                onChangeText={setCollabFriendUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Playlist Title (e.g. Road Trip Anthems)"
+                placeholderTextColor="#777777"
+                value={collabTitle}
+                onChangeText={setCollabTitle}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.modalCancel} 
+                  onPress={() => setIsCreateCollabModalVisible(false)}
+                  disabled={isCreatingCollab}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modalSubmit, { backgroundColor: '#06B6D4' }, isCreatingCollab && { opacity: 0.7 }]} 
+                  onPress={handleCreateCollab}
+                  disabled={isCreatingCollab}
+                >
+                  <Text style={[styles.modalSubmitText, { color: '#000000', fontWeight: '800' }]}>
+                    {isCreatingCollab ? 'Creating...' : 'Create Shared'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -967,6 +1210,98 @@ const styles = StyleSheet.create({
   changeCodeText: {
     color: '#888896',
     fontSize: 13,
+  },
+  tabSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#131826',
+    borderRadius: 12,
+    padding: 4,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#1F293D',
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  tabButtonActive: {
+    backgroundColor: '#06B6D4',
+  },
+  tabButtonText: {
+    color: '#888896',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tabButtonTextActive: {
+    color: '#000000',
+    fontWeight: 'bold',
+  },
+  sectionSubtitle: {
+    color: '#888896',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  newCollabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#06B6D4',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 5,
+  },
+  newCollabBtnText: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  collabLiveBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(6, 182, 212, 0.2)',
+    borderColor: '#06B6D4',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+  },
+  greenDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  collabLiveBadgeText: {
+    color: '#06B6D4',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  collabSharedWithText: {
+    color: '#06B6D4',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  collabModalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  collabModalSubtitle: {
+    color: '#94A3B8',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
   },
 });
 

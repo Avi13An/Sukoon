@@ -5,6 +5,7 @@ import { setupPlayer } from './src/services/TrackPlayerService';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { subscribeToSharedPlaylists } from './src/services/cloudPlaylistService';
+import { initCollabInboxListener } from './src/services/collabPlaylistService';
 import { getMyUsername } from './src/utils/storage';
 import { SyncPromptModal } from './src/components/SyncPromptModal';
 import { ToastNotification } from './src/components/ToastNotification';
@@ -22,6 +23,7 @@ export default function App() {
 
       if (getMyUsername()) {
         subscribeToSharedPlaylists();
+        initCollabInboxListener();
       }
     }
     init();

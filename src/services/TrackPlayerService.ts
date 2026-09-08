@@ -183,6 +183,24 @@ export async function resolveStreamUrl(track: TrackMetadata): Promise<string> {
 
 let isMaintainingQueue = false;
 
+export const getRecommendationQuery = (track: TrackMetadata): string => {
+  // Clean primary artist: split by comma, ft., feat., &, vs.
+  const cleanArtist = (track.artist || '')
+    .split(/[,&/]|feat\.?|ft\.?/i)[0]
+    .trim();
+
+  const genre = (track as any).genre || (track as any).tags?.[0];
+
+  if (genre && cleanArtist && cleanArtist.toLowerCase() !== 'unknown' && cleanArtist.toLowerCase() !== 'unknown artist') {
+    return `${cleanArtist} ${genre}`;
+  } else if (cleanArtist && cleanArtist.toLowerCase() !== 'unknown' && cleanArtist.toLowerCase() !== 'unknown artist') {
+    return `${cleanArtist} top hits`;
+  } else if (genre) {
+    return `${genre} trending songs`;
+  }
+  return cleanArtist ? `${cleanArtist} songs` : 'trending songs';
+};
+
 export async function maintainMinimumQueue(
   minSize = 10, 
   sessionId?: number
@@ -208,22 +226,21 @@ export async function maintainMinimumQueue(
       return [];
     }
 
-    const queries: string[] = [];
-    if (baseTrack.artist && baseTrack.artist !== 'Unknown Artist') {
-      queries.push(`${baseTrack.artist} songs`);
-      if ((baseTrack as any).genre) {
-        queries.push(`${baseTrack.artist} ${(baseTrack as any).genre}`);
-      }
+    const baseQuery = getRecommendationQuery(baseTrack);
+    const cleanArtist = (baseTrack.artist || '').split(/[,&/]|feat\.?|ft\.?/i)[0].trim();
+    const genre = (baseTrack as any).genre || (baseTrack as any).tags?.[0];
+
+    const queries: string[] = [baseQuery];
+    if (cleanArtist && cleanArtist.toLowerCase() !== 'unknown' && cleanArtist.toLowerCase() !== 'unknown artist') {
+      const artistRadio = `${cleanArtist} radio`;
+      if (!queries.includes(artistRadio)) queries.push(artistRadio);
     }
-    if (baseTrack.title) {
-      queries.push(`${baseTrack.title} ${baseTrack.artist || ''} mix`);
+    if (genre) {
+      const genreTrending = `${genre} trending songs`;
+      if (!queries.includes(genreTrending)) queries.push(genreTrending);
     }
-    if ((baseTrack as any).genre) {
-      queries.push(`${(baseTrack as any).genre} trending`);
-    }
-    if (queries.length === 0) {
-      queries.push(`${baseTrack.title || 'trending'} radio`);
-    }
+
+    const normCurrentTitle = (baseTrack.title || '').toLowerCase().trim();
 
     for (const q of queries) {
       if (assignedSessionId !== activeQueueSessionId) return [];
@@ -237,6 +254,7 @@ export async function maintainMinimumQueue(
           t => t?.id &&
                !playedTrackIds.has(t.id) &&
                t.id !== currentTrack?.id &&
+               (t.title || '').toLowerCase().trim() !== normCurrentTitle &&
                !upNextQueue.some(qItem => qItem.id === t.id)
         );
 

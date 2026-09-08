@@ -33,6 +33,16 @@ export interface Playlist {
   tracks: TrackMetadata[];
 }
 
+export interface CollaborativePlaylist {
+  id: string; // e.g. "collab_pl_" + timestamp + random
+  title: string;
+  collaborators: string[]; // [ownerNormalizedUsername, peerNormalizedUsername]
+  createdBy: string;
+  tracks: TrackMetadata[];
+  updatedAt: number;
+  version: number;
+}
+
 export interface StoredUserAccount {
   id: string;
   username: string; // Display username
@@ -938,5 +948,87 @@ export function deleteStudioRecordingStorage(id: string): void {
   const current = getStudioRecordings();
   const updated = current.filter((r) => r.id !== id);
   storage.set(KEYS.STUDIO_RECORDINGS, JSON.stringify(updated));
+}
+
+// ==========================================
+// Collaborative Shared Playlists Storage
+// ==========================================
+
+export function getCollaborativePlaylists(forUser?: string): CollaborativePlaylist[] {
+  try {
+    const session = getActiveUserSession();
+    const target = forUser || session?.username;
+    if (!target) return [];
+    const norm = target.trim().toLowerCase();
+    const key = `@sukoon_collab_playlists_${norm}`;
+    const raw = storage.getString(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn('[Storage] getCollaborativePlaylists error:', err);
+    return [];
+  }
+}
+
+export function saveCollaborativePlaylist(playlist: CollaborativePlaylist, forUser?: string): void {
+  try {
+    const session = getActiveUserSession();
+    const targetUser = forUser || session?.username;
+    if (!targetUser) return;
+    const norm = targetUser.trim().toLowerCase();
+    const key = `@sukoon_collab_playlists_${norm}`;
+    const list = getCollaborativePlaylists(norm);
+    const existingIndex = list.findIndex(p => p.id === playlist.id);
+    if (existingIndex >= 0) {
+      list[existingIndex] = playlist;
+    } else {
+      list.unshift(playlist);
+    }
+    storage.set(key, JSON.stringify(list));
+    notifyStorageChanged();
+  } catch (err) {
+    console.warn('[Storage] saveCollaborativePlaylist error:', err);
+  }
+}
+
+export function updateCollaborativePlaylistTracks(
+  playlistId: string, 
+  tracks: TrackMetadata[], 
+  forUser?: string
+): void {
+  try {
+    const session = getActiveUserSession();
+    const targetUser = forUser || session?.username;
+    if (!targetUser) return;
+    const norm = targetUser.trim().toLowerCase();
+    const key = `@sukoon_collab_playlists_${norm}`;
+    const list = getCollaborativePlaylists(norm);
+    const target = list.find(p => p.id === playlistId);
+    if (target) {
+      target.tracks = [...tracks];
+      target.updatedAt = Date.now();
+      target.version = (target.version || 1) + 1;
+      storage.set(key, JSON.stringify(list));
+      notifyStorageChanged();
+    }
+  } catch (err) {
+    console.warn('[Storage] updateCollaborativePlaylistTracks error:', err);
+  }
+}
+
+export function deleteCollaborativePlaylist(playlistId: string, forUser?: string): void {
+  try {
+    const session = getActiveUserSession();
+    const targetUser = forUser || session?.username;
+    if (!targetUser) return;
+    const norm = targetUser.trim().toLowerCase();
+    const key = `@sukoon_collab_playlists_${norm}`;
+    const list = getCollaborativePlaylists(norm).filter(p => p.id !== playlistId);
+    storage.set(key, JSON.stringify(list));
+    notifyStorageChanged();
+  } catch (err) {
+    console.warn('[Storage] deleteCollaborativePlaylist error:', err);
+  }
 }
 

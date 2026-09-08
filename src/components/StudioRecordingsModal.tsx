@@ -40,8 +40,8 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
         : `file://${item.localUri}`;
       await playTrack({
         id: item.id,
-        title: item.isMasterMixed ? item.songTitle : `${item.songTitle} (Studio Take)`,
-        artist: item.artist ? `Cover by You • ${item.artist}` : 'Studio Vocal Cover',
+        title: item.songTitle,
+        artist: item.artist || 'Studio Vocal Take',
         url: playableUri,
         duration: item.durationSeconds,
         artwork: item.artwork,
@@ -106,8 +106,8 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>
             <View style={styles.badgeRow}>
-              <Ionicons name="mic" size={13} color="#ff3b30" />
-              <Text style={styles.badgeText}>STUDIO RECORDINGS</Text>
+              <Ionicons name="mic" size={13} color="#00ffcc" />
+              <Text style={[styles.badgeText, { color: '#00ffcc' }]}>STUDIO RECORDINGS</Text>
             </View>
             <Text style={styles.headerTitle}>Your Vocal Takes & Covers</Text>
           </View>
@@ -133,11 +133,11 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
                     </View>
                   </View>
                 ) : (
-                  <View style={[styles.micCircle, item.isMasterMixed && styles.masterMicCircle]}>
+                  <View style={styles.micCircle}>
                     <Ionicons 
-                      name={item.isMasterMixed ? "disc" : "mic"} 
+                      name="mic" 
                       size={18} 
-                      color={item.isMasterMixed ? "#00ffcc" : "#ff3b30"} 
+                      color="#00ffcc" 
                     />
                   </View>
                 )}
@@ -146,12 +146,6 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
                     <Text style={styles.songTitle} numberOfLines={1}>
                       {item.songTitle}
                     </Text>
-                    {item.isMasterMixed && (
-                      <View style={styles.masterBadge}>
-                        <Ionicons name="sparkles" size={9} color="#000000" />
-                        <Text style={styles.masterBadgeText}>MASTER</Text>
-                      </View>
-                    )}
                   </View>
                   <Text style={styles.artistText} numberOfLines={1}>
                     {item.artist} • {formatTime(item.durationSeconds)}

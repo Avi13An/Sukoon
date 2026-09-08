@@ -5,27 +5,25 @@ import {
   StyleSheet, 
   Image, 
   TouchableOpacity, 
+  ScrollView,
+  FlatList, 
   Dimensions, 
   TextInput, 
-  Alert 
+  Alert,
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { showToast } from '../components/ToastNotification';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedScrollHandler, 
-  useAnimatedStyle, 
-  interpolate, 
-  Extrapolation 
-} from 'react-native-reanimated';
 import { 
   Playlist, 
   TrackMetadata, 
   getCustomPlaylists, 
   getUserPlaylists,
   deletePlaylist,
+  deleteCollaborativePlaylist,
   removeTrackFromPlaylist, 
   getDownloadedTracks,
   clonePlaylistToUser,
@@ -36,10 +34,8 @@ import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue } from '../ser
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
 import { ConfirmModal } from '../components/ConfirmModal';
-
-const { width } = Dimensions.get('window');
-const HEADER_MAX_HEIGHT = width * 0.85;
-const HEADER_MIN_HEIGHT = 90;
+import { createPartyRoom } from '../services/partyService';
+import { subscribeToCollabPlaylist, syncCollabTracks } from '../services/collabPlaylistService';
 
 interface PlaylistScreenProps {
   route: any;
@@ -117,7 +113,10 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     createdAt: Date.now(),
     tracks: [],
   };
+  const isCollaborative = Boolean(route.params?.isCollaborative);
+  const collabId = route.params?.collabId || initialPlaylist.id;
   const playlistId = route.params?.playlistId || initialPlaylist.id;
+
   const [playlist, setPlaylist] = useState<Playlist>(initialPlaylist);
   const [originalTracks, setOriginalTracks] = useState<TrackMetadata[]>(initialPlaylist.tracks || []);
   const [shuffleMode, setShuffleMode] = useState<SmartShuffleMode>('none');
@@ -138,17 +137,19 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         });
         setOriginalTracks(downloaded);
         getOfflineStorageUsage().then(usage => setStorageSize(usage.formattedSize));
-      } else if (playlistId) {
+      } else if (playlistId && !isCollaborative) {
         const found = getUserPlaylists().find(p => p.id === playlistId);
         if (found) {
           setPlaylist(found);
           setOriginalTracks(found.tracks || []);
         }
       }
-    }, [playlistId])
+    }, [playlistId, isCollaborative])
   );
 
+  // Local storage listener for standard playlists
   useEffect(() => {
+    if (isCollaborative) return;
     const unsub = onPlaylistsChanged(() => {
       if (playlistId && playlistId !== 'downloads') {
         const found = getUserPlaylists().find(p => p.id === playlistId);
@@ -159,33 +160,22 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       }
     });
     return unsub;
-  }, [playlistId]);
-  
-  const scrollY = useSharedValue(0);
+  }, [playlistId, isCollaborative]);
 
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-  });
-
-  const animatedHeaderStyle = useAnimatedStyle(() => {
-    const height = interpolate(
-      scrollY.value,
-      [0, HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT],
-      [HEADER_MAX_HEIGHT, HEADER_MIN_HEIGHT],
-      Extrapolation.CLAMP
-    );
-    return { height };
-  });
-
-  const animatedImageStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(
-      scrollY.value,
-      [0, (HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT) / 2],
-      [1, 0],
-      Extrapolation.CLAMP
-    );
-    return { opacity };
-  });
+  // Real-time listener for collaborative playlists
+  useEffect(() => {
+    if (isCollaborative && collabId) {
+      console.log(`[PlaylistScreen] Subscribing to collaborative playlist: ${collabId}`);
+      const unsubscribe = subscribeToCollabPlaylist(collabId, (updatedTracks) => {
+        console.log(`[PlaylistScreen] Received live collab update (${updatedTracks.length} tracks)`);
+        setPlaylist(prev => ({ ...prev, tracks: updatedTracks }));
+        setOriginalTracks(updatedTracks);
+      });
+      return () => {
+        unsubscribe();
+      };
+    }
+  }, [isCollaborative, collabId]);
 
   const [shareUsername, setShareUsername] = useState('');
   const [isShareModalVisible, setIsShareModalVisible] = useState(false);
@@ -260,6 +250,19 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     }
   };
 
+  const handleStartJam = async () => {
+    try {
+      const code = await createPartyRoom();
+      await Clipboard.setStringAsync(code);
+      showToast(`Sukoon Jam started! Code ${code} copied!`, 'radio');
+      if (playlist.tracks && playlist.tracks.length > 0) {
+        await playTrack(playlist.tracks[0], playlist.tracks);
+      }
+    } catch (err: any) {
+      showToast('Failed to start Sukoon Jam', 'alert-circle');
+    }
+  };
+
   const [confirmModal, setConfirmModal] = useState<{
     visible: boolean;
     title: string;
@@ -282,6 +285,23 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       showToast('This playlist cannot be deleted', 'shield-checkmark');
       return;
     }
+
+    if (isCollaborative) {
+      setConfirmModal({
+        visible: true,
+        title: 'Delete Shared Playlist',
+        message: `Are you sure you want to delete "${playlist.name}"? It will be removed from your shared playlists.`,
+        confirmText: 'Delete',
+        isDestructive: true,
+        onConfirm: () => {
+          deleteCollaborativePlaylist(collabId);
+          showToast(`Deleted shared playlist "${playlist.name}"`, 'trash-outline');
+          navigation.goBack();
+        },
+      });
+      return;
+    }
+
     setConfirmModal({
       visible: true,
       title: 'Delete Playlist',
@@ -323,7 +343,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
 
   const handleRemoveTrack = (track: TrackMetadata) => {
-    if (playlist.isImported) return;
+    if (playlist.isImported && !isCollaborative) return;
     const isDownloads = playlistId === 'downloads';
     setConfirmModal({
       visible: true,
@@ -339,6 +359,13 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           const usage = await getOfflineStorageUsage();
           setStorageSize(usage.formattedSize);
           showToast(`Deleted "${track.title}" from offline downloads`, 'trash-outline');
+        } else if (isCollaborative) {
+          const updated = playlist.tracks.filter(t => t.id !== track.id);
+          setPlaylist(prev => ({ ...prev, tracks: updated }));
+          setOriginalTracks(updated);
+          await syncCollabTracks(collabId, updated);
+          showToast(`Removed from shared playlist`, 'trash-outline');
+          return;
         } else {
           removeTrackFromPlaylist(playlist.id, track.id);
           showToast(`Removed from "${playlist.name}"`, 'trash-outline');
@@ -371,7 +398,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           <Text style={styles.trackArtist} numberOfLines={1}>{item.artist}</Text>
         </View>
       </TouchableOpacity>
-      {!playlist.isImported && (
+      {(!playlist.isImported || isCollaborative) && (
         <TouchableOpacity 
           style={styles.removeBtn} 
           onPress={() => handleRemoveTrack(item)}
@@ -384,55 +411,87 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   );
 
   return (
-    <View style={styles.container}>
-      <Animated.View style={[styles.header, animatedHeaderStyle]}>
-        {playlist.coverImage ? (
-          <Animated.Image 
-            source={{ uri: playlist.coverImage }} 
-            style={[styles.headerImage, animatedImageStyle]} 
-          />
-        ) : (
-          <Animated.View style={[styles.headerPlaceholder, animatedImageStyle]}>
-            <Ionicons name="musical-notes" size={80} color="#333333" />
-          </Animated.View>
-        )}
-        <View style={styles.headerOverlay}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          <Text style={styles.playlistName} numberOfLines={1}>{playlist.name}</Text>
-          {playlist.isImported && (
-            <View style={styles.viewOnlyBadge}>
-              <Ionicons name="lock-closed" size={11} color="#00ffcc" />
-              <Text style={styles.viewOnlyBadgeText}>Shared Playlist (View Only)</Text>
-            </View>
-          )}
-          {playlist.description ? (
-            <Text style={styles.playlistDesc} numberOfLines={2}>{playlist.description}</Text>
-          ) : null}
-          <Text style={styles.trackCount}>
-            {playlist.tracks.length} {playlist.tracks.length === 1 ? 'Track' : 'Tracks'}
-            {playlistId === 'downloads' 
-              ? ` • ${storageSize} Offline Storage` 
-              : createdDateStr ? ` • Created ${createdDateStr}` : ''}
-          </Text>
-        </View>
-      </Animated.View>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      
+      {/* Top Navigation Bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity 
+          style={styles.topBarBackBtn} 
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+        </TouchableOpacity>
+        <Text style={styles.topBarTitle} numberOfLines={1}>
+          {playlist.name}
+        </Text>
+        <View style={{ width: 40 }} />
+      </View>
 
-      <Animated.FlatList
+      <FlatList
         data={playlist.tracks}
         keyExtractor={(item, index) => `${item.id}-${index}`}
         renderItem={renderItem}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <View style={styles.listHeader}>
-            {playlist.isImported && (
+          <View style={styles.listHeaderWrapper}>
+            {/* Fluid Responsive Header Card */}
+            <View style={styles.headerCard}>
+              {playlist.coverImage ? (
+                <Image source={{ uri: playlist.coverImage }} style={styles.headerArtwork} />
+              ) : (
+                <View style={styles.headerPlaceholder}>
+                  <Ionicons 
+                    name={isCollaborative ? "people" : isLikedSongsPlaylist(playlist) ? "heart" : "musical-notes"} 
+                    size={48} 
+                    color={isCollaborative ? "#06B6D4" : isLikedSongsPlaylist(playlist) ? "#FF3B30" : "#38BDF8"} 
+                  />
+                </View>
+              )}
+              
+              <View style={styles.headerInfoCol}>
+                {isCollaborative && (
+                  <View style={styles.collabHeaderBadge}>
+                    <View style={styles.greenLiveDot} />
+                    <Text style={styles.collabHeaderBadgeText}>Live Shared Playlist</Text>
+                  </View>
+                )}
+
+                {playlist.isImported && !isCollaborative && (
+                  <View style={styles.viewOnlyBadge}>
+                    <Ionicons name="lock-closed" size={11} color="#06B6D4" />
+                    <Text style={styles.viewOnlyBadgeText}>Shared (View Only)</Text>
+                  </View>
+                )}
+
+                <Text style={styles.headerTitle} numberOfLines={2}>
+                  {playlist.name}
+                </Text>
+
+                {playlist.description ? (
+                  <Text style={styles.headerDesc} numberOfLines={2}>
+                    {playlist.description}
+                  </Text>
+                ) : null}
+
+                <View style={styles.metadataRow}>
+                  <Text style={styles.metadataText}>
+                    {playlist.tracks.length} {playlist.tracks.length === 1 ? 'track' : 'tracks'}
+                    {playlistId === 'downloads' 
+                      ? ` • ${storageSize} Offline` 
+                      : createdDateStr ? ` • ${createdDateStr}` : ''}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* View-Only Warning Banner */}
+            {playlist.isImported && !isCollaborative && (
               <View style={styles.duplicateBanner}>
                 <View style={styles.duplicateBannerHeader}>
                   <View style={styles.duplicateIconCircle}>
-                    <Ionicons name="copy-outline" size={18} color="#00ffcc" />
+                    <Ionicons name="copy-outline" size={18} color="#06B6D4" />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={styles.duplicateBannerTitle}>Shared Playlist (View Only)</Text>
@@ -443,7 +502,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 </View>
                 <TouchableOpacity 
                   style={styles.duplicateBannerBtn} 
-                  onPress={handleDuplicateToMyLibrary}
+                  onPress={handleDuplicateToMyLibrary} 
                   activeOpacity={0.8}
                 >
                   <Ionicons name="duplicate" size={16} color="#000000" />
@@ -452,74 +511,135 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
               </View>
             )}
 
-            <View style={styles.primaryActionButtons}>
-              <TouchableOpacity style={styles.playAllBtn} onPress={handlePlayAll} activeOpacity={0.8}>
-                <Ionicons name="play" size={18} color="#000000" />
-                <Text style={styles.playAllBtnText}>Play All</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.shuffleBtn, shuffleMode !== 'none' && styles.shuffleBtnActive]} 
-                onPress={() => setIsShuffleModalVisible(true)} 
-                activeOpacity={0.8}
+            {/* Horizontal Scrollable Action Buttons Bar */}
+            <View style={styles.actionsBarWrapper}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                contentContainerStyle={styles.actionsBarScroll}
               >
-                <Ionicons name="sparkles" size={16} color={shuffleMode !== 'none' ? '#000000' : '#00ffcc'} />
-                <Text style={[styles.shuffleBtnText, shuffleMode !== 'none' && styles.shuffleBtnTextActive]}>
-                  Smart Shuffle
-                </Text>
-              </TouchableOpacity>
-
-              {shuffleMode !== 'none' && (
-                <TouchableOpacity style={styles.resetBtn} onPress={handleResetShuffle} activeOpacity={0.8}>
-                  <Ionicons name="refresh" size={15} color="#ffffff" />
-                  <Text style={styles.resetBtnText}>Reset</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={styles.secondaryActions}>
-              <TouchableOpacity style={styles.secondaryBtn} onPress={handleDownloadAll} activeOpacity={0.7}>
-                <Ionicons name="arrow-down-circle-outline" size={18} color="#ffffff" />
-                <Text style={styles.secondaryBtnText}>Download</Text>
-              </TouchableOpacity>
-              
-              {playlist.isImported && (
+                {/* Primary Play Button */}
                 <TouchableOpacity 
-                  style={[styles.secondaryBtn, styles.duplicateSecondaryBtn]} 
-                  onPress={handleDuplicateToMyLibrary} 
+                  style={styles.primaryPlayBtn} 
+                  onPress={handlePlayAll} 
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="play" size={18} color="#000000" />
+                  <Text style={styles.primaryPlayBtnText}>Play All</Text>
+                </TouchableOpacity>
+
+                {/* Smart Shuffle */}
+                <TouchableOpacity 
+                  style={[styles.secondaryPill, shuffleMode !== 'none' && styles.secondaryPillActive]} 
+                  onPress={() => setIsShuffleModalVisible(true)} 
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="duplicate-outline" size={17} color="#00ffcc" />
-                  <Text style={[styles.secondaryBtnText, { color: '#00ffcc' }]}>Copy to Account</Text>
+                  <Ionicons 
+                    name="sparkles" 
+                    size={16} 
+                    color={shuffleMode !== 'none' ? '#06B6D4' : '#E2E8F0'} 
+                  />
+                  <Text style={[styles.secondaryPillText, shuffleMode !== 'none' && { color: '#06B6D4' }]}>
+                    {shuffleMode !== 'none' ? 'Shuffled' : 'Shuffle'}
+                  </Text>
                 </TouchableOpacity>
-              )}
 
-              {!playlist.isImported && playlistId !== 'downloads' && (
-                <>
-                  <TouchableOpacity style={styles.secondaryBtn} onPress={handleCopyShareCode} activeOpacity={0.7}>
-                    <Ionicons name="copy-outline" size={18} color="#00ffcc" />
-                    <Text style={[styles.secondaryBtnText, { color: '#00ffcc' }]}>Share Code</Text>
+                {shuffleMode !== 'none' && (
+                  <TouchableOpacity 
+                    style={styles.secondaryPill} 
+                    onPress={handleResetShuffle} 
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="refresh" size={15} color="#E2E8F0" />
+                    <Text style={styles.secondaryPillText}>Reset</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryBtn} onPress={() => setIsShareModalVisible(true)} activeOpacity={0.7}>
-                    <Ionicons name="share-social-outline" size={18} color="#ffffff" />
-                    <Text style={styles.secondaryBtnText}>Invite</Text>
+                )}
+
+                {/* Share Code */}
+                {playlistId !== 'downloads' && (
+                  <TouchableOpacity 
+                    style={styles.secondaryPill} 
+                    onPress={handleCopyShareCode} 
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="share-outline" size={16} color="#E2E8F0" />
+                    <Text style={styles.secondaryPillText}>Share Code</Text>
                   </TouchableOpacity>
-                  {!isLikedSongsPlaylist(playlist) && (
-                    <TouchableOpacity style={styles.secondaryBtn} onPress={handleDeletePlaylist} activeOpacity={0.7}>
-                      <Ionicons name="trash-outline" size={18} color="#ff5252" />
-                      <Text style={[styles.secondaryBtnText, { color: '#ff5252' }]}>Delete</Text>
-                    </TouchableOpacity>
-                  )}
-                </>
-              )}
+                )}
+
+                {/* Add Song */}
+                {!playlist.isImported && (
+                  <TouchableOpacity 
+                    style={styles.secondaryPill} 
+                    onPress={() => {
+                      navigation.navigate('Search');
+                      showToast('Search for tracks and tap "Add to Playlist"', 'search');
+                    }} 
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="add-circle-outline" size={16} color="#E2E8F0" />
+                    <Text style={styles.secondaryPillText}>Add Song</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Sukoon Jam */}
+                <TouchableOpacity 
+                  style={styles.secondaryPill} 
+                  onPress={handleStartJam} 
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="radio-outline" size={16} color="#06B6D4" />
+                  <Text style={styles.secondaryPillText}>Sukoon Jam</Text>
+                </TouchableOpacity>
+
+                {/* Download */}
+                <TouchableOpacity 
+                  style={styles.secondaryPill} 
+                  onPress={handleDownloadAll} 
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="arrow-down-circle-outline" size={16} color="#E2E8F0" />
+                  <Text style={styles.secondaryPillText}>Download</Text>
+                </TouchableOpacity>
+
+                {/* Duplicate if imported */}
+                {playlist.isImported && !isCollaborative && (
+                  <TouchableOpacity 
+                    style={[styles.secondaryPill, { borderColor: 'rgba(6, 182, 212, 0.4)' }]} 
+                    onPress={handleDuplicateToMyLibrary} 
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="duplicate-outline" size={16} color="#06B6D4" />
+                    <Text style={[styles.secondaryPillText, { color: '#06B6D4' }]}>Copy to Account</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Delete */}
+                {!isProtectedPlaylist && !playlist.isImported && (
+                  <TouchableOpacity 
+                    style={styles.secondaryPill} 
+                    onPress={handleDeletePlaylist} 
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+                    <Text style={[styles.secondaryPillText, { color: '#FF3B30' }]}>Delete</Text>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
             </View>
+
+            <View style={styles.headerSeparator} />
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="musical-note-outline" size={48} color="#444444" />
             <Text style={styles.emptyText}>No tracks in this playlist yet.</Text>
-            <Text style={styles.emptySubtext}>Search for songs and tap "Add to Playlist" to add them here!</Text>
+            <Text style={styles.emptySubtext}>
+              {isCollaborative 
+                ? 'Search for songs and add them here to share with your collaborator!' 
+                : 'Search for songs and tap "Add to Playlist" to add them here!'}
+            </Text>
           </View>
         }
       />
@@ -554,7 +674,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           <View style={styles.modalContainer}>
             <View style={styles.modalHeaderRow}>
               <View style={styles.sparkleBadge}>
-                <Ionicons name="sparkles" size={18} color="#00ffcc" />
+                <Ionicons name="sparkles" size={18} color="#06B6D4" />
               </View>
               <Text style={styles.modalTitle}>Smart AI Shuffle</Text>
             </View>
@@ -639,7 +759,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         onConfirm={confirmModal.onConfirm}
         onClose={() => setConfirmModal(prev => ({ ...prev, visible: false }))}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -648,186 +768,193 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
-  header: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1,
-    backgroundColor: '#121214',
-    overflow: 'hidden',
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    backgroundColor: '#000000',
   },
-  headerImage: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
+  topBarBackBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#131826',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1F293D',
+  },
+  topBarTitle: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 8,
+  },
+  listContent: {
+    paddingBottom: 60,
+  },
+  listHeaderWrapper: {
+    marginBottom: 8,
+  },
+  headerCard: {
+    flexDirection: 'row',
+    backgroundColor: '#0B0F19',
+    borderRadius: 20,
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#1F293D',
+    alignItems: 'center',
+  },
+  headerArtwork: {
+    width: 120,
+    height: 120,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1F293D',
   },
   headerPlaceholder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#16161a',
+    width: 120,
+    height: 120,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1F293D',
+    backgroundColor: '#131826',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-    padding: 16,
-  },
-  backBtn: {
-    position: 'absolute',
-    top: 44,
-    left: 16,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
+  headerInfoCol: {
+    flex: 1,
+    marginLeft: 14,
     justifyContent: 'center',
   },
-  playlistName: {
-    color: '#ffffff',
-    fontSize: 26,
-    fontWeight: 'bold',
-    marginBottom: 4,
+  collabHeaderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(6, 182, 212, 0.15)',
+    borderColor: '#06B6D4',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 6,
+    gap: 5,
+  },
+  greenLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  collabHeaderBadgeText: {
+    color: '#06B6D4',
+    fontSize: 10,
+    fontWeight: '800',
   },
   viewOnlyBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(0, 255, 204, 0.15)',
+    backgroundColor: 'rgba(6, 182, 212, 0.15)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 204, 0.3)',
+    borderColor: 'rgba(6, 182, 212, 0.3)',
     marginBottom: 6,
     gap: 4,
   },
   viewOnlyBadgeText: {
-    color: '#00ffcc',
+    color: '#06B6D4',
     fontSize: 11,
     fontWeight: '700',
   },
-  playlistDesc: {
-    color: '#cccccc',
-    fontSize: 13,
-    marginBottom: 6,
+  headerTitle: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: 'bold',
+    flexShrink: 1,
+    marginBottom: 4,
   },
-  trackCount: {
-    color: '#aaaaaa',
-    fontSize: 13,
+  headerDesc: {
+    color: '#94A3B8',
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 4,
   },
-  listContent: {
-    paddingTop: HEADER_MAX_HEIGHT + 10,
-    paddingBottom: 40,
-    paddingHorizontal: 16,
-  },
-  listHeader: {
-    paddingBottom: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#222222',
-    marginBottom: 16,
-    gap: 12,
-  },
-  primaryActionButtons: {
+  metadataRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 2,
+  },
+  metadataText: {
+    color: '#94A3B8',
+    fontSize: 13,
+  },
+  actionsBarWrapper: {
+    marginBottom: 10,
+  },
+  actionsBarScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
     gap: 10,
   },
-  playAllBtn: {
-    flex: 1,
+  primaryPlayBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#00ffcc',
-    paddingVertical: 12,
-    borderRadius: 22,
+    backgroundColor: '#06B6D4',
+    borderRadius: 24,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     gap: 6,
   },
-  playAllBtnText: {
+  primaryPlayBtnText: {
     color: '#000000',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
   },
-  shuffleBtn: {
-    flex: 1,
+  secondaryPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#16161a',
+    backgroundColor: '#131826',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#00ffcc',
-    paddingVertical: 12,
-    borderRadius: 22,
+    borderColor: '#222D44',
+    paddingVertical: 9,
+    paddingHorizontal: 16,
     gap: 6,
   },
-  shuffleBtnActive: {
-    backgroundColor: '#00ffcc',
-    borderColor: '#00ffcc',
+  secondaryPillActive: {
+    borderColor: '#06B6D4',
+    backgroundColor: 'rgba(6, 182, 212, 0.15)',
   },
-  shuffleBtnText: {
-    color: '#00ffcc',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  shuffleBtnTextActive: {
-    color: '#000000',
-  },
-  resetBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#222226',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 22,
-    gap: 4,
-  },
-  resetBtnText: {
-    color: '#ffffff',
+  secondaryPillText: {
+    color: '#E2E8F0',
     fontSize: 13,
     fontWeight: '600',
   },
-  secondaryActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  secondaryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#161618',
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#26262a',
-    gap: 6,
-  },
-  secondaryBtnText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
+  headerSeparator: {
+    height: 1,
+    backgroundColor: '#161E2E',
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 4,
   },
   trackItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-    paddingVertical: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   trackMainTouch: {
     flex: 1,
@@ -837,8 +964,8 @@ const styles = StyleSheet.create({
   trackImage: {
     width: 48,
     height: 48,
-    borderRadius: 6,
-    backgroundColor: '#18181a',
+    borderRadius: 8,
+    backgroundColor: '#131826',
   },
   trackInfo: {
     flex: 1,
@@ -848,11 +975,11 @@ const styles = StyleSheet.create({
   trackTitle: {
     color: '#ffffff',
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '600',
     marginBottom: 3,
   },
   trackArtist: {
-    color: '#888888',
+    color: '#888896',
     fontSize: 13,
   },
   removeBtn: {
@@ -875,7 +1002,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
     marginTop: 6,
-    paddingHorizontal: 20,
+    paddingHorizontal: 30,
+    lineHeight: 18,
   },
   modalOverlay: {
     position: 'absolute',
@@ -889,11 +1017,11 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: '100%',
     maxWidth: 340,
-    backgroundColor: '#161618',
-    borderRadius: 12,
+    backgroundColor: '#131826',
+    borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#28282c',
+    borderColor: '#222D44',
   },
   modalTitle: {
     color: '#ffffff',
@@ -902,10 +1030,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalInput: {
-    backgroundColor: '#0c0c0e',
+    backgroundColor: '#0B0F19',
     color: '#ffffff',
     borderWidth: 1,
-    borderColor: '#28282c',
+    borderColor: '#222D44',
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
@@ -927,7 +1055,7 @@ const styles = StyleSheet.create({
   modalSubmit: {
     paddingVertical: 10,
     paddingHorizontal: 18,
-    backgroundColor: '#00ffcc',
+    backgroundColor: '#06B6D4',
     borderRadius: 8,
   },
   modalSubmitText: {
@@ -945,7 +1073,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    backgroundColor: 'rgba(6, 182, 212, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -964,20 +1092,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
     borderRadius: 10,
-    backgroundColor: '#0c0c0e',
+    backgroundColor: '#0B0F19',
     borderWidth: 1,
-    borderColor: '#26262a',
+    borderColor: '#1F293D',
     gap: 12,
   },
   shuffleModeItemActive: {
-    borderColor: '#00ffcc',
-    backgroundColor: 'rgba(0, 255, 204, 0.08)',
+    borderColor: '#06B6D4',
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
   },
   shuffleModeIconBox: {
     width: 38,
     height: 38,
     borderRadius: 8,
-    backgroundColor: '#1a1a1e',
+    backgroundColor: '#131826',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -988,7 +1116,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   shuffleModeDesc: {
-    color: '#888888',
+    color: '#888896',
     fontSize: 12,
     lineHeight: 16,
   },
@@ -996,7 +1124,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: '#202024',
+    backgroundColor: '#1F293D',
   },
   closeShuffleModalText: {
     color: '#ffffff',
@@ -1004,12 +1132,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   duplicateBanner: {
-    backgroundColor: '#111116',
-    borderRadius: 12,
+    backgroundColor: '#0B0F19',
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 204, 0.25)',
-    marginBottom: 4,
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+    marginHorizontal: 16,
+    marginBottom: 12,
   },
   duplicateBannerHeader: {
     flexDirection: 'row',
@@ -1020,7 +1149,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    backgroundColor: 'rgba(6, 182, 212, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1039,7 +1168,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#00ffcc',
+    backgroundColor: '#06B6D4',
     paddingVertical: 10,
     borderRadius: 8,
     gap: 6,
@@ -1049,8 +1178,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: 'bold',
   },
-  duplicateSecondaryBtn: {
-    borderColor: 'rgba(0, 255, 204, 0.4)',
-  },
 });
-

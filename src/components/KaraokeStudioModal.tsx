@@ -7,29 +7,24 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  Dimensions,
   Alert,
-  PanResponder,
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TrackPlayer, { useIsPlaying } from '@rntp/player';
-import { TrackMetadata, StudioRecording, saveStudioRecording } from '../utils/storage';
+import { createAudioPlayer } from 'expo-audio';
+import { TrackMetadata, StudioRecording } from '../utils/storage';
 import { getLyricsWithSource, ParsedLyrics, LyricLine } from '../services/lyricsService';
 import { 
   startRecording, 
   pauseRecording, 
   resumeRecording, 
-  stopAndSaveRecording, 
+  finishVocalTake,
+  saveRecording,
   discardRecording,
   shareRecording 
 } from '../services/recordingService';
-import { setPlayerVolume } from '../services/TrackPlayerService';
-import { mixVocalWithBackingTrack } from '../services/audioMixingService';
-import { getAudioStream } from '../services/musicApi';
 import { showToast } from './ToastNotification';
-
-const { width } = Dimensions.get('window');
 
 interface Props {
   visible: boolean;
@@ -39,7 +34,7 @@ interface Props {
   duration?: number;
 }
 
-type StudioState = 'idle' | 'recording' | 'paused' | 'saved';
+type StudioState = 'idle' | 'recording' | 'paused' | 'stopped' | 'saved';
 
 export function KaraokeStudioModal({
   visible,
@@ -64,27 +59,20 @@ export function KaraokeStudioModal({
 
   const [lyricsData, setLyricsData] = useState<ParsedLyrics | null>(null);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
-  const [bgmVolume, setBgmVolume] = useState<number>(60); // 0 to 100, default 60%
-  const [vocalVolume, setVocalVolume] = useState<number>(100); // 0 to 100, default 100%
   const [studioState, setStudioState] = useState<StudioState>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [vocalTake, setVocalTake] = useState<{ localUri: string; durationSeconds: number } | null>(null);
   const [lastSavedRecording, setLastSavedRecording] = useState<StudioRecording | null>(null);
-  const [isMixingMaster, setIsMixingMaster] = useState<boolean>(false);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState<boolean>(false);
 
   const flatListRef = useRef<FlatList<LyricLine>>(null);
   const timerIntervalRef = useRef<any>(null);
-  const recordingStartOffsetRef = useRef<number>(0);
-  const bgmSliderWidth = useRef<number>(width - 40);
-  const vocalSliderWidth = useRef<number>(width - 40);
+  const previewPlayerRef = useRef<any>(null);
 
-  // Load lyrics and configure monitoring volume when modal opens
+  // Load lyrics when modal opens
   useEffect(() => {
     if (visible && track) {
       loadLyrics();
-      // Set initial BGM monitoring volume to 60%
-      setBgmVolume(60);
-      setVocalVolume(100);
-      setPlayerVolume(0.60).catch(() => {});
     } else {
       cleanupStudio();
     }
@@ -136,15 +124,26 @@ export function KaraokeStudioModal({
     }
   };
 
+  const stopPreviewPlayer = () => {
+    if (previewPlayerRef.current) {
+      try {
+        previewPlayerRef.current.pause();
+        previewPlayerRef.current.release?.();
+      } catch {}
+      previewPlayerRef.current = null;
+    }
+    setIsPreviewPlaying(false);
+  };
+
   const cleanupStudio = () => {
+    stopPreviewPlayer();
     if (studioState === 'recording' || studioState === 'paused') {
       discardRecording().catch(() => {});
     }
     setStudioState('idle');
     setElapsedSeconds(0);
+    setVocalTake(null);
     setLastSavedRecording(null);
-    // Restore full volume
-    setPlayerVolume(1.0).catch(() => {});
   };
 
   // Synced Lyrics active line calculation
@@ -170,56 +169,9 @@ export function KaraokeStudioModal({
     }
   }, [activeLineIndex]);
 
-  // Backing Music Volume PanResponder
-  const bgmPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const x = evt.nativeEvent.locationX;
-        const percent = Math.round(Math.max(0, Math.min(100, (x / (bgmSliderWidth.current || 1)) * 100)));
-        setBgmVolume(percent);
-        setPlayerVolume(percent / 100).catch(() => {});
-      },
-      onPanResponderMove: (evt) => {
-        const x = evt.nativeEvent.locationX;
-        const percent = Math.round(Math.max(0, Math.min(100, (x / (bgmSliderWidth.current || 1)) * 100)));
-        setBgmVolume(percent);
-        setPlayerVolume(percent / 100).catch(() => {});
-      },
-    })
-  ).current;
-
-  // Vocal Volume PanResponder
-  const vocalPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const x = evt.nativeEvent.locationX;
-        const percent = Math.round(Math.max(0, Math.min(100, (x / (vocalSliderWidth.current || 1)) * 100)));
-        setVocalVolume(percent);
-      },
-      onPanResponderMove: (evt) => {
-        const x = evt.nativeEvent.locationX;
-        const percent = Math.round(Math.max(0, Math.min(100, (x / (vocalSliderWidth.current || 1)) * 100)));
-        setVocalVolume(percent);
-      },
-    })
-  ).current;
-
   // Recording Controls
   const handleStartRecord = async () => {
     try {
-      let startOffset = currentPosition || 0;
-      try {
-        const p = await TrackPlayer.getProgress();
-        if (p && typeof p.position === 'number' && p.position >= 0) {
-          startOffset = p.position;
-        }
-      } catch {}
-      recordingStartOffsetRef.current = startOffset;
-
       // Ensure backing music is playing for vocal cue
       try {
         await TrackPlayer.play();
@@ -228,6 +180,7 @@ export function KaraokeStudioModal({
       await startRecording();
       setElapsedSeconds(0);
       setStudioState('recording');
+      setVocalTake(null);
       setLastSavedRecording(null);
     } catch (err: any) {
       showToast(err?.message || 'Recording requires standalone native microphone module', 'mic-off-outline');
@@ -244,17 +197,16 @@ export function KaraokeStudioModal({
     }
   };
 
-  const handleStopAndSave = async () => {
-    if (!track) return;
+  const handleStopRecording = async () => {
     try {
       try {
         await TrackPlayer.pause();
       } catch {}
 
-      const saved = await stopAndSaveRecording(track.title, track.artist, elapsedSeconds);
-      if (saved) {
-        setLastSavedRecording(saved);
-        setStudioState('saved');
+      const take = await finishVocalTake(elapsedSeconds);
+      if (take) {
+        setVocalTake(take);
+        setStudioState('stopped');
       } else {
         setStudioState('idle');
       }
@@ -264,67 +216,65 @@ export function KaraokeStudioModal({
     }
   };
 
-  const handleSaveMasterSong = async () => {
-    if (!lastSavedRecording || !track) return;
-    setIsMixingMaster(true);
+  // Preview Player Toggle
+  const togglePreviewPlayback = () => {
+    if (!vocalTake?.localUri) return;
     try {
-      let backingTrackUri = track.url;
-      if (!backingTrackUri) {
-        const stream = await getAudioStream(track.id);
-        backingTrackUri = typeof stream === 'string' ? stream : (stream as any)?.url;
+      if (!previewPlayerRef.current) {
+        const player = createAudioPlayer({ uri: vocalTake.localUri });
+        player.addListener('playbackStatusUpdate', (status: any) => {
+          if (status?.didJustFinish) {
+            setIsPreviewPlaying(false);
+          }
+        });
+        previewPlayerRef.current = player;
       }
-      if (!backingTrackUri) {
-        throw new Error('Unable to resolve stream URL for backing track');
+
+      if (isPreviewPlaying) {
+        previewPlayerRef.current.pause();
+        setIsPreviewPlaying(false);
+      } else {
+        previewPlayerRef.current.play();
+        setIsPreviewPlaying(true);
       }
-
-      const mixedUri = await mixVocalWithBackingTrack({
-        vocalUri: lastSavedRecording.localUri,
-        backingTrackUri,
-        vocalVolume: vocalVolume / 100,
-        musicVolume: bgmVolume / 100,
-        startTimeSeconds: recordingStartOffsetRef.current,
-        durationSeconds: lastSavedRecording.durationSeconds,
-      });
-
-      const playableMixedUri = mixedUri.startsWith('file://') ? mixedUri : `file://${mixedUri}`;
-
-      const masterRecording: StudioRecording = {
-        id: `master_${Date.now()}`,
-        songTitle: `${track.title} (Master Cover)`,
-        artist: track.artist ? `Cover by You • ${track.artist}` : 'Studio Vocal Cover',
-        localUri: playableMixedUri,
-        createdAt: Date.now(),
-        durationSeconds: lastSavedRecording.durationSeconds,
-        artwork: track.artwork,
-        isMasterMixed: true,
-      };
-
-      saveStudioRecording(masterRecording);
-      showToast('Master song saved to Studio Recordings!', 'checkmark-circle');
-      cleanupStudio();
-      onClose();
-    } catch (err: any) {
-      console.error('[KaraokeStudio] Save master error:', err);
-      Alert.alert('Master Mix Error', err?.message || 'Failed to overlay vocals onto backing track.');
-    } finally {
-      setIsMixingMaster(false);
+    } catch (err) {
+      console.warn('Preview playback error:', err);
     }
   };
 
-  const handleDiscard = () => {
+  const handleSaveTake = () => {
+    if (!vocalTake || !track) return;
+    stopPreviewPlayer();
+    const saved = saveRecording(
+      track.title,
+      track.artist,
+      vocalTake.localUri,
+      vocalTake.durationSeconds,
+      track.artwork
+    );
+    setLastSavedRecording(saved);
+    setStudioState('saved');
+  };
+
+  const handleDiscardTake = () => {
     Alert.alert(
-      'Discard Recording',
-      'Are you sure you want to discard this recording take?',
+      'Discard Recording Take',
+      'Are you sure you want to discard this vocal take?',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Discard', 
           style: 'destructive', 
           onPress: async () => {
-            await discardRecording();
+            stopPreviewPlayer();
+            if (vocalTake?.localUri) {
+              await discardRecording(vocalTake.localUri);
+            } else {
+              await discardRecording();
+            }
+            setVocalTake(null);
             setStudioState('idle');
             setElapsedSeconds(0);
-            setLastSavedRecording(null);
           } 
         },
       ]
@@ -355,11 +305,12 @@ export function KaraokeStudioModal({
   };
 
   const handleShare = async () => {
-    if (!lastSavedRecording) return;
+    const target = lastSavedRecording?.localUri || vocalTake?.localUri;
+    if (!target) return;
     try {
-      await shareRecording(lastSavedRecording.localUri, lastSavedRecording.songTitle);
+      await shareRecording(target, track?.title);
     } catch (err: any) {
-      Alert.alert('Share Error', err.message || 'Unable to share audio file.');
+      Alert.alert('Share Error', err?.message || 'Unable to share audio file.');
     }
   };
 
@@ -404,68 +355,30 @@ export function KaraokeStudioModal({
           </View>
         </View>
 
-        {/* BGM Cueing, Play/Pause & Dual Volume Mixer Control */}
-        <View style={styles.mixerCard}>
-          <View style={styles.bgmRow}>
-            <TouchableOpacity 
-              onPress={toggleBgmPlayback} 
-              activeOpacity={0.7} 
-              style={styles.bgmPlayBtn}
-            >
-              <Ionicons 
-                name={isPlaying ? "pause-circle" : "play-circle"} 
-                size={38} 
-                color="#00ffcc" 
-              />
-            </TouchableOpacity>
-            <View style={styles.bgmTrackInfo}>
-              <Text style={styles.bgmTrackTitle} numberOfLines={1}>
-                {track?.title || 'No Track Selected'}
-              </Text>
-              <Text style={styles.bgmTrackArtist} numberOfLines={1}>
-                {track?.artist || 'Cue backing track'}
-              </Text>
-            </View>
+        {/* BGM Cueing & Play/Pause Bar */}
+        <View style={styles.bgmBar}>
+          <TouchableOpacity 
+            onPress={toggleBgmPlayback} 
+            activeOpacity={0.7} 
+            style={styles.bgmPlayBtn}
+          >
+            <Ionicons 
+              name={isPlaying ? "pause-circle" : "play-circle"} 
+              size={36} 
+              color="#00ffcc" 
+            />
+          </TouchableOpacity>
+          <View style={styles.bgmTrackInfo}>
+            <Text style={styles.bgmTrackTitle} numberOfLines={1}>
+              {track?.title || 'Backing Music'}
+            </Text>
+            <Text style={styles.bgmTrackArtist} numberOfLines={1}>
+              {isPlaying ? 'Backing track playing' : 'Tap to cue backing music'}
+            </Text>
           </View>
-
-          {/* Backing Music Volume Slider */}
-          <View style={styles.sliderSection}>
-            <View style={styles.sliderLabelRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <Ionicons name="musical-notes-outline" size={13} color="#00ffcc" />
-                <Text style={styles.sliderLabel}>Backing Music Volume</Text>
-              </View>
-              <Text style={styles.sliderValueText}>{bgmVolume}%</Text>
-            </View>
-            <View 
-              style={styles.sliderContainer}
-              onLayout={(e) => { bgmSliderWidth.current = e.nativeEvent.layout.width; }}
-              {...bgmPanResponder.panHandlers}
-            >
-              <View style={styles.sliderTrack} />
-              <View style={[styles.sliderFill, { width: `${bgmVolume}%`, backgroundColor: '#00ffcc' }]} />
-              <View style={[styles.sliderThumb, { left: `${bgmVolume}%` }]} />
-            </View>
-          </View>
-
-          {/* Vocal Volume Slider */}
-          <View style={[styles.sliderSection, { marginTop: 6 }]}>
-            <View style={styles.sliderLabelRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <Ionicons name="mic-outline" size={13} color="#ff3b30" />
-                <Text style={styles.sliderLabel}>Vocal Volume</Text>
-              </View>
-              <Text style={[styles.sliderValueText, { color: '#ff3b30' }]}>{vocalVolume}%</Text>
-            </View>
-            <View 
-              style={styles.sliderContainer}
-              onLayout={(e) => { vocalSliderWidth.current = e.nativeEvent.layout.width; }}
-              {...vocalPanResponder.panHandlers}
-            >
-              <View style={styles.sliderTrack} />
-              <View style={[styles.sliderFill, { width: `${vocalVolume}%`, backgroundColor: '#ff3b30' }]} />
-              <View style={[styles.sliderThumb, { left: `${vocalVolume}%` }]} />
-            </View>
+          <View style={styles.liveHifiBadge}>
+            <Ionicons name="sparkles" size={12} color="#00ffcc" />
+            <Text style={styles.liveHifiBadgeText}>RAW 44.1kHz</Text>
           </View>
         </View>
 
@@ -503,7 +416,7 @@ export function KaraokeStudioModal({
             <View style={styles.centerContainer}>
               <Ionicons name="mic-outline" size={44} color="#444444" />
               <Text style={styles.noLyricsText}>No synced lyrics found for this track.</Text>
-              <Text style={styles.noLyricsSubtext}>You can still record your vocal cover over the instrumental backing track!</Text>
+              <Text style={styles.noLyricsSubtext}>You can still sing and capture your studio vocal take!</Text>
             </View>
           )}
         </View>
@@ -517,66 +430,94 @@ export function KaraokeStudioModal({
                   <Image source={{ uri: track.artwork }} style={styles.savedCoverImg} />
                 ) : (
                   <View style={styles.savedIconBox}>
-                    <Ionicons name="disc" size={24} color="#00ffcc" />
+                    <Ionicons name="mic" size={24} color="#00ffcc" />
                   </View>
                 )}
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.savedTitle}>Take Recorded & Ready to Mix</Text>
+                  <Text style={styles.savedTitle}>Vocal Take Saved!</Text>
                   <Text style={styles.savedSubtitle} numberOfLines={1}>
                     {track?.title} ({formatTimer(lastSavedRecording?.durationSeconds || elapsedSeconds)})
                   </Text>
                 </View>
               </View>
 
-              {/* Volume Balance Summary */}
-              <View style={styles.mixSummaryRow}>
-                <View style={styles.mixSummaryItem}>
-                  <Ionicons name="musical-notes-outline" size={13} color="#00ffcc" />
-                  <Text style={styles.mixSummaryText}>Music: {bgmVolume}%</Text>
-                </View>
-                <View style={styles.mixSummaryItem}>
-                  <Ionicons name="mic-outline" size={13} color="#ff3b30" />
-                  <Text style={styles.mixSummaryText}>Vocals: {vocalVolume}%</Text>
-                </View>
-              </View>
-
-              {/* Master Mix Button */}
-              <TouchableOpacity 
-                style={[styles.saveMasterBtn, isMixingMaster && { opacity: 0.7 }]} 
-                onPress={handleSaveMasterSong}
-                disabled={isMixingMaster}
-                activeOpacity={0.8}
-              >
-                {isMixingMaster ? (
-                  <View style={styles.btnContentRow}>
-                    <ActivityIndicator size="small" color="#000000" />
-                    <Text style={styles.saveMasterBtnText}>Overlaying vocals onto backing track...</Text>
-                  </View>
-                ) : (
-                  <View style={styles.btnContentRow}>
-                    <Ionicons name="sparkles" size={18} color="#000000" />
-                    <Text style={styles.saveMasterBtnText}>Save Master Song (Mix Vocals + Music)</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-
               <View style={styles.savedActionsRow}>
                 <TouchableOpacity style={styles.shareTakeBtn} onPress={handleShare} activeOpacity={0.8}>
                   <Ionicons name="share-social-outline" size={16} color="#ffffff" />
-                  <Text style={styles.shareTakeBtnText}>Share Raw Take</Text>
+                  <Text style={styles.shareTakeBtnText}>Share Audio</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity 
                   style={styles.newTakeBtn} 
                   onPress={() => {
+                    stopPreviewPlayer();
                     setStudioState('idle');
                     setElapsedSeconds(0);
+                    setVocalTake(null);
                     setLastSavedRecording(null);
                   }}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="refresh" size={15} color="#888888" />
-                  <Text style={styles.newTakeBtnText}>New Take</Text>
+                  <Ionicons name="refresh" size={15} color="#00ffcc" />
+                  <Text style={[styles.newTakeBtnText, { color: '#00ffcc' }]}>New Take</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.doneBtn} 
+                  onPress={handleClose}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.doneBtnText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : studioState === 'stopped' ? (
+            /* PREVIEW PLAYER CARD */
+            <View style={styles.previewCard}>
+              <View style={styles.previewHeaderRow}>
+                <TouchableOpacity 
+                  style={styles.previewPlayBtn} 
+                  onPress={togglePreviewPlayback} 
+                  activeOpacity={0.8}
+                >
+                  <Ionicons 
+                    name={isPreviewPlaying ? "pause" : "play"} 
+                    size={22} 
+                    color="#000000" 
+                  />
+                </TouchableOpacity>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.previewTitle}>Preview Vocal Take</Text>
+                  <Text style={styles.previewSubtitle}>
+                    Duration: {formatTimer(vocalTake?.durationSeconds || elapsedSeconds)} • Raw Studio Mic Take
+                  </Text>
+                </View>
+                <View style={styles.waveformSimulation}>
+                  <View style={[styles.waveBar, { height: 14 }]} />
+                  <View style={[styles.waveBar, { height: 22 }]} />
+                  <View style={[styles.waveBar, { height: 18 }]} />
+                  <View style={[styles.waveBar, { height: 26 }]} />
+                  <View style={[styles.waveBar, { height: 12 }]} />
+                </View>
+              </View>
+
+              <View style={styles.previewActionsRow}>
+                <TouchableOpacity 
+                  style={styles.discardBtn} 
+                  onPress={handleDiscardTake} 
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#ff3b30" />
+                  <Text style={styles.discardBtnText}>Discard</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.saveTakeMainBtn} 
+                  onPress={handleSaveTake} 
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#000000" />
+                  <Text style={styles.saveTakeMainBtnText}>Save Take</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -585,7 +526,7 @@ export function KaraokeStudioModal({
               {/* Left secondary button: Discard (visible during record/pause) */}
               <View style={styles.sideBtnSlot}>
                 {(studioState === 'recording' || studioState === 'paused') && (
-                  <TouchableOpacity style={styles.secondaryCircleBtn} onPress={handleDiscard} activeOpacity={0.7}>
+                  <TouchableOpacity style={styles.secondaryCircleBtn} onPress={handleDiscardTake} activeOpacity={0.7}>
                     <Ionicons name="trash-outline" size={20} color="#ff3b30" />
                   </TouchableOpacity>
                 )}
@@ -600,7 +541,7 @@ export function KaraokeStudioModal({
                     </View>
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity style={styles.stopMainBtn} onPress={handleStopAndSave} activeOpacity={0.85}>
+                  <TouchableOpacity style={styles.stopMainBtn} onPress={handleStopRecording} activeOpacity={0.85}>
                     <View style={styles.stopInnerSquare} />
                   </TouchableOpacity>
                 )}
@@ -608,7 +549,7 @@ export function KaraokeStudioModal({
                   {studioState === 'idle' 
                     ? 'Tap to Record' 
                     : studioState === 'recording' 
-                      ? 'Tap to Finish & Save' 
+                      ? 'Tap to Finish Take' 
                       : 'Take Paused'}
                 </Text>
               </View>
@@ -712,80 +653,46 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 13,
   },
-  mixerCard: {
+  bgmBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 10,
     backgroundColor: '#0e0e12',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#1e1e24',
   },
-  bgmRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
   bgmPlayBtn: {
-    paddingRight: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginRight: 10,
   },
   bgmTrackInfo: {
     flex: 1,
-    justifyContent: 'center',
   },
   bgmTrackTitle: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   bgmTrackArtist: {
     color: '#888896',
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 1,
   },
-  bgmVolBadge: {
+  liveHifiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
     backgroundColor: 'rgba(0, 255, 204, 0.1)',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.2)',
   },
-  bgmVolText: {
+  liveHifiBadgeText: {
     color: '#00ffcc',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  sliderContainer: {
-    height: 30,
-    justifyContent: 'center',
-  },
-  sliderTrack: {
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#26262e',
-    width: '100%',
-  },
-  sliderFill: {
-    position: 'absolute',
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#00ffcc',
-    left: 0,
-  },
-  sliderThumb: {
-    position: 'absolute',
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#ffffff',
-    marginLeft: -9,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
+    fontSize: 10,
+    fontWeight: '800',
   },
   teleprompterContainer: {
     flex: 1,
@@ -923,6 +830,83 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
   },
+  previewCard: {
+    backgroundColor: '#121216',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#282830',
+  },
+  previewHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  previewPlayBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#00ffcc',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  previewSubtitle: {
+    color: '#aaaaaa',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  waveformSimulation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+  },
+  waveBar: {
+    width: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#00ffcc',
+  },
+  previewActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  discardBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1e1e24',
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.3)',
+  },
+  discardBtnText: {
+    color: '#ff3b30',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  saveTakeMainBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#00ffcc',
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 6,
+  },
+  saveTakeMainBtnText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   savedCard: {
     backgroundColor: '#121216',
     borderRadius: 14,
@@ -959,44 +943,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
-  mixSummaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-  mixSummaryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  mixSummaryText: {
-    color: '#cccccc',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  saveMasterBtn: {
-    backgroundColor: '#00ffcc',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  btnContentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  saveMasterBtnText: {
-    color: '#000000',
-    fontSize: 14,
-    fontWeight: '800',
-  },
   savedActionsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   shareTakeBtn: {
     flex: 1,
@@ -1004,47 +953,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#1e1e24',
-    paddingVertical: 12,
-    borderRadius: 10,
-    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 5,
   },
   shareTakeBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   newTakeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#222228',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    gap: 6,
+    backgroundColor: '#1e1e24',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.3)',
   },
   newTakeBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
-  sliderSection: {
-    marginTop: 6,
-  },
-  sliderLabelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  doneBtn: {
+    backgroundColor: '#00ffcc',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 4,
+    justifyContent: 'center',
   },
-  sliderLabel: {
-    color: '#888896',
+  doneBtnText: {
+    color: '#000000',
     fontSize: 12,
-    fontWeight: '600',
-  },
-  sliderValueText: {
-    color: '#00ffcc',
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });
