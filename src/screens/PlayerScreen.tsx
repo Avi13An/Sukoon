@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, PanResponder } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, PanResponder, FlatList } from 'react-native';
 import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
@@ -35,31 +35,57 @@ const { width } = Dimensions.get('window');
 export function PlayerScreen({ navigation }: any) {
   const track = useActiveMediaItem();
   const isPlaying = useIsPlaying();
-  const progress = useProgress(250);
-
+  const progress = useProgress(200);
+  const [pollingPosition, setPollingPosition] = useState(0);
+  const [pollingDuration, setPollingDuration] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPosition, setScrubPosition] = useState(0);
-  const [sliderWidth, setSliderWidth] = useState(0);
+  const [optimisticSeekPos, setOptimisticSeekPos] = useState<number | null>(null);
+  const [sliderLayout, setSliderLayout] = useState({ width: 0, pageX: 0 });
+  const sliderRef = useRef<View>(null);
 
-  const isScrubbingRef = useRef(false);
-  const scrubPositionRef = useRef(0);
-  const sliderWidthRef = useRef(0);
-  const durationRef = useRef(0);
-  const startXRef = useRef(0);
+  // Fallback Polling Loop (ensures timer NEVER freezes even if background native events lag)
+  useEffect(() => {
+    let isMounted = true;
+    const timer = setInterval(async () => {
+      try {
+        const p = await TrackPlayer.getProgress();
+        if (isMounted && p) {
+          if (typeof p.position === 'number' && p.position >= 0) setPollingPosition(p.position);
+          if (typeof p.duration === 'number' && p.duration > 0) setPollingDuration(p.duration);
+        }
+      } catch {}
+    }, 250);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const currentTrack = getCurrentTrack();
-  const duration = (progress && progress.duration > 0)
-    ? progress.duration 
-    : ((track as any)?.duration || currentTrack?.duration || 0);
-  const currentPos = isScrubbing ? scrubPosition : (progress?.position || 0);
-  const progressPercent = duration > 0 
-    ? Math.max(0, Math.min(100, (currentPos / duration) * 100)) 
-    : 0;
 
-  isScrubbingRef.current = isScrubbing;
-  scrubPositionRef.current = scrubPosition;
-  sliderWidthRef.current = sliderWidth;
-  durationRef.current = duration;
+  // Fallback for duration (supports numeric seconds, ms, or mm:ss string)
+  const getDurationSeconds = (): number => {
+    if (progress && progress.duration > 0) return progress.duration;
+    if (pollingDuration > 0) return pollingDuration;
+    const d = ((track as any)?.duration || currentTrack?.duration);
+    if (typeof d === 'number') return d > 10000 ? d / 1000 : d;
+    if (typeof d === 'string' && d.includes(':')) {
+      const parts = d.split(':').map(Number);
+      return parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+    return 0;
+  };
+
+  const duration = Math.max(getDurationSeconds(), 1);
+  const livePos = (progress && progress.position > 0) ? progress.position : pollingPosition;
+  
+  // Display position priority: Scrubbing > Optimistic Hold > Live Position
+  const currentPos = isScrubbing 
+    ? scrubPosition 
+    : (optimisticSeekPos !== null ? optimisticSeekPos : livePos);
+
+  const progressPercent = Math.max(0, Math.min(100, (currentPos / duration) * 100));
 
   const effectiveDuration = duration;
   const displayPosition = currentPos;
@@ -79,67 +105,72 @@ export function PlayerScreen({ navigation }: any) {
   const [isPartyModalVisible, setIsPartyModalVisible] = useState(false);
 
   const handleSeek = async (newPos: number) => {
-    const maxDur = duration > 0 ? duration : newPos;
-    const clamped = Math.max(0, Math.min(newPos, maxDur));
+    const clamped = Math.max(0, Math.min(newPos, duration));
+    setOptimisticSeekPos(clamped);
+    setScrubPosition(clamped);
     try {
       await TrackPlayer.seekTo(clamped);
       if (partyStateRef.current.isActive) {
         broadcastPartyAction('SEEK', { position: clamped });
       }
     } catch {}
+    setTimeout(() => {
+      setOptimisticSeekPos(null);
+    }, 500);
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt, gestureState) => {
-        isScrubbingRef.current = true;
-        setIsScrubbing(true);
-        const sw = sliderWidthRef.current;
-        const dur = durationRef.current;
-        const touchX = typeof evt.nativeEvent?.locationX === 'number' && evt.nativeEvent.locationX >= 0
-          ? evt.nativeEvent.locationX
-          : gestureState.x0;
-        startXRef.current = touchX;
-        if (sw > 0 && dur > 0) {
-          const percent = Math.max(0, Math.min(1, touchX / sw));
-          const targetPos = percent * dur;
-          setScrubPosition(targetPos);
-          scrubPositionRef.current = targetPos;
-        }
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        const sw = sliderWidthRef.current;
-        const dur = durationRef.current;
-        if (sw > 0 && dur > 0) {
-          const currentX = startXRef.current + gestureState.dx;
-          const newPercent = Math.max(0, Math.min(1, currentX / sw));
-          const targetPos = newPercent * dur;
-          setScrubPosition(targetPos);
-          scrubPositionRef.current = targetPos;
-        }
-      },
-      onPanResponderRelease: async (evt, gestureState) => {
-        const dur = durationRef.current;
-        if (dur > 0) {
-          const finalSeek = Math.max(0, Math.min(dur, scrubPositionRef.current));
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (evt, gestureState) => {
+          setIsScrubbing(true);
+          sliderRef.current?.measure((x, y, width, height, pageX) => {
+            if (width > 0) {
+              setSliderLayout({ width, pageX });
+              const touchX = Math.max(0, Math.min(width, gestureState.x0 - pageX));
+              const targetTime = (touchX / width) * duration;
+              setScrubPosition(targetTime);
+            }
+          });
+        },
+        onPanResponderMove: (evt, gestureState) => {
+          const width = sliderLayout.width || 1;
+          const touchX = Math.max(0, Math.min(width, gestureState.moveX - sliderLayout.pageX));
+          const targetTime = (touchX / width) * duration;
+          setScrubPosition(targetTime);
+        },
+        onPanResponderRelease: async (evt, gestureState) => {
+          const width = sliderLayout.width || 1;
+          const touchX = Math.max(0, Math.min(width, gestureState.moveX - sliderLayout.pageX));
+          const finalSeek = Math.max(0, Math.min(duration, (touchX / width) * duration));
+          
+          // 1. Hold the position optimistically so it DOES NOT snap to 0
+          setOptimisticSeekPos(finalSeek);
+          setScrubPosition(finalSeek);
+          
+          // 2. Perform native seek
           try {
             await TrackPlayer.seekTo(finalSeek);
             if (partyStateRef.current.isActive) {
               broadcastPartyAction('SEEK', { position: finalSeek });
             }
           } catch {}
-        }
-        setIsScrubbing(false);
-        isScrubbingRef.current = false;
-      },
-      onPanResponderTerminate: () => {
-        setIsScrubbing(false);
-        isScrubbingRef.current = false;
-      },
-    })
-  ).current;
+          
+          // 3. Release lock after native player catches up (500ms grace period)
+          setTimeout(() => {
+            setIsScrubbing(false);
+            setOptimisticSeekPos(null);
+          }, 500);
+        },
+        onPanResponderTerminate: () => {
+          setIsScrubbing(false);
+          setOptimisticSeekPos(null);
+        },
+      }),
+    [duration, sliderLayout]
+  );
 
   const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
   const [isAudioSettingsVisible, setIsAudioSettingsVisible] = useState(false);
@@ -165,8 +196,28 @@ export function PlayerScreen({ navigation }: any) {
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsData, setLyricsData] = useState<any>(null);
   const [syncedLines, setSyncedLines] = useState<SyncedLyricLine[]>([]);
+  const [currentLyricIndex, setCurrentLyricIndex] = useState(-1);
+  const lyricsFlatListRef = useRef<FlatList>(null);
   
   const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (!syncedLines || syncedLines.length === 0) return;
+    const activeIndex = syncedLines.findIndex((line, index) => {
+      const nextLine = syncedLines[index + 1];
+      return currentPos >= line.time && (!nextLine || currentPos < nextLine.time);
+    });
+    if (activeIndex !== -1 && activeIndex !== currentLyricIndex) {
+      setCurrentLyricIndex(activeIndex);
+      try {
+        lyricsFlatListRef.current?.scrollToIndex({
+          index: activeIndex,
+          animated: true,
+          viewPosition: 0.5, // Keep active lyric centered
+        });
+      } catch {}
+    }
+  }, [currentPos, syncedLines, currentLyricIndex]);
 
   useEffect(() => {
     if (showLyrics && track && !lyricsData && !lyricsLoading) {
@@ -274,10 +325,13 @@ export function PlayerScreen({ navigation }: any) {
   };
 
   // Find active line index for synced lyrics
-  let activeLineIndex = -1;
-  if (syncedLines.length > 0) {
-    activeLineIndex = syncedLines.findIndex(line => line.time > displayPosition) - 1;
-    if (activeLineIndex === -2) activeLineIndex = syncedLines.length - 1;
+  let activeLineIndex = currentLyricIndex !== -1 ? currentLyricIndex : -1;
+  if (activeLineIndex === -1 && syncedLines.length > 0) {
+    const idx = syncedLines.findIndex((line, index) => {
+      const nextLine = syncedLines[index + 1];
+      return currentPos >= line.time && (!nextLine || currentPos < nextLine.time);
+    });
+    activeLineIndex = idx !== -1 ? idx : (currentPos >= (syncedLines[0]?.time || 0) ? 0 : -1);
   }
 
   useEffect(() => {
@@ -419,28 +473,46 @@ export function PlayerScreen({ navigation }: any) {
           {lyricsLoading ? (
             <ActivityIndicator size="large" color="#ffffff" style={styles.loader} />
           ) : syncedLines.length > 0 ? (
-            <ScrollView 
-              ref={scrollViewRef}
-              contentContainerStyle={styles.lyricsScroll}
+            <FlatList
+              ref={lyricsFlatListRef}
+              data={syncedLines}
+              keyExtractor={(item, index) => `${index}-${item.time}`}
               showsVerticalScrollIndicator={false}
-            >
-              {syncedLines.map((line, index) => {
+              contentContainerStyle={styles.lyricsScroll}
+              getItemLayout={(_, index) => ({
+                length: 50,
+                offset: 50 * index,
+                index,
+              })}
+              onScrollToIndexFailed={(info) => {
+                setTimeout(() => {
+                  lyricsFlatListRef.current?.scrollToOffset({
+                    offset: info.index * 50,
+                    animated: true,
+                  });
+                }, 100);
+              }}
+              renderItem={({ item, index }) => {
                 const isActive = index === activeLineIndex;
                 const isPassed = index < activeLineIndex;
                 return (
-                  <Text 
-                    key={index} 
-                    style={[
-                      styles.syncedLyricLine, 
-                      isActive && styles.activeLyricLine,
-                      isPassed && styles.passedLyricLine
-                    ]}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => handleSeek(item.time)}
                   >
-                    {sanitizeLyricText(line.text)}
-                  </Text>
+                    <Text 
+                      style={[
+                        styles.syncedLyricLine, 
+                        isActive && styles.activeLyricLine,
+                        isPassed && styles.passedLyricLine
+                      ]}
+                    >
+                      {sanitizeLyricText(item.text)}
+                    </Text>
+                  </TouchableOpacity>
                 );
-              })}
-            </ScrollView>
+              }}
+            />
           ) : lyricsData?.plainLyrics ? (
             <ScrollView contentContainerStyle={styles.lyricsScroll}>
               <Text style={styles.plainLyricsText}>{lyricsData.plainLyrics}</Text>
@@ -464,19 +536,25 @@ export function PlayerScreen({ navigation }: any) {
       )}
 
       <View style={styles.controlsContainer}>
-        <View style={styles.progressRow}>
-          <Text style={styles.timeText}>{formatTime(currentPos)}</Text>
-          <View 
-            collapsable={false}
-            style={styles.progressBarTouchable}
-            onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
-            {...panResponder.panHandlers}
-          >
-            <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-              <View style={[styles.progressThumb, { left: `${progressPercent}%` }]} />
-            </View>
+        {/* Scrubber Container */}
+        <View
+          collapsable={false}
+          ref={sliderRef}
+          onLayout={() => {
+            sliderRef.current?.measure((x, y, width, height, pageX) => {
+              if (width > 0) setSliderLayout({ width, pageX });
+            });
+          }}
+          {...panResponder.panHandlers}
+          style={styles.sliderContainer}
+        >
+          <View style={styles.sliderTrackBackground}>
+            <View style={[styles.sliderTrackActive, { width: `${progressPercent}%` }]} />
           </View>
+          <View style={[styles.sliderThumb, { left: `${progressPercent}%` }]} />
+        </View>
+        <View style={styles.timeRow}>
+          <Text style={styles.timeText}>{formatTime(currentPos)}</Text>
           <Text style={styles.timeText}>{formatTime(duration)}</Text>
         </View>
 
@@ -744,49 +822,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingBottom: 48,
   },
-  progressRow: {
+  sliderContainer: {
     width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  timeText: {
-    color: '#aaaaaa',
-    fontSize: 12,
-    width: 44,
-    textAlign: 'center',
-  },
-  progressBarTouchable: {
-    flex: 1,
     height: 32,
     justifyContent: 'center',
-    marginHorizontal: 8,
+    position: 'relative',
   },
-  progressBarBg: {
+  sliderTrackBackground: {
     height: 4,
     backgroundColor: '#333333',
     borderRadius: 2,
-    position: 'relative',
-    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  progressBarFill: {
+  sliderTrackActive: {
     height: '100%',
     backgroundColor: '#00ffcc',
     borderRadius: 2,
   },
-  progressThumb: {
+  sliderThumb: {
     position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: '#ffffff',
-    marginLeft: -6,
-    top: -4,
+    marginLeft: -7,
+    top: 9,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.5,
     shadowRadius: 2,
-    elevation: 3,
+    elevation: 4,
+  },
+  timeRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: -4,
+    marginBottom: 20,
+    paddingHorizontal: 2,
+  },
+  timeText: {
+    color: '#aaaaaa',
+    fontSize: 12,
   },
   buttonsRow: {
     width: '100%',

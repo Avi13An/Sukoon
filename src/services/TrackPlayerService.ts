@@ -142,8 +142,12 @@ export async function resolveStreamUrl(track: TrackMetadata): Promise<string> {
   const offlineTracks = getOfflineTracks();
   const offlineTrack = offlineTracks[track.id];
   let playUrl = downloadedTrack?.localUri || offlineTrack?.localUri;
-  if (!playUrl && track.url && (track.url.startsWith('http') || track.url.startsWith('file://'))) {
-    playUrl = track.url;
+  if (!playUrl && track.url) {
+    if (track.url.startsWith('http') || track.url.startsWith('file://')) {
+      playUrl = track.url;
+    } else if (track.url.startsWith('/')) {
+      playUrl = `file://${track.url}`;
+    }
   }
   if (!playUrl) {
     try {
@@ -449,6 +453,7 @@ export async function setupPlayer(): Promise<boolean> {
     if (typeof (TrackPlayer as any).updateOptions === 'function') {
       try {
         await (TrackPlayer as any).updateOptions({
+          progressUpdateEventInterval: 0.25,
           android: {
             appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
           },

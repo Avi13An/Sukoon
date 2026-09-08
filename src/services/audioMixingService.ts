@@ -66,7 +66,9 @@ export async function mixVocalWithMusic(
         startTimeMs
       );
       console.log(`[audioMixingService] Native mixer generated clean master at: ${mixedPath}`);
-      return mixedPath || outputPath;
+      const finalResult = mixedPath || outputPath;
+      const playableUri = finalResult.startsWith('file://') ? finalResult : `file://${finalResult}`;
+      return playableUri;
     }
 
     // Graceful fallback if native module is not linked
@@ -75,7 +77,8 @@ export async function mixVocalWithMusic(
       from: vocalUri,
       to: `file://${outputPath}`,
     });
-    return outputPath;
+    const playableFallback = outputPath.startsWith('file://') ? outputPath : `file://${outputPath}`;
+    return playableFallback;
   } catch (error: any) {
     console.error('[audioMixingService] Error mixing audio:', error);
     throw error;

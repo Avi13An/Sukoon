@@ -90,12 +90,11 @@ export function LyricsModal({
   // Find active line index
   let activeLineIndex = -1;
   if (lyricsData?.lines && lyricsData.lines.length > 0) {
-    const idx = lyricsData.lines.findIndex(line => line.time > currentPosition) - 1;
-    if (idx === -2) {
-      activeLineIndex = lyricsData.lines.length - 1;
-    } else {
-      activeLineIndex = Math.max(0, idx);
-    }
+    const idx = lyricsData.lines.findIndex((line, index) => {
+      const nextLine = lyricsData.lines[index + 1];
+      return currentPosition >= line.time && (!nextLine || currentPosition < nextLine.time);
+    });
+    activeLineIndex = idx !== -1 ? idx : (currentPosition >= lyricsData.lines[0]?.time ? 0 : -1);
   }
 
   // Smoothly auto-scroll to keep active line centered
@@ -111,7 +110,7 @@ export function LyricsModal({
         flatListRef.current.scrollToIndex({
           index: activeLineIndex,
           animated: true,
-          viewPosition: 0.35,
+          viewPosition: 0.5,
         });
       } catch (err) {
         // Fallback for unmeasured list

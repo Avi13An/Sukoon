@@ -15,9 +15,11 @@ import {
   StudioRecording, 
   getStudioRecordings, 
   saveStudioRecording, 
-  deleteStudioRecordingStorage 
+  deleteStudioRecordingStorage,
+  TrackMetadata
 } from '../utils/storage';
 import { showToast } from '../components/ToastNotification';
+import { playTrack } from './TrackPlayerService';
 
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
 
@@ -335,6 +337,23 @@ export async function shareRecording(localUri: string, songTitle?: string): Prom
   } catch (err: any) {
     showToast(err?.message || 'Unable to share audio file', 'alert-circle');
   }
+}
+
+export async function playMasteredRecording(
+  outputPath: string,
+  currentTrack?: TrackMetadata | null,
+  recordedDuration?: number
+): Promise<void> {
+  const playableUri = outputPath.startsWith('file://') ? outputPath : `file://${outputPath}`;
+  const masteredTrack: TrackMetadata = {
+    id: `mastered_${Date.now()}`,
+    url: playableUri,
+    title: 'Mastered Recording',
+    artist: currentTrack?.title || 'Karaoke Take',
+    artwork: currentTrack?.artwork,
+    duration: recordedDuration || 0,
+  };
+  await playTrack(masteredTrack);
 }
 
 export { getStudioRecordings };

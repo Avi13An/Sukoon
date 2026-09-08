@@ -286,11 +286,13 @@ export function KaraokeStudioModal({
         durationSeconds: lastSavedRecording.durationSeconds,
       });
 
+      const playableMixedUri = mixedUri.startsWith('file://') ? mixedUri : `file://${mixedUri}`;
+
       const masterRecording: StudioRecording = {
         id: `master_${Date.now()}`,
         songTitle: `${track.title} (Master Cover)`,
         artist: track.artist ? `Cover by You • ${track.artist}` : 'Studio Vocal Cover',
-        localUri: mixedUri,
+        localUri: playableMixedUri,
         createdAt: Date.now(),
         durationSeconds: lastSavedRecording.durationSeconds,
         artwork: track.artwork,

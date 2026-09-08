@@ -35,11 +35,14 @@ export function StudioRecordingsModal({ visible, onClose }: Props) {
 
   const handlePlayRecording = async (item: StudioRecording) => {
     try {
+      const playableUri = item.localUri.startsWith('file://') 
+        ? item.localUri 
+        : `file://${item.localUri}`;
       await playTrack({
         id: item.id,
         title: item.isMasterMixed ? item.songTitle : `${item.songTitle} (Studio Take)`,
         artist: item.artist ? `Cover by You • ${item.artist}` : 'Studio Vocal Cover',
-        url: item.localUri,
+        url: playableUri,
         duration: item.durationSeconds,
         artwork: item.artwork,
       });
