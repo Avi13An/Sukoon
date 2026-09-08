@@ -29,6 +29,7 @@ export interface Playlist {
   createdAt: number;
   coverImage?: string;
   isImported?: boolean; // If true, recipient cannot edit/delete tracks
+  isProtected?: boolean; // If true, playlist cannot be deleted (e.g., Liked Songs)
   tracks: TrackMetadata[];
 }
 
@@ -339,6 +340,18 @@ export function getUserPlaylistsKey(userIdOrUsername?: string | null): string {
   return '@sukoon_playlists_guest';
 }
 
+export const LIKED_SONGS_PLAYLIST_ID = 'liked-songs';
+
+export function isLikedSongsPlaylist(playlist: Playlist | null | undefined): boolean {
+  if (!playlist) return false;
+  return (
+    playlist.isProtected === true ||
+    playlist.id === LIKED_SONGS_PLAYLIST_ID ||
+    playlist.id.startsWith('liked_') ||
+    playlist.name.trim().toLowerCase() === 'liked songs'
+  );
+}
+
 export function getUserPlaylists(targetUserIdOrUsername?: string): Playlist[] {
   const session = getActiveUserSession();
   const key = getUserPlaylistsKey(targetUserIdOrUsername || session?.id);
@@ -396,6 +409,28 @@ export function getUserPlaylists(targetUserIdOrUsername?: string): Playlist[] {
     }
     return p;
   });
+
+  // Ensure "Liked Songs" exists and is protected
+  const likedIndex = playlists.findIndex(p => isLikedSongsPlaylist(p));
+  if (likedIndex === -1) {
+    const likedPlaylist: Playlist = {
+      id: LIKED_SONGS_PLAYLIST_ID,
+      shareCode: 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+      name: 'Liked Songs',
+      description: 'Your favorite tracks',
+      createdAt: Date.now(),
+      isImported: false,
+      isProtected: true,
+      tracks: [],
+    };
+    playlists.unshift(likedPlaylist);
+    needsSave = true;
+  } else {
+    if (!playlists[likedIndex].isProtected) {
+      playlists[likedIndex].isProtected = true;
+      needsSave = true;
+    }
+  }
 
   if (needsSave) {
     saveUserPlaylists(playlists, targetUserIdOrUsername);
@@ -554,12 +589,89 @@ export function removeTrackFromPlaylist(playlistId: string, trackId: string): bo
 
 export function deletePlaylist(playlistId: string): boolean {
   const playlists = getUserPlaylists();
+  const target = playlists.find(p => p.id === playlistId);
+  if (target && isLikedSongsPlaylist(target)) {
+    console.warn('[Storage] Cannot delete protected Liked Songs playlist');
+    return false;
+  }
   const filtered = playlists.filter(p => p.id !== playlistId);
   if (filtered.length !== playlists.length) {
     saveUserPlaylists(filtered);
     return true;
   }
   return false;
+}
+
+export function getLikedSongsPlaylist(targetUserIdOrUsername?: string): Playlist {
+  const playlists = getUserPlaylists(targetUserIdOrUsername);
+  let liked = playlists.find(p => isLikedSongsPlaylist(p));
+  if (!liked) {
+    liked = {
+      id: LIKED_SONGS_PLAYLIST_ID,
+      shareCode: 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+      name: 'Liked Songs',
+      description: 'Your favorite tracks',
+      createdAt: Date.now(),
+      isImported: false,
+      isProtected: true,
+      tracks: [],
+    };
+    playlists.unshift(liked);
+    saveUserPlaylists(playlists, targetUserIdOrUsername);
+  }
+  return liked;
+}
+
+export function isTrackInLikedSongs(trackId: string, targetUserIdOrUsername?: string): boolean {
+  if (!trackId) return false;
+  const liked = getLikedSongsPlaylist(targetUserIdOrUsername);
+  return liked.tracks.some(t => t.id === trackId);
+}
+
+export function toggleTrackInLikedSongs(track: TrackMetadata, targetUserIdOrUsername?: string): boolean {
+  if (!track || !track.id) return false;
+  const playlists = getUserPlaylists(targetUserIdOrUsername);
+  let liked = playlists.find(p => isLikedSongsPlaylist(p));
+  let isAdded = false;
+
+  if (!liked) {
+    liked = {
+      id: LIKED_SONGS_PLAYLIST_ID,
+      shareCode: 'SK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+      name: 'Liked Songs',
+      description: 'Your favorite tracks',
+      createdAt: Date.now(),
+      isImported: false,
+      isProtected: true,
+      tracks: [track],
+      coverImage: track.artwork,
+    };
+    playlists.unshift(liked);
+    isAdded = true;
+  } else {
+    liked.isProtected = true;
+    const exists = liked.tracks.some(t => t.id === track.id);
+    if (exists) {
+      liked.tracks = liked.tracks.filter(t => t.id !== track.id);
+      isAdded = false;
+    } else {
+      // Add to top of Liked Songs
+      liked.tracks = [track, ...liked.tracks];
+      if (!liked.coverImage && track.artwork) {
+        liked.coverImage = track.artwork;
+      }
+      isAdded = true;
+    }
+  }
+
+  saveUserPlaylists(playlists, targetUserIdOrUsername);
+
+  try {
+    saveFavoriteTracks(liked.tracks, targetUserIdOrUsername);
+  } catch {}
+
+  notifyStorageChanged();
+  return isAdded;
 }
 
 // User-Scoped Favorites / Liked Songs

@@ -23,11 +23,13 @@ import {
   clonePlaylistToUser,
   getActiveUser,
   onPlaylistsChanged,
+  isLikedSongsPlaylist,
   Playlist, 
   DownloadedTrack 
 } from '../utils/storage';
 import { getOfflineStorageUsage, logoutUser } from '../services/downloadService';
 import { StudioRecordingsModal } from '../components/StudioRecordingsModal';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { getStudioRecordings } from '../services/recordingService';
 import { showToast } from '../components/ToastNotification';
 
@@ -141,45 +143,56 @@ export function LibraryScreen({ navigation }: any) {
     setImportShareCode('');
   };
 
+  const [confirmModal, setConfirmModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
   const handleDeletePlaylist = (playlist: Playlist) => {
-    Alert.alert(
-      'Delete Playlist',
-      `Are you sure you want to delete "${playlist.name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive', 
-          onPress: () => {
-            deletePlaylist(playlist.id);
-            refreshLibrary();
-            showToast(`Deleted "${playlist.name}"`, 'trash-outline');
-          }
-        }
-      ]
-    );
+    if (isLikedSongsPlaylist(playlist)) {
+      showToast('Liked Songs playlist cannot be deleted', 'shield-checkmark');
+      return;
+    }
+    setConfirmModal({
+      visible: true,
+      title: 'Delete Playlist',
+      message: `Are you sure you want to delete "${playlist.name}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: () => {
+        deletePlaylist(playlist.id);
+        refreshLibrary();
+        showToast(`Deleted "${playlist.name}"`, 'trash-outline');
+      },
+    });
   };
 
   const handleLogout = () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out? Local downloads will be cleared, but your playlists remain saved.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Log Out', 
-          style: 'destructive',
-          onPress: async () => {
-            await logoutUser();
-            showToast('Logged out successfully', 'log-out-outline');
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Auth' }],
-            });
-          }
-        }
-      ]
-    );
+    setConfirmModal({
+      visible: true,
+      title: 'Log Out',
+      message: 'Are you sure you want to log out? Local downloads will be cleared, but your playlists remain saved.',
+      confirmText: 'Log Out',
+      isDestructive: true,
+      onConfirm: async () => {
+        await logoutUser();
+        showToast('Logged out successfully', 'log-out-outline');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Auth' }],
+        });
+      },
+    });
   };
 
   return (
@@ -267,7 +280,7 @@ export function LibraryScreen({ navigation }: any) {
           <TouchableOpacity 
             style={styles.playlistCard} 
             onPress={() => navigateToPlaylist(item)}
-            onLongPress={() => !item.isImported && handleDeletePlaylist(item)}
+            onLongPress={() => !item.isImported && !isLikedSongsPlaylist(item) && handleDeletePlaylist(item)}
             activeOpacity={0.8}
           >
             <View style={styles.playlistImageContainer}>
@@ -275,13 +288,22 @@ export function LibraryScreen({ navigation }: any) {
                 <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
               ) : (
                 <View style={styles.playlistPlaceholder}>
-                  <Ionicons name="musical-notes" size={36} color="#555555" />
+                  <Ionicons 
+                    name={isLikedSongsPlaylist(item) ? "heart" : "musical-notes"} 
+                    size={36} 
+                    color={isLikedSongsPlaylist(item) ? "#FF3B30" : "#555555"} 
+                  />
                 </View>
               )}
               {item.isImported ? (
                 <View style={styles.sharedBadge}>
                   <Ionicons name="lock-closed" size={10} color="#000000" />
                   <Text style={styles.sharedBadgeText}>Shared / Read-Only</Text>
+                </View>
+              ) : isLikedSongsPlaylist(item) ? (
+                <View style={[styles.sharedBadge, { backgroundColor: 'rgba(255, 59, 48, 0.2)', borderColor: '#FF3B30', borderWidth: 1 }]}>
+                  <Ionicons name="heart" size={10} color="#FF3B30" />
+                  <Text style={[styles.sharedBadgeText, { color: '#FF3B30' }]}>Protected</Text>
                 </View>
               ) : (
                 <TouchableOpacity 
@@ -481,6 +503,17 @@ export function LibraryScreen({ navigation }: any) {
           setIsStudioModalVisible(false);
           refreshLibrary();
         }}
+      />
+
+      <ConfirmModal
+        visible={confirmModal.visible}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        isDestructive={confirmModal.isDestructive}
+        onConfirm={confirmModal.onConfirm}
+        onClose={() => setConfirmModal(prev => ({ ...prev, visible: false }))}
       />
     </View>
   );

@@ -22,7 +22,12 @@ import {
   broadcastPartyAction, 
   PartyState 
 } from '../services/partyService';
-import { TrackMetadata } from '../utils/storage';
+import { 
+  TrackMetadata, 
+  isTrackInLikedSongs, 
+  toggleTrackInLikedSongs, 
+  onPlaylistsChanged 
+} from '../utils/storage';
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
 const { width } = Dimensions.get('window');
@@ -169,31 +174,53 @@ export function PlayerScreen({ navigation }: any) {
     }
   }, [showLyrics, track]);
 
-  const [isShuffle, setIsShuffle] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
 
   useEffect(() => {
     setRepeatMode(TrackPlayer.getRepeatMode());
-    try {
-      if (typeof TrackPlayer.isShuffleEnabled === 'function') {
-        setIsShuffle(TrackPlayer.isShuffleEnabled());
-      }
-    } catch {}
   }, []);
+
+  const activeTrackId = (track as any)?.id || (track as any)?.mediaId || currentTrack?.id;
+
+  useEffect(() => {
+    if (activeTrackId) {
+      setIsLiked(isTrackInLikedSongs(activeTrackId));
+    } else {
+      setIsLiked(false);
+    }
+  }, [activeTrackId]);
+
+  useEffect(() => {
+    const unsub = onPlaylistsChanged(() => {
+      if (activeTrackId) {
+        setIsLiked(isTrackInLikedSongs(activeTrackId));
+      }
+    });
+    return unsub;
+  }, [activeTrackId]);
 
   const handleLoopToggle = async () => {
     const newMode = await toggleLoopMode();
     setRepeatMode(newMode);
   };
 
-  const handleShuffleToggle = async () => {
-    const nextShuffle = !isShuffle;
-    setIsShuffle(nextShuffle);
-    try {
-      if (typeof TrackPlayer.setShuffleEnabled === 'function') {
-        await TrackPlayer.setShuffleEnabled(nextShuffle);
-      }
-    } catch {}
-    showToast(nextShuffle ? 'Shuffle enabled' : 'Shuffle disabled', 'shuffle');
+  const handleToggleLike = () => {
+    const candidate: any = track || currentTrack;
+    const trackId = candidate?.id || candidate?.mediaId;
+    if (!candidate || !trackId) return;
+    const added = toggleTrackInLikedSongs({
+      id: trackId,
+      title: candidate.title || 'Unknown Title',
+      artist: candidate.artist || 'Unknown Artist',
+      artwork: candidate.artwork || candidate.artworkUrl,
+      duration: candidate.duration,
+      url: candidate.url,
+    });
+    setIsLiked(added);
+    showToast(
+      added ? 'Added to Liked Songs' : 'Removed from Liked Songs',
+      added ? 'heart' : 'heart-dislike-outline'
+    );
   };
 
   const loadLyrics = async () => {
@@ -470,11 +497,16 @@ export function PlayerScreen({ navigation }: any) {
           <TouchableOpacity onPress={skipNext} style={styles.controlSkipBtn} activeOpacity={0.7}>
             <Ionicons name="play-skip-forward" size={34} color="#ffffff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleShuffleToggle} style={styles.controlSideBtn} activeOpacity={0.7}>
+          <TouchableOpacity 
+            onPress={handleToggleLike} 
+            style={styles.controlSideBtn} 
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
             <Ionicons 
-              name="shuffle" 
-              size={24} 
-              color={isShuffle ? "#00ffcc" : "#888888"} 
+              name={isLiked ? "heart" : "heart-outline"} 
+              size={26} 
+              color={isLiked ? "#FF3B30" : "#A0AAB8"} 
             />
           </TouchableOpacity>
         </View>

@@ -221,11 +221,16 @@ export async function prefetchAutoplayQueue(
       return [];
     }
 
-    // Only populate queue if session is still active
-    for (const rec of freshRecommendations) {
-      if (!upNextQueue.some(t => t.id === rec.id)) {
-        upNextQueue.push(rec);
-        added.push(rec);
+    // Overwrite or populate upNextQueue strictly if session is still active
+    if (upNextQueue.length === 0) {
+      upNextQueue = [...freshRecommendations];
+      added.push(...freshRecommendations);
+    } else {
+      for (const rec of freshRecommendations) {
+        if (!upNextQueue.some(t => t.id === rec.id)) {
+          upNextQueue.push(rec);
+          added.push(rec);
+        }
       }
     }
 
@@ -691,6 +696,7 @@ export async function playTrack(
 
     // Step 2: Wipe active player queue ONLY for manual user selections (when preserveExistingQueue is false)
     if (!preserveExistingQueue) {
+      upNextQueue = []; // Strictly wipe any previous queue immediately!
       if (typeof (TrackPlayer as any).reset === 'function') {
         try { await (TrackPlayer as any).reset(); } catch {}
       }
@@ -709,7 +715,7 @@ export async function playTrack(
     saveListenHistory(selectedTrack);
 
     // Step 3: Set up the new upcoming queue
-    if (contextQueue && contextQueue.length > 1) {
+    if (contextQueue && contextQueue.length > 0) {
       const selectedIndex = contextQueue.findIndex(t => t.id === selectedTrack.id);
       upNextQueue = selectedIndex !== -1 ? contextQueue.slice(selectedIndex + 1) : [...contextQueue];
       if (upNextQueue.length === 0 && !preserveExistingQueue) {

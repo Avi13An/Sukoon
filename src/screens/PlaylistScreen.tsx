@@ -25,14 +25,17 @@ import {
   TrackMetadata, 
   getCustomPlaylists, 
   getUserPlaylists,
+  deletePlaylist,
   removeTrackFromPlaylist, 
   getDownloadedTracks,
   clonePlaylistToUser,
   onPlaylistsChanged,
+  isLikedSongsPlaylist,
 } from '../utils/storage';
 import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 const { width } = Dimensions.get('window');
 const HEADER_MAX_HEIGHT = width * 0.85;
@@ -254,30 +257,62 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     }
   };
 
+  const [confirmModal, setConfirmModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const isProtectedPlaylist = isLikedSongsPlaylist(playlist) || playlistId === 'downloads';
+
+  const handleDeletePlaylist = () => {
+    if (isProtectedPlaylist) {
+      showToast('This playlist cannot be deleted', 'shield-checkmark');
+      return;
+    }
+    setConfirmModal({
+      visible: true,
+      title: 'Delete Playlist',
+      message: `Are you sure you want to delete "${playlist.name}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: () => {
+        deletePlaylist(playlist.id);
+        showToast(`Deleted "${playlist.name}"`, 'trash-outline');
+        navigation.goBack();
+      },
+    });
+  };
+
   const handleDuplicateToMyLibrary = () => {
-    Alert.alert(
-      'Duplicate to My Account',
-      `Create an independent, fully editable copy of "${playlist.name}" in your library?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Copy & Open',
-          style: 'default',
-          onPress: () => {
-            const cloned = clonePlaylistToUser(playlist);
-            showToast('Created editable copy in your library!', 'copy-outline');
-            setPlaylist(cloned);
-            setOriginalTracks(cloned.tracks || []);
-            setShuffleMode('none');
-            if (typeof navigation.replace === 'function') {
-              navigation.replace('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
-            } else {
-              navigation.navigate('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
-            }
-          }
+    setConfirmModal({
+      visible: true,
+      title: 'Duplicate to My Account',
+      message: `Create an independent, fully editable copy of "${playlist.name}" in your library?`,
+      confirmText: 'Copy & Open',
+      isDestructive: false,
+      onConfirm: () => {
+        const cloned = clonePlaylistToUser(playlist);
+        showToast('Created editable copy in your library!', 'copy-outline');
+        setPlaylist(cloned);
+        setOriginalTracks(cloned.tracks || []);
+        setShuffleMode('none');
+        if (typeof navigation.replace === 'function') {
+          navigation.replace('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
+        } else {
+          navigation.navigate('PlaylistDetail', { playlist: cloned, playlistId: cloned.id });
         }
-      ]
-    );
+      },
+    });
   };
 
   const handlePlayTrack = (track: TrackMetadata) => {
@@ -287,32 +322,30 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   const handleRemoveTrack = (track: TrackMetadata) => {
     if (playlist.isImported) return;
     const isDownloads = playlistId === 'downloads';
-    Alert.alert(
-      isDownloads ? 'Delete Download' : 'Remove Track',
-      isDownloads ? `Delete "${track.title}" from device storage?` : `Remove "${track.title}" from "${playlist.name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (isDownloads) {
-              await deleteDownloadedTrack(track.id);
-              const usage = await getOfflineStorageUsage();
-              setStorageSize(usage.formattedSize);
-              showToast(`Deleted "${track.title}" from offline downloads`, 'trash-outline');
-            } else {
-              removeTrackFromPlaylist(playlist.id, track.id);
-              showToast(`Removed from "${playlist.name}"`, 'trash-outline');
-            }
-            setPlaylist(prev => ({
-              ...prev,
-              tracks: prev.tracks.filter(t => t.id !== track.id)
-            }));
-          }
+    setConfirmModal({
+      visible: true,
+      title: isDownloads ? 'Delete Download' : 'Remove Track',
+      message: isDownloads 
+        ? `Delete "${track.title}" from device storage?` 
+        : `Remove "${track.title}" from "${playlist.name}"?`,
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: async () => {
+        if (isDownloads) {
+          await deleteDownloadedTrack(track.id);
+          const usage = await getOfflineStorageUsage();
+          setStorageSize(usage.formattedSize);
+          showToast(`Deleted "${track.title}" from offline downloads`, 'trash-outline');
+        } else {
+          removeTrackFromPlaylist(playlist.id, track.id);
+          showToast(`Removed from "${playlist.name}"`, 'trash-outline');
         }
-      ]
-    );
+        setPlaylist(prev => ({
+          ...prev,
+          tracks: prev.tracks.filter(t => t.id !== track.id)
+        }));
+      },
+    });
   };
 
   const createdDateStr = playlist.createdAt 
@@ -468,6 +501,12 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                     <Ionicons name="share-social-outline" size={18} color="#ffffff" />
                     <Text style={styles.secondaryBtnText}>Invite</Text>
                   </TouchableOpacity>
+                  {!isLikedSongsPlaylist(playlist) && (
+                    <TouchableOpacity style={styles.secondaryBtn} onPress={handleDeletePlaylist} activeOpacity={0.7}>
+                      <Ionicons name="trash-outline" size={18} color="#ff5252" />
+                      <Text style={[styles.secondaryBtnText, { color: '#ff5252' }]}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
                 </>
               )}
             </View>
@@ -586,6 +625,17 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           </View>
         </View>
       )}
+
+      <ConfirmModal
+        visible={confirmModal.visible}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        isDestructive={confirmModal.isDestructive}
+        onConfirm={confirmModal.onConfirm}
+        onClose={() => setConfirmModal(prev => ({ ...prev, visible: false }))}
+      />
     </View>
   );
 }
