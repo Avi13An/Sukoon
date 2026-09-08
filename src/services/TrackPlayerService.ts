@@ -10,7 +10,7 @@ import {
   getEqualizerSettings, 
   TrackMetadata 
 } from '../utils/storage';
-import { getAudioStream, searchTracks } from './musicApi';
+import { getAudioStream, searchTracks, getAlgorithmicRecommendations } from './musicApi';
 import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
 
 export const Capability = {
@@ -201,6 +201,51 @@ export const getRecommendationQuery = (track: TrackMetadata): string => {
   return cleanArtist ? `${cleanArtist} songs` : 'trending songs';
 };
 
+export async function fetchRadioQueue(track: TrackMetadata, sessionId: number): Promise<void> {
+  try {
+    // 1. Fetch genuine YouTube Music Radio queue (Innertube RDAMVM / Saavn reco)
+    const radioTracks = await getAlgorithmicRecommendations(track);
+    
+    // 2. Validate session before mutating queue
+    if (sessionId !== activeQueueSessionId) {
+      console.log('[Autoplay] Session changed, discarding stale radio queue');
+      return;
+    }
+
+    // 3. Filter tracks strictly against history and current track
+    const freshTracks = radioTracks.filter(
+      t => t?.id && 
+           !playedTrackIds.has(t.id) && 
+           t.id !== track.id && 
+           !upNextQueue.some(q => q.id === t.id)
+    );
+
+    if (freshTracks.length > 0) {
+      upNextQueue = [...upNextQueue, ...freshTracks];
+      
+      // Pre-seed ExoPlayer with next 2 tracks
+      const nativeQueue = await getNativeQueue();
+      const activeIndex = (await getNativeActiveIndex()) ?? 0;
+      if (nativeQueue.length - 1 - activeIndex < 2 && upNextQueue.length > 0) {
+        const seedBatch = upNextQueue.slice(0, 2);
+        const batchPayloads = await Promise.all(seedBatch.map(async (t) => {
+          const u = await resolveStreamUrl(t);
+          return formatForTrackPlayer(t, u);
+        }));
+        if (sessionId === activeQueueSessionId) {
+          await addTracksToNativeQueue(batchPayloads);
+        }
+      }
+      notifyQueueListeners();
+      console.log(`[Autoplay] Radio queue populated with ${freshTracks.length} algorithmic tracks for "${track.title}"`);
+    }
+  } catch (err) {
+    console.warn('[Autoplay] Radio queue error:', err);
+  }
+}
+
+export const prefetchAutoplayQueue = fetchRadioQueue;
+
 export async function maintainMinimumQueue(
   minSize = 10, 
   sessionId?: number
@@ -218,7 +263,7 @@ export async function maintainMinimumQueue(
   isMaintainingQueue = true;
   const added: TrackMetadata[] = [];
   try {
-    const baseTrack = currentTrack;
+    const baseTrack = upNextQueue[upNextQueue.length - 1] || currentTrack;
     if (!baseTrack) return [];
 
     if (assignedSessionId !== activeQueueSessionId) {
@@ -226,44 +271,23 @@ export async function maintainMinimumQueue(
       return [];
     }
 
-    const baseQuery = getRecommendationQuery(baseTrack);
-    const cleanArtist = (baseTrack.artist || '').split(/[,&/]|feat\.?|ft\.?/i)[0].trim();
-    const genre = (baseTrack as any).genre || (baseTrack as any).tags?.[0];
+    const radioTracks = await getAlgorithmicRecommendations(baseTrack);
+    if (assignedSessionId !== activeQueueSessionId) return [];
 
-    const queries: string[] = [baseQuery];
-    if (cleanArtist && cleanArtist.toLowerCase() !== 'unknown' && cleanArtist.toLowerCase() !== 'unknown artist') {
-      const artistRadio = `${cleanArtist} radio`;
-      if (!queries.includes(artistRadio)) queries.push(artistRadio);
-    }
-    if (genre) {
-      const genreTrending = `${genre} trending songs`;
-      if (!queries.includes(genreTrending)) queries.push(genreTrending);
-    }
+    const normCurrentTitle = (currentTrack?.title || '').toLowerCase().trim();
 
-    const normCurrentTitle = (baseTrack.title || '').toLowerCase().trim();
+    const freshTracks = radioTracks.filter(
+      t => t?.id &&
+           !playedTrackIds.has(t.id) &&
+           t.id !== currentTrack?.id &&
+           (t.title || '').toLowerCase().trim() !== normCurrentTitle &&
+           !upNextQueue.some(qItem => qItem.id === t.id)
+    );
 
-    for (const q of queries) {
-      if (assignedSessionId !== activeQueueSessionId) return [];
+    for (const cand of freshTracks) {
       if (upNextQueue.length >= minSize) break;
-
-      const candidates = await searchTracks(q);
-      if (assignedSessionId !== activeQueueSessionId) return [];
-
-      if (Array.isArray(candidates) && candidates.length > 0) {
-        const freshTracks = candidates.filter(
-          t => t?.id &&
-               !playedTrackIds.has(t.id) &&
-               t.id !== currentTrack?.id &&
-               (t.title || '').toLowerCase().trim() !== normCurrentTitle &&
-               !upNextQueue.some(qItem => qItem.id === t.id)
-        );
-
-        for (const cand of freshTracks) {
-          if (upNextQueue.length >= minSize) break;
-          upNextQueue.push(cand);
-          added.push(cand);
-        }
-      }
+      upNextQueue.push(cand);
+      added.push(cand);
     }
 
     if (assignedSessionId !== activeQueueSessionId) return [];
@@ -284,7 +308,7 @@ export async function maintainMinimumQueue(
     }
 
     notifyQueueListeners();
-    console.log(`[Queue] maintainMinimumQueue updated (size: ${upNextQueue.length}, added: ${added.length})`);
+    console.log(`[Queue] maintainMinimumQueue updated via Algorithmic Radio (size: ${upNextQueue.length}, added: ${added.length})`);
   } catch (err) {
     console.error('[Queue] Error in maintainMinimumQueue:', err);
   } finally {
@@ -292,8 +316,6 @@ export async function maintainMinimumQueue(
   }
   return added;
 }
-
-export const prefetchAutoplayQueue = maintainMinimumQueue;
 
 export async function handleActiveTrackChanged(event: any) {
   if (!event) return;
@@ -886,8 +908,8 @@ export async function playTrack(
       return;
     }
 
-    // CASE B: Song is from a Playlist or Album context (contextQueue && contextQueue.length > 0)
-    if (contextQueue && contextQueue.length > 0) {
+    // CASE B: Song is from a Multi-track Playlist or Album context (contextQueue && contextQueue.length > 1)
+    if (contextQueue && contextQueue.length > 1) {
       activeQueueSessionId++;
       const currentSession = activeQueueSessionId;
       const clonedContext = [...contextQueue];
@@ -1054,8 +1076,8 @@ export async function playTrack(
     notifyQueueListeners();
     setTimeout(() => { isLoadingTrack = false; }, 1200);
 
-    // Populate fresh 10-song queue for this new genre/song
-    maintainMinimumQueue(10, currentSession).catch(() => {});
+    // Immediately trigger genuine YouTube Music Radio queue
+    fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
 
     try {
       const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');

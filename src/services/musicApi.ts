@@ -253,7 +253,179 @@ export async function getRecommendedTracks(): Promise<TrackMetadata[]> {
   return FALLBACK_RESULTS;
 }
 
+/**
+ * Strategy A: Fetch native YouTube Music Automix Radio queue (Innertube v1/next / RDAMVM)
+ */
+export async function fetchYouTubeMusicRadio(videoId: string): Promise<TrackMetadata[]> {
+  try {
+    const response = await fetch('https://music.youtube.com/youtubei/v1/next', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'X-YouTube-Client-Name': '67', // WEB_REMIX (YouTube Music)
+        'X-YouTube-Client-Version': '1.20240101.01.00',
+        'Origin': 'https://music.youtube.com',
+      },
+      body: JSON.stringify({
+        enablePersistentPlaylistPanel: true,
+        isAudioOnly: true,
+        tunerSettingValue: 'AUTOMIX_SETTING_NORMAL',
+        playlistId: `RDAMVM${videoId}`, // YouTube Music Radio Station ID
+        videoId: videoId,
+        context: {
+          client: {
+            clientName: 'WEB_REMIX',
+            clientVersion: '1.20240101.01.00',
+            hl: 'en',
+            gl: 'IN',
+          },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[YTM Radio] HTTP ${response.status} from Innertube next endpoint`);
+      return [];
+    }
+
+    const data = await response.json();
+    
+    // Parse playlistPanelVideoRenderer items from the tabs/musicQueueRenderer
+    const tabs = data?.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs ||
+                 data?.contents?.singleColumnMusicWatchNextResultsRenderer?.tabRenderer?.tabs || [];
+    const queueTab = tabs.find((t: any) => t.tabRenderer?.content?.musicQueueRenderer) || tabs[0];
+    const items = queueTab?.tabRenderer?.content?.musicQueueRenderer?.content?.playlistPanelRenderer?.contents ||
+                  data?.continuationContents?.playlistPanelContinuation?.contents || [];
+
+    const tracks: TrackMetadata[] = [];
+    for (const item of items) {
+      const renderer = item.playlistPanelVideoRenderer;
+      if (!renderer || !renderer.videoId) continue;
+      
+      // Avoid adding the active track itself
+      if (renderer.videoId === videoId) continue;
+
+      const title = renderer.title?.runs?.[0]?.text || 'Unknown Title';
+      const artist = renderer.longBylineText?.runs?.[0]?.text || renderer.shortBylineText?.runs?.[0]?.text || 'Unknown Artist';
+      const durationText = renderer.lengthText?.runs?.[0]?.text || '';
+      const thumbnails = renderer.thumbnail?.thumbnails || [];
+      const artwork = thumbnails[thumbnails.length - 1]?.url;
+
+      tracks.push({
+        id: renderer.videoId,
+        url: renderer.videoId,
+        title,
+        artist,
+        artwork,
+        duration: durationText,
+      });
+    }
+
+    return tracks;
+  } catch (err) {
+    console.warn('[YTM Radio] Failed to fetch Innertube radio queue:', err);
+    return [];
+  }
+}
+
+/**
+ * Strategy B: Query JioSaavn's song recommendation endpoint (reco.getreco)
+ */
+export async function fetchSaavnReco(songId: string): Promise<TrackMetadata[]> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+    const url = `https://www.jiosaavn.com/api.php?__call=reco.getreco&api_version=4&_format=json&_marker=0&ctx=android&songid=${encodeURIComponent(songId)}&pid=${encodeURIComponent(songId)}`;
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (!Array.isArray(data)) return [];
+
+    const tracks: TrackMetadata[] = [];
+    for (const item of data) {
+      const id = item.id || item.song_id;
+      if (!id || String(id) === String(songId)) continue;
+
+      const title = item.title || item.song || 'Unknown Title';
+      const artist = item.more_info?.singers || item.more_info?.music || item.primary_artists || 'Unknown Artist';
+      let artwork = item.image;
+      if (typeof artwork === 'string') {
+        artwork = artwork.replace('150x150', '500x500').replace('http:', 'https:');
+      }
+
+      tracks.push({
+        id: String(id),
+        title,
+        artist,
+        artwork,
+        duration: item.duration || item.more_info?.duration,
+        url: item.more_info?.encrypted_media_url,
+      });
+    }
+    return tracks;
+  } catch (err) {
+    console.warn('[Saavn Reco] Failed to fetch Saavn recommendations:', err);
+    return [];
+  }
+}
+
+/**
+ * Strategy C: Unified Algorithmic Recommendations
+ * Evaluates track source and retrieves authentic radio/recommendation queue.
+ */
+export async function getAlgorithmicRecommendations(track: TrackMetadata): Promise<TrackMetadata[]> {
+  if (!track) return [];
+
+  const trackId = (track.id || '').trim();
+  const isYouTubeId = /^[a-zA-Z0-9_-]{11}$/.test(trackId);
+  const isSaavnId = /^\d+$/.test(trackId);
+
+  // 1. YouTube video ID
+  if (isYouTubeId) {
+    const ytmTracks = await fetchYouTubeMusicRadio(trackId);
+    if (ytmTracks.length > 0) return ytmTracks;
+  }
+
+  // 2. JioSaavn numeric ID
+  if (isSaavnId) {
+    const saavnTracks = await fetchSaavnReco(trackId);
+    if (saavnTracks.length > 0) return saavnTracks;
+  }
+
+  // 3. Resolve YouTube video ID once and query native YTM radio
+  try {
+    const query = `${track.title || ''} ${track.artist || ''}`.trim();
+    if (query) {
+      const searchResults = await searchTracks(query);
+      const matched = searchResults.find(t => t.id && /^[a-zA-Z0-9_-]{11}$/.test(t.id));
+      if (matched?.id) {
+        const radioTracks = await fetchYouTubeMusicRadio(matched.id);
+        if (radioTracks.length > 0) return radioTracks;
+      }
+    }
+  } catch (err) {
+    console.warn('[AlgorithmicReco] Failed to resolve videoId for radio:', err);
+  }
+
+  return [];
+}
+
+export const fetchRelatedRadioTracks = getAlgorithmicRecommendations;
+
 export async function getRelatedTracks(videoId: string): Promise<TrackMetadata[]> {
+  if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    const radio = await fetchYouTubeMusicRadio(videoId);
+    if (radio.length > 0) return radio;
+  }
   return getRecommendedTracks();
 }
+
 
