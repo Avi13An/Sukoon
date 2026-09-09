@@ -1,5 +1,5 @@
 diff --git a/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt b/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt
-index 9120777..db79e99 100644
+index 9120777..7566a3f 100644
 --- a/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt
 +++ b/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt
 @@ -94,6 +94,7 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
@@ -10,7 +10,15 @@ index 9120777..db79e99 100644
  
      playerConfig = PlayerConfig().load(this)
      val config = playerConfig ?: PlayerConfig()
-@@ -952,6 +953,10 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
+@@ -356,6 +357,7 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
+   }
+ 
+   override fun onDestroy() {
++    instance = null
+     mediaSession?.run {
+       player.release()
+       release()
+@@ -952,6 +954,10 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
      var sharedCache: SimpleCache? = null
        private set
  
@@ -21,15 +29,3 @@ index 9120777..db79e99 100644
      /** Removes all entries from the shared cache. Safe to call from any thread. */
      fun clearCache() {
        sharedCache?.let { cache ->
-@@ -959,4 +964,11 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
-       }
-     }
-   }
-+
-+  override fun onDestroy() {
-+    if (instance == this) {
-+      instance = null
-+    }
-+    super.onDestroy()
-+  }
- }
