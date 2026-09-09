@@ -30,7 +30,7 @@ import {
 } from '../utils/storage';
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
-const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export function PlayerScreen({ navigation }: any) {
   const track = useActiveMediaItem();
@@ -208,6 +208,9 @@ export function PlayerScreen({ navigation }: any) {
   const [lyricsData, setLyricsData] = useState<any>(null);
   const [syncedLines, setSyncedLines] = useState<SyncedLyricLine[]>([]);
   const [currentLyricIndex, setCurrentLyricIndex] = useState(-1);
+  const [containerHeight, setContainerHeight] = useState(300);
+  const LINE_HEIGHT = 64;
+  const verticalPadding = Math.max(0, (containerHeight - LINE_HEIGHT) / 2);
   const lyricsFlatListRef = useRef<FlatList>(null);
   
   const scrollViewRef = useRef<ScrollView>(null);
@@ -220,15 +223,19 @@ export function PlayerScreen({ navigation }: any) {
     });
     if (activeIndex !== -1 && activeIndex !== currentLyricIndex) {
       setCurrentLyricIndex(activeIndex);
-      try {
-        lyricsFlatListRef.current?.scrollToIndex({
-          index: activeIndex,
-          animated: true,
-          viewPosition: 0.5, // Keep active lyric centered
-        });
-      } catch {}
     }
   }, [currentPos, syncedLines]);
+
+  useEffect(() => {
+    if (currentLyricIndex < 0 || !syncedLines || syncedLines.length === 0) return;
+
+    const targetOffset = currentLyricIndex * LINE_HEIGHT;
+
+    lyricsFlatListRef.current?.scrollToOffset({
+      offset: targetOffset,
+      animated: true,
+    });
+  }, [currentLyricIndex, containerHeight]);
 
   useEffect(() => {
     if (showLyrics && track && !lyricsData && !lyricsLoading) {
@@ -481,7 +488,15 @@ export function PlayerScreen({ navigation }: any) {
       )}
 
       {showLyrics ? (
-        <View style={styles.lyricsContainer}>
+        <View 
+          style={[styles.lyricsContainer, { flex: 1, width: '100%', overflow: 'hidden' }]}
+          onLayout={(e) => {
+            const { height: h } = e.nativeEvent.layout;
+            if (h > 50) {
+              setContainerHeight(h);
+            }
+          }}
+        >
           {lyricsLoading ? (
             <ActivityIndicator size="large" color="#ffffff" style={styles.loader} />
           ) : syncedLines.length > 0 ? (
@@ -491,24 +506,15 @@ export function PlayerScreen({ navigation }: any) {
               keyExtractor={(item, index) => `${index}-${item.time}`}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{
-                paddingTop: SCREEN_HEIGHT * 0.4,
-                paddingBottom: SCREEN_HEIGHT * 0.45,
-                paddingHorizontal: 24,
+                paddingTop: verticalPadding,
+                paddingBottom: verticalPadding,
+                paddingHorizontal: 20,
               }}
               getItemLayout={(_, index) => ({
-                length: 50,
-                offset: 50 * index,
+                length: LINE_HEIGHT,
+                offset: LINE_HEIGHT * index,
                 index,
               })}
-              onScrollToIndexFailed={(info) => {
-                setTimeout(() => {
-                  lyricsFlatListRef.current?.scrollToIndex({
-                    index: info.index,
-                    animated: true,
-                    viewPosition: 0.5,
-                  });
-                }, 80);
-              }}
               renderItem={({ item, index }) => {
                 const isActive = index === currentLyricIndex;
                 const isPassed = index < currentLyricIndex;
@@ -516,10 +522,18 @@ export function PlayerScreen({ navigation }: any) {
                   <TouchableOpacity
                     activeOpacity={0.7}
                     onPress={() => handleSeek(item.time)}
+                    style={{
+                      height: LINE_HEIGHT,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      paddingHorizontal: 12,
+                    }}
                   >
                     <Text 
+                      numberOfLines={2}
                       style={[
                         styles.syncedLyricLine, 
+                        { marginBottom: 0 },
                         isActive && styles.activeLyricLine,
                         isPassed && styles.passedLyricLine
                       ]}

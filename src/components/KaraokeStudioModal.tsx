@@ -9,10 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Dimensions,
 } from 'react-native';
-
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 import { Ionicons } from '@expo/vector-icons';
 import TrackPlayer, { useIsPlaying } from '@rntp/player';
 import { createAudioPlayer } from 'expo-audio';
@@ -61,6 +58,9 @@ export function KaraokeStudioModal({
   };
 
   const [lyricsData, setLyricsData] = useState<ParsedLyrics | null>(null);
+  const [containerHeight, setContainerHeight] = useState(300);
+  const LINE_HEIGHT = 64;
+  const verticalPadding = Math.max(0, (containerHeight - LINE_HEIGHT) / 2);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [studioState, setStudioState] = useState<StudioState>('idle');
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
@@ -161,16 +161,15 @@ export function KaraokeStudioModal({
   }
 
   useEffect(() => {
-    if (activeLineIndex >= 0 && flatListRef.current && lyricsData?.lines?.length) {
-      try {
-        flatListRef.current.scrollToIndex({
-          index: activeLineIndex,
-          animated: true,
-          viewPosition: 0.5,
-        });
-      } catch {}
-    }
-  }, [activeLineIndex]);
+    if (activeLineIndex < 0 || !lyricsData?.lines || lyricsData.lines.length === 0) return;
+
+    const targetOffset = activeLineIndex * LINE_HEIGHT;
+
+    flatListRef.current?.scrollToOffset({
+      offset: targetOffset,
+      animated: true,
+    });
+  }, [activeLineIndex, containerHeight]);
 
   // Recording Controls
   const handleStartRecord = async () => {
@@ -386,7 +385,15 @@ export function KaraokeStudioModal({
         </View>
 
         {/* Synced Lyrics Live Teleprompter */}
-        <View style={styles.teleprompterContainer}>
+        <View 
+          style={[styles.teleprompterContainer, { flex: 1, width: '100%', overflow: 'hidden' }]}
+          onLayout={(e) => {
+            const { height: h } = e.nativeEvent.layout;
+            if (h > 50) {
+              setContainerHeight(h);
+            }
+          }}
+        >
           {isLoadingLyrics ? (
             <View style={styles.centerContainer}>
               <ActivityIndicator size="large" color="#00ffcc" />
@@ -398,25 +405,30 @@ export function KaraokeStudioModal({
               data={lyricsData.lines}
               keyExtractor={(_, index) => index.toString()}
               contentContainerStyle={{
-                paddingTop: SCREEN_HEIGHT * 0.4,
-                paddingBottom: SCREEN_HEIGHT * 0.45,
-                paddingHorizontal: 24,
+                paddingTop: verticalPadding,
+                paddingBottom: verticalPadding,
+                paddingHorizontal: 20,
               }}
+              getItemLayout={(_, index) => ({
+                length: LINE_HEIGHT,
+                offset: LINE_HEIGHT * index,
+                index,
+              })}
               showsVerticalScrollIndicator={false}
-              onScrollToIndexFailed={(info) => {
-                setTimeout(() => {
-                  flatListRef.current?.scrollToIndex({
-                    index: info.index,
-                    animated: true,
-                    viewPosition: 0.5,
-                  });
-                }, 80);
-              }}
               renderItem={({ item, index }) => {
                 const isActive = index === activeLineIndex;
                 return (
-                  <View style={[styles.lyricRow, isActive && styles.activeLyricRow]}>
-                    <Text style={[styles.lyricText, isActive && styles.activeLyricText]}>
+                  <View 
+                    style={[
+                      styles.lyricRow, 
+                      { height: LINE_HEIGHT, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 0 },
+                      isActive && styles.activeLyricRow
+                    ]}
+                  >
+                    <Text 
+                      numberOfLines={2}
+                      style={[styles.lyricText, isActive && styles.activeLyricText]}
+                    >
                       {item.text}
                     </Text>
                   </View>

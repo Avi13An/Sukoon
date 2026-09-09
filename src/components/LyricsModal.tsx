@@ -45,6 +45,9 @@ export function LyricsModal({
   const [customSearchQuery, setCustomSearchQuery] = useState('');
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [selectedSource, setSelectedSource] = useState<string>('LRCLIB (Synced)');
+  const [containerHeight, setContainerHeight] = useState(300);
+  const LINE_HEIGHT = 64;
+  const verticalPadding = Math.max(0, (containerHeight - LINE_HEIGHT) / 2);
   
   const flatListRef = useRef<FlatList>(null);
   const lastActiveIndex = useRef<number>(-1);
@@ -97,26 +100,17 @@ export function LyricsModal({
     activeLineIndex = idx !== -1 ? idx : (currentPosition >= lyricsData.lines[0]?.time ? 0 : -1);
   }
 
-  // Smoothly auto-scroll to keep active line centered
+  // Lock active lyric dead center of the viewport via exact scrollToOffset
   useEffect(() => {
-    if (
-      lyricsData?.synced && 
-      activeLineIndex >= 0 && 
-      activeLineIndex !== lastActiveIndex.current && 
-      flatListRef.current
-    ) {
-      lastActiveIndex.current = activeLineIndex;
-      try {
-        flatListRef.current.scrollToIndex({
-          index: activeLineIndex,
-          animated: true,
-          viewPosition: 0.5,
-        });
-      } catch (err) {
-        // Fallback for unmeasured list
-      }
-    }
-  }, [activeLineIndex, lyricsData?.synced]);
+    if (!lyricsData?.synced || activeLineIndex < 0 || !lyricsData.lines || lyricsData.lines.length === 0) return;
+
+    const targetOffset = activeLineIndex * LINE_HEIGHT;
+
+    flatListRef.current?.scrollToOffset({
+      offset: targetOffset,
+      animated: true,
+    });
+  }, [activeLineIndex, lyricsData?.synced, containerHeight]);
 
   const handleCustomSearch = () => {
     if (!customSearchQuery.trim()) return;
@@ -216,7 +210,15 @@ export function LyricsModal({
           )}
 
           {/* Content Body */}
-          <View style={styles.contentBody}>
+          <View
+            style={[styles.contentBody, { flex: 1, width: '100%', overflow: 'hidden' }]}
+            onLayout={(e) => {
+              const { height: h } = e.nativeEvent.layout;
+              if (h > 50) {
+                setContainerHeight(h);
+              }
+            }}
+          >
             {isLoading ? (
               <View style={styles.centerContainer}>
                 <ActivityIndicator size="large" color="#00ffcc" />
@@ -229,24 +231,15 @@ export function LyricsModal({
                 keyExtractor={(item, index) => `${index}-${item.time}`}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{
-                  paddingTop: height * 0.4,
-                  paddingBottom: height * 0.45,
-                  paddingHorizontal: 24,
+                  paddingTop: verticalPadding,
+                  paddingBottom: verticalPadding,
+                  paddingHorizontal: 20,
                 }}
                 getItemLayout={(_, index) => ({
-                  length: 56,
-                  offset: 56 * index,
+                  length: LINE_HEIGHT,
+                  offset: LINE_HEIGHT * index,
                   index,
                 })}
-                onScrollToIndexFailed={(info) => {
-                  setTimeout(() => {
-                    flatListRef.current?.scrollToIndex({
-                      index: info.index,
-                      animated: true,
-                      viewPosition: 0.5,
-                    });
-                  }, 80);
-                }}
                 renderItem={({ item, index }) => {
                   const isActive = index === activeLineIndex;
                   const isPassed = index < activeLineIndex;
@@ -257,10 +250,12 @@ export function LyricsModal({
                       onPress={() => onSeek && onSeek(item.time)}
                       style={[
                         styles.lineWrapper,
+                        { height: LINE_HEIGHT, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, marginVertical: 0 },
                         isActive && styles.activeLineWrapper
                       ]}
                     >
                       <Text
+                        numberOfLines={2}
                         style={[
                           styles.lyricLine,
                           isActive && styles.activeLyricLine,
