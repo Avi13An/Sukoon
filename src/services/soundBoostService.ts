@@ -13,8 +13,8 @@ export async function setSoundBoostPercent(percent: number): Promise<void> {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
   storage.set(BOOST_STORAGE_KEY, clamped);
 
-  // Convert 0..100% to 0..1500 millibels (+15dB target gain)
-  const gainMB = Math.round((clamped / 100) * 1500);
+  // Convert 0..100% boost to 0..2000 millibels (+20dB total amplification)
+  const gainMB = Math.round((clamped / 100) * 2000);
 
   if (AudioEffectsModule?.setBoostGain) {
     try {
@@ -38,7 +38,7 @@ export async function syncSoundBoostSession(sessionId?: number): Promise<void> {
   try {
     await AudioEffectsModule.attachSession(sessionId || 1);
     const savedPercent = getSoundBoostPercent();
-    const gainMB = Math.round((savedPercent / 100) * 1500);
+    const gainMB = Math.round((savedPercent / 100) * 2000);
     if (AudioEffectsModule?.setBoostGain) {
       await AudioEffectsModule.setBoostGain(gainMB);
     }

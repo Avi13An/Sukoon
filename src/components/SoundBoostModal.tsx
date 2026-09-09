@@ -33,11 +33,14 @@ const PRESETS = [
 
 export function SoundBoostModal({ visible, onClose }: Props) {
   const [boostPercent, setBoostPercent] = useState<number>(0);
+  const boostPercentRef = useRef<number>(0);
+  boostPercentRef.current = boostPercent;
 
   useEffect(() => {
     if (visible) {
       const saved = getSoundBoostPercent();
       setBoostPercent(saved);
+      boostPercentRef.current = saved;
       syncSoundBoostSession();
     }
   }, [visible]);
@@ -45,6 +48,7 @@ export function SoundBoostModal({ visible, onClose }: Props) {
   const handleApplyBoost = async (val: number) => {
     const clamped = Math.max(0, Math.min(100, Math.round(val)));
     setBoostPercent(clamped);
+    boostPercentRef.current = clamped;
     await setSoundBoostPercent(clamped);
   };
 
@@ -64,12 +68,12 @@ export function SoundBoostModal({ visible, onClose }: Props) {
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
-        initialBoostRef.current = boostPercent;
+        initialBoostRef.current = boostPercentRef.current;
         // Direct tap jump calculation
         const tw = trackWidthRef.current || 1;
         const locX = evt.nativeEvent.locationX;
         if (typeof locX === 'number' && locX >= 0 && locX <= tw) {
-          const tappedBoost = Math.round((locX / tw) * 100);
+          const tappedBoost = Math.max(0, Math.min(100, Math.round((locX / tw) * 100)));
           handleApplyBoost(tappedBoost);
           initialBoostRef.current = tappedBoost;
         }
@@ -79,9 +83,17 @@ export function SoundBoostModal({ visible, onClose }: Props) {
         const delta = Math.round((gestureState.dx / tw) * 100);
         const newBoost = Math.max(0, Math.min(100, initialBoostRef.current + delta));
         setBoostPercent(newBoost);
+        boostPercentRef.current = newBoost;
         setSoundBoostPercent(newBoost);
       },
-      onPanResponderRelease: () => {},
+      onPanResponderRelease: (_, gestureState) => {
+        const tw = trackWidthRef.current || 1;
+        const delta = Math.round((gestureState.dx / tw) * 100);
+        const finalBoost = Math.max(0, Math.min(100, initialBoostRef.current + delta));
+        setBoostPercent(finalBoost);
+        boostPercentRef.current = finalBoost;
+        setSoundBoostPercent(finalBoost);
+      },
     })
   ).current;
 
