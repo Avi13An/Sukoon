@@ -33,15 +33,13 @@ export function getSoundBoostPercent(): number {
   return 0;
 }
 
-export async function syncSoundBoostSession(sessionId?: number): Promise<void> {
+export async function syncSoundBoostSession(): Promise<void> {
   if (!AudioEffectsModule?.attachSession) return;
   try {
-    await AudioEffectsModule.attachSession(sessionId || 1);
+    await AudioEffectsModule.attachSession();
     const savedPercent = getSoundBoostPercent();
     const gainMB = Math.round((savedPercent / 100) * 2000);
-    if (AudioEffectsModule?.setBoostGain) {
-      await AudioEffectsModule.setBoostGain(gainMB);
-    }
+    await AudioEffectsModule.setBoostGain(gainMB);
   } catch (err) {
     console.warn('[SoundBoost] Session sync error:', err);
   }

@@ -1,0 +1,4 @@
+-keep class com.doublesymmetry.trackplayer.** { *; }
+-keepclassmembers class com.doublesymmetry.trackplayer.** { *; }
+-keep class com.sukoon.app.** { *; }
+-keepclassmembers class com.sukoon.app.** { *; }

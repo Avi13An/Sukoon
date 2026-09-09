@@ -1,7 +1,16 @@
 diff --git a/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt b/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt
-index 9120777..7566a3f 100644
+index 9120777..f2586d6 100644
 --- a/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt
 +++ b/node_modules/@rntp/player/android/src/main/java/com/doublesymmetry/trackplayer/TrackPlayerPlaybackService.kt
+@@ -76,7 +76,7 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
+   private var mediaSession: MediaLibraryService.MediaLibrarySession? = null
+   internal var playerConfig: PlayerConfig? = null
+   private var simpleCache: SimpleCache? = null
+-  private var exoPlayer: ExoPlayer? = null
++  internal var exoPlayer: ExoPlayer? = null
+   internal var castPlayer: CastPlayer? = null
+   internal var activePlayer: Player? = null
+   private var progressSyncTimer: java.util.Timer? = null
 @@ -94,6 +94,7 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
    @OptIn(UnstableApi::class)
    override fun onCreate() {
@@ -18,13 +27,24 @@ index 9120777..7566a3f 100644
      mediaSession?.run {
        player.release()
        release()
-@@ -952,6 +954,10 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
+@@ -952,6 +954,21 @@ class TrackPlayerPlaybackService: MediaLibraryService(), MediaLibraryService.Med
      var sharedCache: SimpleCache? = null
        private set
  
 +    @JvmField
 +    @Volatile
 +    var instance: TrackPlayerPlaybackService? = null
++
++    @androidx.annotation.Keep
++    @JvmStatic
++    fun getActiveAudioSessionId(): Int {
++      return try {
++        val inst = instance ?: return -1
++        inst.exoPlayer?.audioSessionId ?: -1
++      } catch (e: Throwable) {
++        -1
++      }
++    }
 +
      /** Removes all entries from the shared cache. Safe to call from any thread. */
      fun clearCache() {
