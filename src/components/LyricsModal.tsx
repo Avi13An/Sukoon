@@ -228,7 +228,11 @@ export function LyricsModal({
                 data={lyricsData.lines}
                 keyExtractor={(item, index) => `${index}-${item.time}`}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.syncedListContent}
+                contentContainerStyle={{
+                  paddingTop: height * 0.4,
+                  paddingBottom: height * 0.45,
+                  paddingHorizontal: 24,
+                }}
                 getItemLayout={(_, index) => ({
                   length: 56,
                   offset: 56 * index,
@@ -236,11 +240,12 @@ export function LyricsModal({
                 })}
                 onScrollToIndexFailed={(info) => {
                   setTimeout(() => {
-                    flatListRef.current?.scrollToOffset({
-                      offset: info.index * 56,
+                    flatListRef.current?.scrollToIndex({
+                      index: info.index,
                       animated: true,
+                      viewPosition: 0.5,
                     });
-                  }, 100);
+                  }, 80);
                 }}
                 renderItem={({ item, index }) => {
                   const isActive = index === activeLineIndex;

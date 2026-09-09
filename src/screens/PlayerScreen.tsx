@@ -7,7 +7,6 @@ import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
 import { toggleLoopMode, playNextTrack, playPreviousTrack, getCurrentTrack } from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SoundBoostModal } from '../components/SoundBoostModal';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { QueueModal } from '../components/QueueModal';
 import { LyricsModal } from '../components/LyricsModal';
@@ -31,7 +30,7 @@ import {
 } from '../utils/storage';
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
-const { width } = Dimensions.get('window');
+const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export function PlayerScreen({ navigation }: any) {
   const track = useActiveMediaItem();
@@ -186,7 +185,6 @@ export function PlayerScreen({ navigation }: any) {
   );
 
   const [repeatMode, setRepeatMode] = useState<any>(RepeatMode.Off);
-  const [isAudioSettingsVisible, setIsAudioSettingsVisible] = useState(false);
   const [isSleepTimerVisible, setIsSleepTimerVisible] = useState(false);
   const [sleepState, setSleepState] = useState<SleepTimerState>(getSleepTimerState());
 
@@ -492,7 +490,11 @@ export function PlayerScreen({ navigation }: any) {
               data={syncedLines}
               keyExtractor={(item, index) => `${index}-${item.time}`}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.lyricsScroll}
+              contentContainerStyle={{
+                paddingTop: SCREEN_HEIGHT * 0.4,
+                paddingBottom: SCREEN_HEIGHT * 0.45,
+                paddingHorizontal: 24,
+              }}
               getItemLayout={(_, index) => ({
                 length: 50,
                 offset: 50 * index,
@@ -500,15 +502,16 @@ export function PlayerScreen({ navigation }: any) {
               })}
               onScrollToIndexFailed={(info) => {
                 setTimeout(() => {
-                  lyricsFlatListRef.current?.scrollToOffset({
-                    offset: info.index * 50,
+                  lyricsFlatListRef.current?.scrollToIndex({
+                    index: info.index,
                     animated: true,
+                    viewPosition: 0.5,
                   });
-                }, 100);
+                }, 80);
               }}
               renderItem={({ item, index }) => {
-                const isActive = index === activeLineIndex;
-                const isPassed = index < activeLineIndex;
+                const isActive = index === currentLyricIndex;
+                const isPassed = index < currentLyricIndex;
                 return (
                   <TouchableOpacity
                     activeOpacity={0.7}
@@ -633,14 +636,6 @@ export function PlayerScreen({ navigation }: any) {
 
           <TouchableOpacity 
             style={styles.secondaryActionBtn} 
-            onPress={() => setIsAudioSettingsVisible(true)}
-          >
-            <Ionicons name="flash-outline" size={22} color="#06B6D4" />
-            <Text style={styles.secondaryActionText}>Sound Boost</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
             onPress={handleToggleDownload}
           >
             {isDownloading ? (
@@ -670,7 +665,6 @@ export function PlayerScreen({ navigation }: any) {
         onClose={() => setIsPartyModalVisible(false)}
       />
 
-      <SoundBoostModal visible={isAudioSettingsVisible} onClose={() => setIsAudioSettingsVisible(false)} />
       <SleepTimerModal visible={isSleepTimerVisible} onClose={() => setIsSleepTimerVisible(false)} />
       
       <AddToPlaylistModal

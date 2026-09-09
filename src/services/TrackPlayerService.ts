@@ -413,10 +413,6 @@ export async function handleActiveTrackChanged(event: any) {
         syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
     } catch {}
-    try {
-      const { syncSoundBoostSession } = require('./soundBoostService');
-      syncSoundBoostSession();
-    } catch {}
   }
 
   // Replenish native ExoPlayer buffer and maintain minimum 10 songs:
@@ -691,11 +687,6 @@ export async function setupPlayer(): Promise<boolean> {
     isPlayerSetup = true;
     // Allow Android MediaController async connection to finish
     await new Promise((r) => setTimeout(r, 150));
-    await applySoundBoost(currentSoundBoostPercent);
-    try {
-      const { syncSoundBoostSession } = require('./soundBoostService');
-      syncSoundBoostSession();
-    } catch {}
     return true;
   } catch (e: any) {
     if (e?.message?.includes('already set up') || e?.message?.includes('Already set up')) {
@@ -704,21 +695,6 @@ export async function setupPlayer(): Promise<boolean> {
     }
     console.error('setupPlayer initialization error:', e);
     return false;
-  }
-}
-
-let currentSoundBoostPercent = 0;
-try {
-  const { getSoundBoostPercent } = require('./soundBoostService');
-  currentSoundBoostPercent = getSoundBoostPercent();
-} catch {}
-
-export async function applySoundBoost(boostPercent: number) {
-  currentSoundBoostPercent = Math.max(0, Math.min(100, boostPercent));
-  // Baseline volume is 0.50 at 0% boost, scaling to 1.00 at 100% boost for an immediate 2x loudness jump
-  const calculatedVolume = 0.50 + (currentSoundBoostPercent / 100) * 0.50;
-  if (typeof TrackPlayer.setVolume === 'function') {
-    await TrackPlayer.setVolume(calculatedVolume);
   }
 }
 
@@ -821,7 +797,6 @@ export async function executeSeamlessTransition(
     }
   } catch {}
 
-  await applySoundBoost(currentSoundBoostPercent);
   resetSleepPaused();
 
   if (typeof play === 'function') {
@@ -927,7 +902,6 @@ export async function playTrack(
         await addTracksToNativeQueue(seed);
       }
 
-      await applySoundBoost(currentSoundBoostPercent);
       resetSleepPaused();
 
       if (typeof play === 'function') {
@@ -959,10 +933,6 @@ export async function playTrack(
       if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
         syncService.broadcastTrackChange(currentTrack, upNextQueue);
       }
-    } catch {}
-    try {
-      const { syncSoundBoostSession } = require('./soundBoostService');
-      syncSoundBoostSession();
     } catch {}
 
     // Asynchronously pre-resolve streams for the buffered tracks in native queue

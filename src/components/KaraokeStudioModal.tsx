@@ -9,7 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Dimensions,
 } from 'react-native';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 import { Ionicons } from '@expo/vector-icons';
 import TrackPlayer, { useIsPlaying } from '@rntp/player';
 import { createAudioPlayer } from 'expo-audio';
@@ -163,7 +166,7 @@ export function KaraokeStudioModal({
         flatListRef.current.scrollToIndex({
           index: activeLineIndex,
           animated: true,
-          viewPosition: 0.35,
+          viewPosition: 0.5,
         });
       } catch {}
     }
@@ -394,9 +397,21 @@ export function KaraokeStudioModal({
               ref={flatListRef}
               data={lyricsData.lines}
               keyExtractor={(_, index) => index.toString()}
-              contentContainerStyle={styles.lyricsList}
+              contentContainerStyle={{
+                paddingTop: SCREEN_HEIGHT * 0.4,
+                paddingBottom: SCREEN_HEIGHT * 0.45,
+                paddingHorizontal: 24,
+              }}
               showsVerticalScrollIndicator={false}
-              onScrollToIndexFailed={() => {}}
+              onScrollToIndexFailed={(info) => {
+                setTimeout(() => {
+                  flatListRef.current?.scrollToIndex({
+                    index: info.index,
+                    animated: true,
+                    viewPosition: 0.5,
+                  });
+                }, 80);
+              }}
               renderItem={({ item, index }) => {
                 const isActive = index === activeLineIndex;
                 return (
