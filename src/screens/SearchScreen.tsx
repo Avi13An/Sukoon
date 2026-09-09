@@ -199,7 +199,7 @@ export function SearchScreen() {
       await playTrack({
         ...track,
         url: resolvedUrl
-      }, results);
+      }, []); // Pass empty queue so algorithmic recommendations engine populates genuine radio tracks
     } catch (err: any) {
       console.error('Playback Error:', err);
       Alert.alert('Playback Execution Error', `${err?.name}: ${err?.message}`);

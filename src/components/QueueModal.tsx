@@ -20,8 +20,9 @@ import {
   removeTrackFromQueue, 
   reorderQueue, 
   clearUpNextQueue, 
-  playTrack, 
-  maintainMinimumQueue 
+  playFromQueue,
+  maintainMinimumQueue,
+  getCurrentTrack
 } from '../services/TrackPlayerService';
 
 const { height } = Dimensions.get('window');
@@ -45,14 +46,17 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
 
   useEffect(() => {
     const unsubscribe = subscribeToQueue((newQueue) => {
-      setQueue(newQueue);
+      setQueue(Array.isArray(newQueue) ? newQueue : []);
     });
     return () => unsubscribe();
   }, []);
 
-  const handlePlaySong = async (item: TrackMetadata) => {
-    onClose();
-    await playTrack(item, undefined, { fromQueue: true });
+  const handleItemPress = async (index: number) => {
+    try {
+      await playFromQueue(index);
+    } catch (err) {
+      console.warn('Failed to play from queue:', err);
+    }
   };
 
   const handleGenerateSongs = async () => {
@@ -65,10 +69,11 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
     }
   };
 
+  const activeTrack = currentTrack || getCurrentTrack();
   const currentArtwork = 
-    currentTrack?.artwork || 
-    (currentTrack as any)?.artworkUrl || 
-    (currentTrack as any)?.thumbnail || 
+    activeTrack?.artwork || 
+    (activeTrack as any)?.artworkUrl || 
+    (activeTrack as any)?.thumbnail || 
     'https://via.placeholder.com/150';
 
   return (
@@ -99,7 +104,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
           </View>
 
           {/* Section 1: Now Playing */}
-          {currentTrack && (
+          {activeTrack && (
             <View style={styles.nowPlayingSection}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionHeading}>NOW PLAYING</Text>
@@ -117,10 +122,10 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
                 />
                 <View style={styles.nowPlayingInfo}>
                   <Text style={styles.nowPlayingTitle} numberOfLines={1}>
-                    {currentTrack.title || 'Unknown Title'}
+                    {activeTrack.title || 'Unknown Title'}
                   </Text>
                   <Text style={styles.nowPlayingArtist} numberOfLines={1}>
-                    {currentTrack.artist || 'Unknown Artist'}
+                    {activeTrack.artist || 'Unknown Artist'}
                   </Text>
                 </View>
                 <Ionicons name="volume-medium" size={22} color="#00ffcc" />
@@ -171,86 +176,92 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
             ) : (
               <FlatList
                 data={queue}
-                keyExtractor={(item, index) => `${item.id}-${index}`}
+                keyExtractor={(item, index) => `${item?.id || 'track'}_${index}`}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
                 renderItem={({ item, index }) => {
-                  const itemArtwork = 
-                    item.artwork || 
-                    (item as any)?.artworkUrl || 
-                    (item as any)?.thumbnail || 
-                    'https://via.placeholder.com/150';
-                  const isFirst = index === 0;
-                  const isLast = index === queue.length - 1;
+                  try {
+                    if (!item || !item.id) return null;
+                    const itemArtwork = 
+                      item.artwork || 
+                      (item as any)?.artworkUrl || 
+                      (item as any)?.thumbnail || 
+                      'https://via.placeholder.com/150';
+                    const isFirst = index === 0;
+                    const isLast = index === queue.length - 1;
 
-                  return (
-                    <TouchableOpacity 
-                      style={styles.queueItem}
-                      onPress={() => handlePlaySong(item)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.itemIndex}>#{index + 1}</Text>
-                      
-                      <Image 
-                        source={{ uri: itemArtwork }} 
-                        style={styles.itemThumb} 
-                        resizeMode="cover"
-                      />
+                    return (
+                      <TouchableOpacity 
+                        style={styles.queueItem}
+                        onPress={() => handleItemPress(index)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.itemIndex}>#{index + 1}</Text>
+                        
+                        <Image 
+                          source={{ uri: itemArtwork }} 
+                          style={styles.itemThumb} 
+                          resizeMode="cover"
+                        />
 
-                      <View style={styles.itemInfo}>
-                        <Text style={styles.itemTitle} numberOfLines={1}>
-                          {item.title || 'Unknown Title'}
-                        </Text>
-                        <View style={styles.itemSubRow}>
-                          <Text style={styles.itemArtist} numberOfLines={1}>
-                            {item.artist || 'Unknown Artist'}
+                        <View style={styles.itemInfo}>
+                          <Text style={styles.itemTitle} numberOfLines={1}>
+                            {item.title || 'Unknown Title'}
                           </Text>
-                          {item.duration ? (
-                            <Text style={styles.itemDuration}>
-                              • {formatDuration(item.duration)}
+                          <View style={styles.itemSubRow}>
+                            <Text style={styles.itemArtist} numberOfLines={1}>
+                              {item.artist || 'Unknown Artist'}
                             </Text>
-                          ) : null}
+                            {item.duration ? (
+                              <Text style={styles.itemDuration}>
+                                • {formatDuration(item.duration)}
+                              </Text>
+                            ) : null}
+                          </View>
                         </View>
-                      </View>
 
-                      {/* Reorder & Remove Actions */}
-                      <View style={styles.actionsRow}>
-                        <TouchableOpacity 
-                          style={[styles.actionBtn, isFirst && styles.actionBtnDisabled]}
-                          onPress={() => !isFirst && reorderQueue(index, index - 1)}
-                          disabled={isFirst}
-                          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                        >
-                          <Ionicons 
-                            name="chevron-up" 
-                            size={18} 
-                            color={isFirst ? '#44444e' : '#00ffcc'} 
-                          />
-                        </TouchableOpacity>
+                        {/* Reorder & Remove Actions */}
+                        <View style={styles.actionsRow}>
+                          <TouchableOpacity 
+                            style={[styles.actionBtn, isFirst && styles.actionBtnDisabled]}
+                            onPress={() => !isFirst && reorderQueue(index, index - 1)}
+                            disabled={isFirst}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                          >
+                            <Ionicons 
+                              name="chevron-up" 
+                              size={18} 
+                              color={isFirst ? '#44444e' : '#00ffcc'} 
+                            />
+                          </TouchableOpacity>
 
-                        <TouchableOpacity 
-                          style={[styles.actionBtn, isLast && styles.actionBtnDisabled]}
-                          onPress={() => !isLast && reorderQueue(index, index + 1)}
-                          disabled={isLast}
-                          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                        >
-                          <Ionicons 
-                            name="chevron-down" 
-                            size={18} 
-                            color={isLast ? '#44444e' : '#00ffcc'} 
-                          />
-                        </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={[styles.actionBtn, isLast && styles.actionBtnDisabled]}
+                            onPress={() => !isLast && reorderQueue(index, index + 1)}
+                            disabled={isLast}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                          >
+                            <Ionicons 
+                              name="chevron-down" 
+                              size={18} 
+                              color={isLast ? '#44444e' : '#00ffcc'} 
+                            />
+                          </TouchableOpacity>
 
-                        <TouchableOpacity 
-                          style={styles.actionBtn}
-                          onPress={() => removeTrackFromQueue(index)}
-                          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                        >
-                          <Ionicons name="close-circle-outline" size={18} color="#ff5555" />
-                        </TouchableOpacity>
-                      </View>
-                    </TouchableOpacity>
-                  );
+                          <TouchableOpacity 
+                            style={styles.actionBtn}
+                            onPress={() => removeTrackFromQueue(index)}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="close-circle-outline" size={18} color="#ff5555" />
+                          </TouchableOpacity>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  } catch (err) {
+                    console.warn('[QueueModal] renderItem error:', err);
+                    return null;
+                  }
                 }}
               />
             )}

@@ -784,253 +784,68 @@ export async function executeSeamlessTransition(
   }
 }
 
+export async function playFromQueue(index: number): Promise<void> {
+  if (index < 0 || index >= upNextQueue.length) return;
+
+  try {
+    // 1. Extract the target track
+    const targetTrack = upNextQueue[index];
+    if (!targetTrack || !targetTrack.id) return;
+
+    // 2. Slice the queue to keep everything AFTER this track
+    const remainingQueue = upNextQueue.slice(index + 1);
+
+    // 3. Play the target track with the remaining sliced queue
+    await playTrack(targetTrack, remainingQueue);
+  } catch (err) {
+    console.warn('[Queue] Error playing track from queue:', err);
+  }
+}
+
 export async function playTrack(
   selectedTrack: TrackMetadata, 
-  contextQueue?: TrackMetadata[],
+  newQueue?: TrackMetadata[],
   options?: { fromQueue?: boolean } | boolean
-) {
-  const isFromQueue = typeof options === 'boolean' ? options : options?.fromQueue === true;
-  const inQueue = upNextQueue.some(t => t.id === selectedTrack.id);
+): Promise<void> {
+  if (!selectedTrack || !selectedTrack.id) {
+    console.warn('[TrackPlayerService] playTrack called without valid track');
+    return;
+  }
 
+  const isFromQueue = typeof options === 'boolean' ? options : options?.fromQueue === true;
   isLoadingTrack = true;
 
   try {
     const isPlayerReady = await setupPlayer();
     if (!isPlayerReady) {
-      throw new Error('TrackPlayer setup failed or service unavailable');
-    }
-
-    // CASE A: Song is selected directly from the active queue OR exists in upNextQueue
-    if (isFromQueue || inQueue) {
-      const queueIndex = upNextQueue.findIndex(t => t.id === selectedTrack.id);
-      if (queueIndex !== -1) {
-        currentTrack = upNextQueue[queueIndex];
-        // Slice queue so everything AFTER this song remains upcoming in order
-        upNextQueue = upNextQueue.slice(queueIndex + 1);
-      } else {
-        currentTrack = selectedTrack;
-      }
-      playedTrackIds.add(currentTrack.id);
-      setLastPlayedTrack(currentTrack);
-      saveListenHistory(currentTrack);
-
-      let playUrl = await resolveStreamUrl(currentTrack);
-      if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
-        const msg = `No playable audio stream found for track ${currentTrack.id}`;
-        console.warn(msg);
-        try { Alert.alert('TrackPlayer Service Error', msg); } catch {}
-        throw new Error(msg);
-      }
-
-      const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
-      const matchedUA = isIosStream
-        ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
-        : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
-
-      if (AppState.currentState !== 'active') {
-        await executeSeamlessTransition(currentTrack, playUrl, matchedUA);
-      } else {
-        if (typeof (TrackPlayer as any).reset === 'function') {
-          try { await (TrackPlayer as any).reset(); } catch {}
-        }
-        if (typeof (TrackPlayer as any).clear === 'function') {
-          try { await (TrackPlayer as any).clear(); } catch {}
-        }
-
-        const seed = [
-          formatForTrackPlayer(currentTrack, playUrl, matchedUA),
-          ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
-        ];
-
-        if (typeof setMediaItems === 'function') {
-          await setMediaItems(seed, 0);
-        } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-          await (TrackPlayer as any).setMediaItems(seed, 0);
-        } else if (typeof (TrackPlayer as any).add === 'function') {
-          await (TrackPlayer as any).add(seed);
-        } else {
-          await addTracksToNativeQueue(seed);
-        }
-
-        await applySoundBoost(currentSoundBoostPercent);
-        resetSleepPaused();
-
-        if (typeof play === 'function') {
-          await play();
-        } else {
-          await TrackPlayer.play();
-        }
-      }
-
-      notifyQueueListeners();
-      setTimeout(() => { isLoadingTrack = false; }, 1200);
-      maintainMinimumQueue(10).catch(() => {});
-
-      try {
-        const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
-        if (isPartyActive() && !isHandlingRemoteSync()) {
-          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack, queue: upNextQueue });
-        }
-      } catch {}
-      try {
-        const syncService = require('./syncService');
-        if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
-          syncService.broadcastTrackChange(currentTrack, upNextQueue);
-        }
-      } catch {}
-      try {
-        const { syncSoundBoostSession } = require('./soundBoostService');
-        syncSoundBoostSession();
-      } catch {}
-
-      // Asynchronously pre-resolve streams for the buffered tracks in native queue
-      (async () => {
-        try {
-          const buffered = upNextQueue.slice(0, 3);
-          for (let i = 0; i < buffered.length; i++) {
-            const t = buffered[i];
-            const streamUrl = await resolveStreamUrl(t);
-            if (streamUrl && streamUrl !== t.url) {
-              t.url = streamUrl;
-              if (typeof (TrackPlayer as any).replaceMediaItem === 'function') {
-                try {
-                  await (TrackPlayer as any).replaceMediaItem(i + 1, formatForTrackPlayer(t, streamUrl, matchedUA));
-                } catch {}
-              }
-            }
-          }
-        } catch {}
-      })();
-
+      console.warn('[TrackPlayerService] TrackPlayer setup failed or service unavailable');
+      isLoadingTrack = false;
       return;
     }
 
-    // CASE B: Song is from a Multi-track Playlist or Album context (contextQueue && contextQueue.length > 1)
-    if (contextQueue && contextQueue.length > 1) {
-      activeQueueSessionId++;
-      const currentSession = activeQueueSessionId;
-      const clonedContext = [...contextQueue];
-      const selectedIndex = clonedContext.findIndex(t => t.id === selectedTrack.id);
-      currentTrack = selectedTrack;
-      playedTrackIds.clear();
-      playedTrackIds.add(currentTrack.id);
-      setLastPlayedTrack(currentTrack);
-      saveListenHistory(currentTrack);
-
-      // Set upNextQueue strictly to all subsequent songs in that exact playlist order
-      upNextQueue = selectedIndex !== -1 
-        ? clonedContext.slice(selectedIndex + 1) 
-        : clonedContext.filter(t => t.id !== selectedTrack.id);
-
-      let playUrl = await resolveStreamUrl(currentTrack);
-      if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
-        const msg = `No playable audio stream found for track ${currentTrack.id}`;
-        console.warn(msg);
-        try { Alert.alert('TrackPlayer Service Error', msg); } catch {}
-        throw new Error(msg);
-      }
-
-      const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
-      const matchedUA = isIosStream
-        ? 'com.google.ios.youtube/20.11.6 (iPhone10,4; U; CPU iOS 16_7_7 like Mac OS X)'
-        : 'com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip';
-
-      if (AppState.currentState !== 'active') {
-        await executeSeamlessTransition(currentTrack, playUrl, matchedUA);
-      } else {
-        if (typeof (TrackPlayer as any).reset === 'function') {
-          try { await (TrackPlayer as any).reset(); } catch {}
-        }
-        if (typeof (TrackPlayer as any).clear === 'function') {
-          try { await (TrackPlayer as any).clear(); } catch {}
-        }
-
-        const seed = [
-          formatForTrackPlayer(currentTrack, playUrl, matchedUA),
-          ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
-        ];
-
-        if (typeof setMediaItems === 'function') {
-          await setMediaItems(seed, 0);
-        } else if (typeof (TrackPlayer as any).setMediaItems === 'function') {
-          await (TrackPlayer as any).setMediaItems(seed, 0);
-        } else if (typeof (TrackPlayer as any).add === 'function') {
-          await (TrackPlayer as any).add(seed);
-        } else {
-          await addTracksToNativeQueue(seed);
-        }
-
-        await applySoundBoost(currentSoundBoostPercent);
-        resetSleepPaused();
-
-        if (typeof play === 'function') {
-          await play();
-        } else {
-          await TrackPlayer.play();
-        }
-      }
-
-      notifyQueueListeners();
-      setTimeout(() => { isLoadingTrack = false; }, 1200);
-      // Only append recommendations if playlist has fewer than 10 tracks
-      maintainMinimumQueue(10, currentSession).catch(() => {});
-
-      try {
-        const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
-        if (isPartyActive() && !isHandlingRemoteSync()) {
-          broadcastPartyAction('TRACK_CHANGE', { track: currentTrack, queue: upNextQueue });
-        }
-      } catch {}
-      try {
-        const syncService = require('./syncService');
-        if (typeof syncService.isSyncActive === 'function' && syncService.isSyncActive() && !syncService.isHandlingRemoteSync()) {
-          syncService.broadcastTrackChange(currentTrack, upNextQueue);
-        }
-      } catch {}
-      try {
-        const { syncSoundBoostSession } = require('./soundBoostService');
-        syncSoundBoostSession();
-      } catch {}
-
-      (async () => {
-        try {
-          const buffered = upNextQueue.slice(0, 3);
-          for (let i = 0; i < buffered.length; i++) {
-            if (currentSession !== activeQueueSessionId) return;
-            const t = buffered[i];
-            const streamUrl = await resolveStreamUrl(t);
-            if (currentSession !== activeQueueSessionId) return;
-            if (streamUrl && streamUrl !== t.url) {
-              t.url = streamUrl;
-              if (typeof (TrackPlayer as any).replaceMediaItem === 'function') {
-                try {
-                  await (TrackPlayer as any).replaceMediaItem(i + 1, formatForTrackPlayer(t, streamUrl, matchedUA));
-                } catch {}
-              }
-            }
-          }
-        } catch {}
-      })();
-
-      return;
-    }
-
-    // CASE C: Brand-new song selected outside the queue (from Home / Search) without context
     activeQueueSessionId++;
     const currentSession = activeQueueSessionId;
+
     currentTrack = selectedTrack;
-    upNextQueue = [];
-    playedTrackIds.clear();
+
+    if (Array.isArray(newQueue)) {
+      const idx = newQueue.findIndex(t => t?.id === selectedTrack.id);
+      upNextQueue = idx !== -1 ? newQueue.slice(idx + 1) : [...newQueue];
+    } else if (isFromQueue || upNextQueue.some(t => t?.id === selectedTrack.id)) {
+      const queueIndex = upNextQueue.findIndex(t => t?.id === selectedTrack.id);
+      upNextQueue = queueIndex !== -1 ? upNextQueue.slice(queueIndex + 1) : [];
+    } else {
+      upNextQueue = [];
+    }
+
     playedTrackIds.add(currentTrack.id);
     setLastPlayedTrack(currentTrack);
     saveListenHistory(currentTrack);
+    notifyQueueListeners();
 
     let playUrl = await resolveStreamUrl(currentTrack);
     if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
-      const msg = `No playable audio stream found for track ${currentTrack.id}`;
-      console.warn(msg);
-      try { Alert.alert('TrackPlayer Service Error', msg); } catch {}
-      throw new Error(msg);
+      playUrl = `https://invidious.f5.si/latest_version?id=${currentTrack.id}&itag=140`;
     }
 
     const isIosStream = playUrl.includes('c=IOS') || !playUrl.includes('c=ANDROID');
@@ -1048,7 +863,10 @@ export async function playTrack(
         try { await (TrackPlayer as any).clear(); } catch {}
       }
 
-      const seed = [formatForTrackPlayer(currentTrack, playUrl, matchedUA)];
+      const seed = [
+        formatForTrackPlayer(currentTrack, playUrl, matchedUA),
+        ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
+      ];
 
       if (typeof setMediaItems === 'function') {
         await setMediaItems(seed, 0);
@@ -1073,8 +891,13 @@ export async function playTrack(
     notifyQueueListeners();
     setTimeout(() => { isLoadingTrack = false; }, 1200);
 
-    // Immediately trigger genuine YouTube Music Radio queue
-    fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
+    // Replenish recommendations:
+    // If upNextQueue is empty (e.g. played single track from Search), generate related radio queue
+    if (upNextQueue.length === 0) {
+      fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
+    } else if (upNextQueue.length < 10) {
+      maintainMinimumQueue(10, currentSession).catch(() => {});
+    }
 
     try {
       const { isPartyActive, isHandlingRemoteSync, broadcastPartyAction } = require('./partyService');
@@ -1092,12 +915,33 @@ export async function playTrack(
       const { syncSoundBoostSession } = require('./soundBoostService');
       syncSoundBoostSession();
     } catch {}
+
+    // Asynchronously pre-resolve streams for the buffered tracks in native queue
+    (async () => {
+      try {
+        const buffered = upNextQueue.slice(0, 3);
+        for (let i = 0; i < buffered.length; i++) {
+          if (currentSession !== activeQueueSessionId) return;
+          const t = buffered[i];
+          const streamUrl = await resolveStreamUrl(t);
+          if (currentSession !== activeQueueSessionId) return;
+          if (streamUrl && streamUrl !== t.url) {
+            t.url = streamUrl;
+            if (typeof (TrackPlayer as any).replaceMediaItem === 'function') {
+              try {
+                await (TrackPlayer as any).replaceMediaItem(i + 1, formatForTrackPlayer(t, streamUrl, matchedUA));
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    })();
   } catch (error: any) {
     console.error('[TrackPlayerService] playTrack error:', error);
     isLoadingTrack = false;
-    throw error;
   }
 }
+
 
 export async function PlaybackService() {
   // Headless background playback service handler stub
