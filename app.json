@@ -30,7 +30,9 @@
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "RECORD_AUDIO",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -38,13 +40,13 @@
     },
     "extra": {
       "eas": {
-        "projectId": "776d3a4c-1c06-445b-abbb-68d04fca4d31"
+        "projectId": "ed60c955-4382-4401-a4b8-bf0978fda007"
       }
     },
     "plugins": [
       "expo-sharing",
       "expo-audio"
     ],
-    "owner": "venomavan"
+    "owner": "themelodyoflife"
   }
 }
