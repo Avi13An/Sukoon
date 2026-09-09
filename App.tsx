@@ -9,6 +9,7 @@ import { initCollabInboxListener } from './src/services/collabPlaylistService';
 import { getMyUsername } from './src/utils/storage';
 import { SyncPromptModal } from './src/components/SyncPromptModal';
 import { ToastNotification } from './src/components/ToastNotification';
+import { SafeErrorBoundary } from './src/components/SafeErrorBoundary';
 import TrackPlayer from '@rntp/player';
 
 TrackPlayer.registerBackgroundEventHandler(() => require('./src/services/playbackService').default);
@@ -41,9 +42,11 @@ export default function App() {
   return (
     <SafeAreaProvider style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      <MainNavigator />
-      <SyncPromptModal />
-      <ToastNotification />
+      <SafeErrorBoundary fallbackName="Root">
+        <MainNavigator />
+        <SyncPromptModal />
+        <ToastNotification />
+      </SafeErrorBoundary>
     </SafeAreaProvider>
   );
 }

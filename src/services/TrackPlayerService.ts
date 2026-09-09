@@ -11,6 +11,7 @@ import {
 } from '../utils/storage';
 import { getAudioStream, searchTracks, getAlgorithmicRecommendations } from './musicApi';
 import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
+import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
 
 export const Capability = {
   Play: PlayerCommand.PlayPause,
@@ -807,7 +808,8 @@ export async function playTrack(
   newQueue?: TrackMetadata[],
   options?: { fromQueue?: boolean } | boolean
 ): Promise<void> {
-  if (!selectedTrack || !selectedTrack.id) {
+  const safeTrack = sanitizeTrack(selectedTrack);
+  if (!safeTrack || !safeTrack.id) {
     console.warn('[TrackPlayerService] playTrack called without valid track');
     return;
   }
@@ -826,13 +828,14 @@ export async function playTrack(
     activeQueueSessionId++;
     const currentSession = activeQueueSessionId;
 
-    currentTrack = selectedTrack;
+    currentTrack = safeTrack;
 
     if (Array.isArray(newQueue)) {
-      const idx = newQueue.findIndex(t => t?.id === selectedTrack.id);
-      upNextQueue = idx !== -1 ? newQueue.slice(idx + 1) : [...newQueue];
-    } else if (isFromQueue || upNextQueue.some(t => t?.id === selectedTrack.id)) {
-      const queueIndex = upNextQueue.findIndex(t => t?.id === selectedTrack.id);
+      const sanitizedQueue = sanitizeTrackList(newQueue);
+      const idx = sanitizedQueue.findIndex(t => t?.id === safeTrack.id);
+      upNextQueue = idx !== -1 ? sanitizedQueue.slice(idx + 1) : [...sanitizedQueue];
+    } else if (isFromQueue || upNextQueue.some(t => t?.id === safeTrack.id)) {
+      const queueIndex = upNextQueue.findIndex(t => t?.id === safeTrack.id);
       upNextQueue = queueIndex !== -1 ? upNextQueue.slice(queueIndex + 1) : [];
     } else {
       upNextQueue = [];

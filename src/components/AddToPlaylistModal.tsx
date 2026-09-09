@@ -21,6 +21,8 @@ import {
   addTrackToPlaylist 
 } from '../utils/storage';
 import { showToast } from './ToastNotification';
+import { SafeErrorBoundary } from './SafeErrorBoundary';
+import { sanitizeTrack } from '../utils/trackSanitizer';
 
 interface AddToPlaylistModalProps {
   visible: boolean;
@@ -31,6 +33,8 @@ interface AddToPlaylistModalProps {
 export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistModalProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [newPlaylistName, setNewPlaylistName] = useState('');
+
+  const safeTrack = track ? sanitizeTrack(track) : null;
 
   useEffect(() => {
     if (visible) {
@@ -47,8 +51,8 @@ export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistMod
     }
 
     const newPlaylist = createPlaylist(trimmed);
-    if (track) {
-      addTrackToPlaylist(newPlaylist.id, track);
+    if (safeTrack) {
+      addTrackToPlaylist(newPlaylist.id, safeTrack);
       showToast(`Created "${trimmed}" and added track`, 'checkmark-circle');
     } else {
       showToast(`Created playlist "${trimmed}"`, 'checkmark-circle');
@@ -99,67 +103,69 @@ export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistMod
       animationType="slide"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.overlay}
-      >
-        <TouchableOpacity 
-          style={styles.backdrop} 
-          activeOpacity={1} 
-          onPress={onClose} 
-        />
-        <View style={styles.sheetContainer}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <Text style={styles.headerTitle}>Add to Playlist</Text>
-              {track && (
-                <Text style={styles.headerSubtitle} numberOfLines={1}>
-                  "{track.title}" - {track.artist}
-                </Text>
-              )}
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={24} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Create New Playlist Bar */}
-          <View style={styles.createContainer}>
-            <TextInput
-              style={styles.createInput}
-              placeholder="New playlist name..."
-              placeholderTextColor="#777777"
-              value={newPlaylistName}
-              onChangeText={setNewPlaylistName}
-              returnKeyType="done"
-              onSubmitEditing={handleCreateAndAdd}
-            />
-            <TouchableOpacity 
-              style={[styles.createBtn, !newPlaylistName.trim() && styles.createBtnDisabled]}
-              onPress={handleCreateAndAdd}
-              disabled={!newPlaylistName.trim()}
-            >
-              <Text style={styles.createBtnText}>Create</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Existing Playlists */}
-          <Text style={styles.sectionTitle}>Your Playlists</Text>
-          <FlatList
-            data={playlists}
-            keyExtractor={(item) => item.id}
-            renderItem={renderPlaylistItem}
-            contentContainerStyle={styles.listContent}
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Ionicons name="albums-outline" size={40} color="#444444" />
-                <Text style={styles.emptyText}>No playlists yet. Create your first one above!</Text>
-              </View>
-            }
+      <SafeErrorBoundary fallbackName="AddToPlaylistModal" onReset={onClose}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.overlay}
+        >
+          <TouchableOpacity 
+            style={styles.backdrop} 
+            activeOpacity={1} 
+            onPress={onClose} 
           />
-        </View>
-      </KeyboardAvoidingView>
+          <View style={styles.sheetContainer}>
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerLeft}>
+                <Text style={styles.headerTitle}>Add to Playlist</Text>
+                {safeTrack && (
+                  <Text style={styles.headerSubtitle} numberOfLines={1}>
+                    "{safeTrack.title}" - {safeTrack.artist}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Create New Playlist Bar */}
+            <View style={styles.createContainer}>
+              <TextInput
+                style={styles.createInput}
+                placeholder="New playlist name..."
+                placeholderTextColor="#777777"
+                value={newPlaylistName}
+                onChangeText={setNewPlaylistName}
+                returnKeyType="done"
+                onSubmitEditing={handleCreateAndAdd}
+              />
+              <TouchableOpacity 
+                style={[styles.createBtn, !newPlaylistName.trim() && styles.createBtnDisabled]}
+                onPress={handleCreateAndAdd}
+                disabled={!newPlaylistName.trim()}
+              >
+                <Text style={styles.createBtnText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Existing Playlists */}
+            <Text style={styles.sectionTitle}>Your Playlists</Text>
+            <FlatList
+              data={playlists}
+              keyExtractor={(item) => item.id}
+              renderItem={renderPlaylistItem}
+              contentContainerStyle={styles.listContent}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="albums-outline" size={40} color="#444444" />
+                  <Text style={styles.emptyText}>No playlists yet. Create your first one above!</Text>
+                </View>
+              }
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </SafeErrorBoundary>
     </Modal>
   );
 }

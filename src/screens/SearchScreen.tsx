@@ -19,6 +19,8 @@ import { playTrack, setupPlayer } from '../services/TrackPlayerService';
 import TrackPlayer, { Event, PlaybackState } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { TrackOptionsModal } from '../components/TrackOptionsModal';
+import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
 import { Ionicons } from '@expo/vector-icons';
 
 export function SearchScreen() {
@@ -75,7 +77,7 @@ export function SearchScreen() {
     setShowSuggestions(false);
     
     const searchResults = await searchTracks(trimmed);
-    setResults(searchResults);
+    setResults(sanitizeTrackList(searchResults));
     setIsLoading(false);
   };
 
@@ -154,19 +156,20 @@ export function SearchScreen() {
   }, []);
 
   const openOptions = (item: TrackMetadata) => {
-    setSelectedTrack(item);
+    setSelectedTrack(sanitizeTrack(item));
     setShowSyncInput(false);
     setSyncUsername('');
     Keyboard.dismiss();
   };
 
   const handlePlayNow = async (track: TrackMetadata) => {
+    const safeTrack = sanitizeTrack(track);
     setSelectedTrack(null);
     setShowSyncInput(false);
     setSyncUsername('');
     
     try {
-      setLoadingTrackId(track.id);
+      setLoadingTrackId(safeTrack.id);
 
       // Defensive player readiness check
       try {
@@ -180,7 +183,7 @@ export function SearchScreen() {
       }
 
       // Must resolve stream URL first
-      const streamResult = await getAudioStream(track.id);
+      const streamResult = await getAudioStream(safeTrack.id);
 
       // Handle both string and { url: string } formats defensively
       let resolvedUrl: string | null = null;
@@ -197,7 +200,7 @@ export function SearchScreen() {
       }
 
       await playTrack({
-        ...track,
+        ...safeTrack,
         url: resolvedUrl
       }, []); // Pass empty queue so algorithmic recommendations engine populates genuine radio tracks
     } catch (err: any) {
@@ -208,9 +211,10 @@ export function SearchScreen() {
     }
   };
 
-  const handleStartSync = async (item: TrackMetadata) => {
-    if (!syncUsername.trim()) return;
-    const target = syncUsername.trim();
+  const handleStartSync = async (item: TrackMetadata, customUsername?: string) => {
+    const target = (customUsername || syncUsername).trim();
+    if (!target) return;
+    const safeTrack = sanitizeTrack(item);
     
     setSelectedTrack(null);
     setShowSyncInput(false);
@@ -221,7 +225,7 @@ export function SearchScreen() {
     inviteToSync(target);
     
     // Start playing first to set the TrackPlayer item
-    await handlePlayNow(item);
+    await handlePlayNow(safeTrack);
   };
 
   const handleSaveToLibrary = () => {
@@ -352,71 +356,18 @@ export function SearchScreen() {
         />
       )}
 
-      <Modal
+      <TrackOptionsModal
         visible={selectedTrack !== null}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setSelectedTrack(null)}
-      >
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedTrack(null)}>
-          <View style={styles.bottomSheet}>
-            {selectedTrack && (
-              <>
-                <View style={styles.modalHeader}>
-                  <Image source={{ uri: selectedTrack.artwork || 'https://via.placeholder.com/150' }} style={styles.modalThumbnail} />
-                  <View style={styles.modalInfo}>
-                    <Text style={styles.modalTitle} numberOfLines={1}>{selectedTrack.title}</Text>
-                    <Text style={styles.modalArtist} numberOfLines={1}>{selectedTrack.artist}</Text>
-                  </View>
-                </View>
-                
-                <Pressable style={styles.actionButton} onPress={() => handlePlayNow(selectedTrack)}>
-                  <Text style={styles.actionIcon}>🎵</Text>
-                  <Text style={styles.actionText}>Play Now</Text>
-                </Pressable>
-                
-                {showSyncInput ? (
-                  <View style={styles.syncInputContainer}>
-                     <TextInput 
-                        style={styles.syncInput} 
-                        placeholder="Friend's Username" 
-                        placeholderTextColor="#888" 
-                        value={syncUsername}
-                        onChangeText={setSyncUsername}
-                        autoCapitalize="none"
-                     />
-                     <Pressable style={styles.syncSubmitBtn} onPress={() => handleStartSync(selectedTrack)}>
-                       <Text style={styles.syncSubmitText}>Host</Text>
-                     </Pressable>
-                  </View>
-                ) : (
-                  <Pressable style={styles.actionButton} onPress={() => setShowSyncInput(true)}>
-                    <Text style={styles.actionIcon}>👥</Text>
-                    <Text style={styles.actionText}>Start Co-Sync Party</Text>
-                  </Pressable>
-                )}
-
-                <Pressable 
-                  style={styles.actionButton} 
-                  onPress={() => {
-                    const trackToAdd = selectedTrack;
-                    setSelectedTrack(null);
-                    setPlaylistModalTrack(trackToAdd);
-                  }}
-                >
-                  <Text style={styles.actionIcon}>➕</Text>
-                  <Text style={styles.actionText}>Add to Playlist</Text>
-                </Pressable>
-
-                <Pressable style={styles.actionButton} onPress={handleSaveToLibrary}>
-                  <Text style={styles.actionIcon}>💾</Text>
-                  <Text style={styles.actionText}>Save to Library</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        track={selectedTrack ? sanitizeTrack(selectedTrack) : null}
+        onClose={() => setSelectedTrack(null)}
+        onPlayNow={handlePlayNow}
+        onAddToPlaylist={(trackToAdd) => {
+          setSelectedTrack(null);
+          setPlaylistModalTrack(trackToAdd);
+        }}
+        onStartSync={(trackToSync, username) => handleStartSync(trackToSync, username)}
+        onSaveToLibrary={handleSaveToLibrary}
+      />
 
       <AddToPlaylistModal 
         visible={playlistModalTrack !== null} 

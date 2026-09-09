@@ -20,10 +20,11 @@ import {
   removeTrackFromQueue, 
   reorderQueue, 
   clearUpNextQueue, 
-  playFromQueue,
-  maintainMinimumQueue,
-  getCurrentTrack
+  playFromQueue, 
+  maintainMinimumQueue, 
+  getCurrentTrack 
 } from '../services/TrackPlayerService';
+import { SafeErrorBoundary } from './SafeErrorBoundary';
 
 const { height } = Dimensions.get('window');
 
@@ -52,10 +53,13 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
   }, []);
 
   const handleItemPress = async (index: number) => {
+    if (index < 0 || index >= queue.length) return;
+    const target = queue[index];
+    if (!target || !target.id) return;
     try {
       await playFromQueue(index);
-    } catch (err) {
-      console.warn('Failed to play from queue:', err);
+    } catch (e) {
+      console.warn('[QueueModal] Ignored tap error:', e);
     }
   };
 
@@ -83,7 +87,8 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <SafeErrorBoundary fallbackName="QueueModal" onReset={onClose}>
+        <View style={styles.overlay}>
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
@@ -206,11 +211,11 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
 
                         <View style={styles.itemInfo}>
                           <Text style={styles.itemTitle} numberOfLines={1}>
-                            {item.title || 'Unknown Title'}
+                            {item?.title || 'Unknown Title'}
                           </Text>
                           <View style={styles.itemSubRow}>
                             <Text style={styles.itemArtist} numberOfLines={1}>
-                              {item.artist || 'Unknown Artist'}
+                              {item?.artist || 'Unknown Artist'}
                             </Text>
                             {item.duration ? (
                               <Text style={styles.itemDuration}>
@@ -268,6 +273,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
           </View>
         </View>
       </View>
+      </SafeErrorBoundary>
     </Modal>
   );
 }

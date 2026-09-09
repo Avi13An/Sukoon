@@ -15,6 +15,7 @@ import { KaraokeStudioModal } from '../components/KaraokeStudioModal';
 import { SleepTimerModal } from '../components/SleepTimerModal';
 import { PartyModal } from '../components/PartyModal';
 import { showToast } from '../components/ToastNotification';
+import { SafeErrorBoundary } from '../components/SafeErrorBoundary';
 import { subscribeToSleepTimer, SleepTimerState, getSleepTimerState } from '../services/sleepTimerService';
 import { 
   getPartyState, 
@@ -427,7 +428,8 @@ export function PlayerScreen({ navigation }: any) {
   } : null);
 
   return (
-    <View style={styles.container}>
+    <SafeErrorBoundary fallbackName="PlayerScreen">
+      <View style={styles.container}>
       <LinearGradient
         colors={ambientTheme.gradient}
         style={StyleSheet.absoluteFill}
@@ -724,6 +726,7 @@ export function PlayerScreen({ navigation }: any) {
         duration={effectiveDuration}
       />
     </View>
+    </SafeErrorBoundary>
   );
 }
 
