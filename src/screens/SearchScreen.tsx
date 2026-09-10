@@ -22,8 +22,10 @@ import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { TrackOptionsModal } from '../components/TrackOptionsModal';
 import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
 import { Ionicons } from '@expo/vector-icons';
+import { useBottomClearance } from '../hooks/useBottomClearance';
 
 export function SearchScreen() {
+  const { totalBottomPadding } = useBottomClearance(24);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TrackMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -347,7 +349,7 @@ export function SearchScreen() {
           data={results}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: totalBottomPadding }]}
           ListEmptyComponent={
             query && !isLoading && results.length === 0 ? (
               <Text style={styles.emptyText}>No results found</Text>

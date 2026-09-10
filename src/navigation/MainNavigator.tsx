@@ -4,6 +4,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TAB_BAR_BASE_HEIGHT } from '../hooks/useBottomClearance';
 
 import { HomeScreen } from '../screens/HomeScreen';
 import { SearchScreen } from '../screens/SearchScreen';
@@ -30,6 +32,10 @@ function LibraryStack() {
 }
 
 function TabNavigator() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom > 0 ? insets.bottom : 8;
+  const totalBarHeight = TAB_BAR_BASE_HEIGHT + bottomInset;
+
   return (
     <View style={{ flex: 1, backgroundColor: '#000000' }}>
       <Tab.Navigator
@@ -43,6 +49,8 @@ function TabNavigator() {
           tabBarStyle: {
             backgroundColor: '#121212',
             borderTopWidth: 0,
+            height: totalBarHeight,
+            paddingBottom: bottomInset,
           },
           tabBarActiveTintColor: '#ffffff',
           tabBarInactiveTintColor: '#888888',

@@ -21,6 +21,7 @@ import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { PartyModal } from '../components/PartyModal';
 import { getPartyState, subscribeToPartyState, PartyState } from '../services/partyService';
 import { getAmbientThemeForTrack, getAmbientColorForTrack } from '../utils/colorExtractor';
+import { useBottomClearance } from '../hooks/useBottomClearance';
 
 const { width } = Dimensions.get('window');
 
@@ -80,6 +81,7 @@ const MOOD_MIXES: MoodMix[] = [
 ];
 
 export function HomeScreen() {
+  const { totalBottomPadding } = useBottomClearance(24);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
   const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
@@ -264,6 +266,7 @@ export function HomeScreen() {
       />
       <ScrollView 
         style={styles.container}
+        contentContainerStyle={{ paddingBottom: totalBottomPadding }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 

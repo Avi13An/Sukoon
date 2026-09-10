@@ -40,8 +40,10 @@ import {
   importPlaylistByCode as importCloudPlaylist 
 } from '../services/cloudPlaylistService';
 import { createCollaborativePlaylist } from '../services/collabPlaylistService';
+import { useBottomClearance } from '../hooks/useBottomClearance';
 
 export function LibraryScreen({ navigation }: any) {
+  const { totalBottomPadding } = useBottomClearance(32);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [collabPlaylists, setCollabPlaylists] = useState<CollaborativePlaylist[]>([]);
   const [activeTab, setActiveTab] = useState<'my_playlists' | 'shared_playlists'>('my_playlists');
@@ -426,7 +428,7 @@ export function LibraryScreen({ navigation }: any) {
             keyExtractor={(item) => item.id}
             numColumns={2}
             columnWrapperStyle={styles.row}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: totalBottomPadding }]}
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.playlistCard} 
@@ -503,7 +505,7 @@ export function LibraryScreen({ navigation }: any) {
             keyExtractor={(item) => item.id}
             numColumns={2}
             columnWrapperStyle={styles.row}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: totalBottomPadding }]}
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.playlistCard} 

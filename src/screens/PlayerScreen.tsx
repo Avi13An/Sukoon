@@ -443,10 +443,12 @@ export function PlayerScreen({ navigation }: any) {
         pointerEvents="none"
       />
       <View style={styles.header}>
+        <View pointerEvents="none" style={styles.centeredTitleWrapper}>
+          <Text style={styles.headerTitle}>Now Playing</Text>
+        </View>
         <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-down" size={32} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Now Playing</Text>
         <View style={styles.headerRight}>
           <TouchableOpacity 
             style={styles.headerIcon} 
@@ -758,6 +760,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 50,
     paddingBottom: 16,
+    position: 'relative',
+  },
+  centeredTitleWrapper: {
+    position: 'absolute',
+    top: 50,
+    bottom: 16,
+    left: 0,
+    right: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   closeBtn: {
     padding: 4,

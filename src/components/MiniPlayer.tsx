@@ -4,11 +4,13 @@ import TrackPlayer, { useActiveMediaItem, useIsPlaying } from '@rntp/player';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { subscribeToSyncStatus, disconnectSync } from '../services/syncService';
+import { useBottomClearance, MINI_PLAYER_HEIGHT } from '../hooks/useBottomClearance';
 
 export function MiniPlayer() {
   const track = useActiveMediaItem();
   const isPlaying = useIsPlaying();
   const navigation = useNavigation<any>();
+  const { totalBarHeight } = useBottomClearance();
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -45,7 +47,7 @@ export function MiniPlayer() {
 
   return (
     <TouchableOpacity 
-      style={styles.container} 
+      style={[styles.container, { bottom: totalBarHeight }]} 
       activeOpacity={0.9} 
       onPress={() => navigation.navigate('Player')}
     >
@@ -72,21 +74,14 @@ export function MiniPlayer() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 50,
-    left: 8,
-    right: 8,
-    height: 60,
+    left: 0,
+    right: 0,
+    height: MINI_PLAYER_HEIGHT,
     backgroundColor: '#1a1a1a',
-    borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderColor: '#333333',
   },
   artwork: {

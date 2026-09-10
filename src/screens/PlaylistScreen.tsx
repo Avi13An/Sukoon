@@ -36,6 +36,7 @@ import { sharePlaylist } from '../services/cloudPlaylistService';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { createPartyRoom } from '../services/partyService';
 import { subscribeToCollabPlaylist, syncCollabTracks } from '../services/collabPlaylistService';
+import { useBottomClearance } from '../hooks/useBottomClearance';
 
 interface PlaylistScreenProps {
   route: any;
@@ -106,6 +107,7 @@ function applySmartShuffle(tracks: TrackMetadata[], mode: SmartShuffleMode): Tra
 }
 
 export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
+  const { totalBottomPadding } = useBottomClearance(32);
   const initialPlaylist: Playlist = route.params?.playlist || {
     id: 'unknown',
     shareCode: '',
@@ -433,7 +435,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         data={playlist.tracks}
         keyExtractor={(item, index) => `${item.id}-${index}`}
         renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: totalBottomPadding }]}
         ListHeaderComponent={
           <View style={styles.listHeaderWrapper}>
             {/* Fluid Responsive Header Card */}

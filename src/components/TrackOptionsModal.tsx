@@ -12,6 +12,7 @@ import {
 import { TrackMetadata, isTrackInLikedSongs } from '../utils/storage';
 import { sanitizeTrack } from '../utils/trackSanitizer';
 import { SafeErrorBoundary } from './SafeErrorBoundary';
+import { Ionicons } from '@expo/vector-icons';
 
 interface TrackOptionsModalProps {
   visible: boolean;
@@ -84,6 +85,25 @@ export function TrackOptionsModal({
           onPress={handleClose}
         >
           <View style={styles.bottomSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.headerContainer}>
+              {/* Absolutely centered title */}
+              <View pointerEvents="none" style={styles.centeredTitleWrapper}>
+                <Text style={styles.headerTitle}>Now Playing</Text>
+              </View>
+
+              {/* Left action placeholder */}
+              <View style={styles.headerActionPlaceholder} />
+
+              {/* Right action (close button) */}
+              <TouchableOpacity 
+                onPress={handleClose} 
+                style={styles.headerAction}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.modalHeader}>
               <Image
                 source={{ uri: safe?.artwork || 'https://via.placeholder.com/150' }}
@@ -160,8 +180,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E1E1E',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    padding: 24,
+    paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 40,
+  },
+  headerContainer: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 0,
+    position: 'relative',
+    width: '100%',
+    marginBottom: 8,
+  },
+  centeredTitleWrapper: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  headerAction: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  headerActionPlaceholder: {
+    width: 36,
+    height: 36,
   },
   modalHeader: {
     flexDirection: 'row',
