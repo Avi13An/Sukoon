@@ -45,7 +45,10 @@ export function SearchScreen() {
   useEffect(() => {
     const errSub = TrackPlayer.addEventListener(Event.PlaybackError, (error: any) => {
       console.error('[NATIVE EXOPLAYER ERROR]:', error);
-      Alert.alert('Playback Engine Error', `${error?.code || 'ERROR'}: ${error?.message || JSON.stringify(error)}`);
+      const msg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error || ''));
+      if (!msg.includes('403') && !msg.includes('Source error') && !msg.includes('BehindLiveWindow') && error?.code !== 'source') {
+        Alert.alert('Playback Engine Error', `${error?.code || 'ERROR'}: ${error?.message || JSON.stringify(error)}`);
+      }
     });
 
     const stateSub = TrackPlayer.addEventListener(

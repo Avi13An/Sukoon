@@ -37,6 +37,8 @@ let playbackHistory: TrackMetadata[] = [];
 let currentTrack: TrackMetadata | null = null;
 const playedTrackIds = new Set<string>();
 const queueListeners: Array<(queue: TrackMetadata[]) => void> = [];
+let lastFailedTrackId: string | null = null;
+let retryCount = 0;
 
 export function getCurrentTrack(): TrackMetadata | null {
   return currentTrack || getLastPlayedTrack();
@@ -157,13 +159,26 @@ export async function addTracksToNativeQueue(tracks: any[]) {
   }
 }
 
-export async function resolveStreamUrl(track: TrackMetadata): Promise<string> {
+export async function getAudioStreamUrl(trackId: string, forceRefresh = true): Promise<string | null> {
+  try {
+    const stream = await getAudioStream(trackId);
+    const resolved = typeof stream === 'string' ? stream : (stream as any)?.url;
+    if (resolved && (resolved.startsWith('http') || resolved.startsWith('file://'))) {
+      return resolved;
+    }
+  } catch (err) {
+    console.warn('[TrackPlayer] getAudioStreamUrl error:', err);
+  }
+  return `https://invidious.f5.si/latest_version?id=${trackId}&itag=140`;
+}
+
+export async function resolveStreamUrl(track: TrackMetadata, bypassCache = false): Promise<string> {
   const downloadedTracks = getDownloadedTracks();
   const downloadedTrack = downloadedTracks.find(t => t.id === track.id);
   const offlineTracks = getOfflineTracks();
   const offlineTrack = offlineTracks[track.id];
   let playUrl = downloadedTrack?.localUri || offlineTrack?.localUri;
-  if (!playUrl && track.url) {
+  if (!playUrl && track.url && !bypassCache) {
     if (track.url.startsWith('http') || track.url.startsWith('file://')) {
       playUrl = track.url;
     } else if (track.url.startsWith('/')) {
@@ -371,6 +386,8 @@ export async function handleActiveTrackChanged(event: any) {
 
   const activeTrackId = activeTrack.id || activeTrack.mediaId;
   if (activeTrackId && currentTrack?.id !== activeTrackId) {
+    lastFailedTrackId = null;
+    retryCount = 0;
     console.log(`[Queue] Native track changed to: ${activeTrack.title || activeTrackId}`);
     if (currentTrack) {
       playbackHistory.push(currentTrack);
@@ -681,16 +698,95 @@ export async function setupPlayer(): Promise<boolean> {
         }
       });
 
+      // 4. Catch source errors (expired 403 URLs) and retry with a fresh stream before giving up
+      TrackPlayer.addEventListener(Event.PlaybackError, async (error: any) => {
+        console.warn('[TrackPlayer] Playback error encountered:', error);
+
+        try {
+          const activeTrack: any =
+            (typeof (TrackPlayer as any).getActiveTrack === 'function'
+              ? await (TrackPlayer as any).getActiveTrack()
+              : typeof (TrackPlayer as any).getActiveMediaItem === 'function'
+              ? (TrackPlayer as any).getActiveMediaItem()
+              : null) || getCurrentTrack();
+
+          const trackId = activeTrack?.id || activeTrack?.mediaId;
+          if (!trackId) return;
+
+          const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error || ''));
+          const errorCode = error?.code;
+
+          const isSourceError =
+            errorCode === 'source' ||
+            errorMsg.includes('Source error') ||
+            errorMsg.includes('403') ||
+            errorMsg.includes('BehindLiveWindow') ||
+            errorMsg.includes('Response code: 403');
+
+          if (isSourceError && lastFailedTrackId !== trackId && retryCount < 2) {
+            lastFailedTrackId = trackId;
+            retryCount++;
+            console.log(`[TrackPlayer] Refreshing stream URL for ${activeTrack.title || trackId}...`);
+
+            // Use the project's existing audio stream resolver with cache-bypass/force-refresh:
+            const freshUrl = await getAudioStreamUrl(trackId, true);
+
+            if (freshUrl) {
+              const updatedTrack = {
+                ...activeTrack,
+                id: trackId,
+                url: freshUrl,
+              };
+
+              if (typeof (TrackPlayer as any).load === 'function') {
+                await (TrackPlayer as any).load(updatedTrack);
+              } else if (typeof (TrackPlayer as any).setMediaItem === 'function') {
+                await (TrackPlayer as any).setMediaItem(formatForTrackPlayer(updatedTrack, freshUrl));
+              } else {
+                await playTrack(updatedTrack, undefined, { fromQueue: true });
+              }
+              await TrackPlayer.play();
+              return;
+            }
+          }
+
+          // If unrecoverable, skip forward so playback never freezes
+          console.warn('[TrackPlayer] Skipping unplayable track...');
+          lastFailedTrackId = null;
+          retryCount = 0;
+          if (typeof (TrackPlayer as any).skipToNext === 'function') {
+            try {
+              await (TrackPlayer as any).skipToNext();
+            } catch {
+              await playNextTrack();
+            }
+          } else {
+            await playNextTrack();
+          }
+          await TrackPlayer.play();
+        } catch (e) {
+          console.error('[TrackPlayer] Error recovery failed:', e);
+        }
+      });
+
       isListenersAttached = true;
     }
 
     isPlayerSetup = true;
+    try {
+      await TrackPlayer.setRepeatMode(RepeatMode.Off);
+    } catch (repeatErr) {
+      console.warn('[TrackPlayerService] Failed to set initial repeat mode:', repeatErr);
+    }
     // Allow Android MediaController async connection to finish
     await new Promise((r) => setTimeout(r, 150));
     return true;
   } catch (e: any) {
     if (e?.message?.includes('already set up') || e?.message?.includes('Already set up')) {
       isPlayerSetup = true;
+      try {
+        await TrackPlayer.setRepeatMode(RepeatMode.Off);
+      } catch {}
       return true;
     }
     console.error('setupPlayer initialization error:', e);
@@ -716,7 +812,7 @@ export const getQueue = (TrackPlayer as any).getQueue;
 
 export async function addTracks(tracks: any[]) {
   await TrackPlayer.setMediaItems(tracks);
-  TrackPlayer.setRepeatMode(RepeatMode.All);
+  TrackPlayer.setRepeatMode(RepeatMode.Off);
 }
 
 export async function toggleLoopMode() {
