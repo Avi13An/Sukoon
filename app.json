@@ -40,9 +40,7 @@
     "updates": {
       "url": "https://u.expo.dev/ed60c955-4382-4401-a4b8-bf0978fda007"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "extra": {
       "eas": {
         "projectId": "ed60c955-4382-4401-a4b8-bf0978fda007"
