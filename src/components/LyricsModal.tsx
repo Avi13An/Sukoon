@@ -46,7 +46,7 @@ export function LyricsModal({
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [selectedSource, setSelectedSource] = useState<string>('LRCLIB (Synced)');
   const [containerHeight, setContainerHeight] = useState(300);
-  const LINE_HEIGHT = 64;
+  const LINE_HEIGHT = 78;
   const verticalPadding = Math.max(0, (containerHeight - LINE_HEIGHT) / 2);
   
   const flatListRef = useRef<FlatList>(null);
@@ -250,7 +250,7 @@ export function LyricsModal({
                       onPress={() => onSeek && onSeek(item.time)}
                       style={[
                         styles.lineWrapper,
-                        { height: LINE_HEIGHT, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, marginVertical: 0 },
+                        { height: LINE_HEIGHT, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, marginVertical: 0, overflow: 'visible' },
                         isActive && styles.activeLineWrapper
                       ]}
                     >
@@ -260,6 +260,12 @@ export function LyricsModal({
                           styles.lyricLine,
                           isActive && styles.activeLyricLine,
                           isPassed && styles.passedLyricLine,
+                          {
+                            fontSize: isActive ? 21 : 16,
+                            lineHeight: isActive ? 26 : 22,
+                            textAlign: 'center',
+                            includeFontPadding: false,
+                          }
                         ]}
                       >
                         {sanitizeLyricText(item.text) || '♪'}

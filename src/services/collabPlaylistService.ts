@@ -286,3 +286,27 @@ export function subscribeToCollabPlaylist(
     }
   };
 }
+
+/**
+ * Adds a track to a collaborative playlist, persists locally, and syncs via MQTT
+ */
+export async function addTrackToCollaborativePlaylist(
+  playlistId: string,
+  track: TrackMetadata
+): Promise<boolean> {
+  try {
+    const playlists = getCollaborativePlaylists();
+    const target = playlists.find(p => p.id === playlistId);
+    if (!target) return false;
+
+    const exists = (target.tracks || []).some(t => t.id === track.id);
+    if (exists) return false;
+
+    const updatedTracks = [track, ...(target.tracks || [])];
+    await syncCollabTracks(playlistId, updatedTracks);
+    return true;
+  } catch (err) {
+    console.warn('[CollabService] addTrackToCollaborativePlaylist error:', err);
+    return false;
+  }
+}

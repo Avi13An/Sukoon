@@ -17,12 +17,24 @@ import {
   TrackMetadata, 
   Playlist, 
   getCustomPlaylists, 
+  getCollaborativePlaylists,
   createPlaylist, 
-  addTrackToPlaylist 
+  addTrackToPlaylist,
+  onPlaylistsChanged 
 } from '../utils/storage';
+import { addTrackToCollaborativePlaylist } from '../services/collabPlaylistService';
 import { showToast } from './ToastNotification';
 import { SafeErrorBoundary } from './SafeErrorBoundary';
 import { sanitizeTrack } from '../utils/trackSanitizer';
+
+export interface PlaylistItem {
+  id: string;
+  name: string;
+  tracks: TrackMetadata[];
+  coverImage?: string;
+  isCollaborative?: boolean;
+  collaborators?: string[];
+}
 
 interface AddToPlaylistModalProps {
   visible: boolean;
@@ -31,15 +43,41 @@ interface AddToPlaylistModalProps {
 }
 
 export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistModalProps) {
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [playlists, setPlaylists] = useState<PlaylistItem[]>([]);
   const [newPlaylistName, setNewPlaylistName] = useState('');
 
   const safeTrack = track ? sanitizeTrack(track) : null;
 
   useEffect(() => {
     if (visible) {
-      setPlaylists(getCustomPlaylists());
+      const loadAll = () => {
+        const personal: PlaylistItem[] = getCustomPlaylists().map((p) => ({
+          id: p.id,
+          name: p.name,
+          tracks: p.tracks || [],
+          coverImage: p.coverImage,
+          isCollaborative: false,
+        }));
+
+        const collabs: PlaylistItem[] = getCollaborativePlaylists().map((c) => ({
+          id: c.id,
+          name: c.title,
+          tracks: c.tracks || [],
+          coverImage: undefined,
+          isCollaborative: true,
+          collaborators: c.collaborators || [],
+        }));
+
+        setPlaylists([...personal, ...collabs]);
+      };
+
+      loadAll();
       setNewPlaylistName('');
+
+      const unsub = onPlaylistsChanged(() => {
+        loadAll();
+      });
+      return unsub;
     }
   }, [visible]);
 
@@ -62,34 +100,57 @@ export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistMod
     onClose();
   };
 
-  const handleSelectPlaylist = (playlist: Playlist) => {
-    if (!track) return;
-    const added = addTrackToPlaylist(playlist.id, track);
-    if (added) {
-      showToast(`Added to "${playlist.name}"`, 'checkmark-circle');
+  const handleSelectPlaylist = async (playlist: PlaylistItem) => {
+    if (!safeTrack) return;
+
+    if (playlist.isCollaborative) {
+      const added = await addTrackToCollaborativePlaylist(playlist.id, safeTrack);
+      if (added) {
+        showToast(`Added to shared "${playlist.name}"`, 'checkmark-circle');
+      } else {
+        showToast(`Already in shared "${playlist.name}"`, 'information-circle');
+      }
     } else {
-      showToast(`Already in "${playlist.name}"`, 'information-circle');
+      const added = addTrackToPlaylist(playlist.id, safeTrack);
+      if (added) {
+        showToast(`Added to "${playlist.name}"`, 'checkmark-circle');
+      } else {
+        showToast(`Already in "${playlist.name}"`, 'information-circle');
+      }
     }
     onClose();
   };
 
-  const renderPlaylistItem = ({ item }: { item: Playlist }) => (
+  const renderPlaylistItem = ({ item }: { item: PlaylistItem }) => (
     <TouchableOpacity 
       style={styles.playlistItem} 
       activeOpacity={0.7}
       onPress={() => handleSelectPlaylist(item)}
     >
       <View style={styles.playlistIconContainer}>
-        {item.coverImage ? (
+        {item.isCollaborative ? (
+          <View style={[styles.playlistImage, { backgroundColor: '#131826', alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="people" size={24} color="#06B6D4" />
+          </View>
+        ) : item.coverImage ? (
           <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
         ) : (
           <Ionicons name="musical-notes" size={24} color="#888888" />
         )}
       </View>
       <View style={styles.playlistDetails}>
-        <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
+        <View style={styles.playlistTitleRow}>
+          <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
+          {item.isCollaborative && (
+            <View style={styles.coopBadge}>
+              <Ionicons name="people" size={10} color="#06B6D4" />
+              <Text style={styles.coopBadgeText}>Co-op</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.playlistTrackCount}>
           {item.tracks.length} {item.tracks.length === 1 ? 'track' : 'tracks'}
+          {item.isCollaborative && item.collaborators && item.collaborators.length > 1 ? ` • @${item.collaborators[1]}` : ''}
         </Text>
       </View>
       <Ionicons name="add-circle-outline" size={24} color="#00ffcc" />
@@ -282,10 +343,33 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 14,
   },
+  playlistTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  coopBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(6, 182, 212, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+  },
+  coopBadgeText: {
+    color: '#06B6D4',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
   playlistName: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+    flexShrink: 1,
   },
   playlistTrackCount: {
     color: '#888888',

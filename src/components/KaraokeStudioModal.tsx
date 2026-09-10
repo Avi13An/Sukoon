@@ -59,7 +59,7 @@ export function KaraokeStudioModal({
 
   const [lyricsData, setLyricsData] = useState<ParsedLyrics | null>(null);
   const [containerHeight, setContainerHeight] = useState(300);
-  const LINE_HEIGHT = 64;
+  const LINE_HEIGHT = 78;
   const verticalPadding = Math.max(0, (containerHeight - LINE_HEIGHT) / 2);
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [studioState, setStudioState] = useState<StudioState>('idle');
@@ -421,13 +421,22 @@ export function KaraokeStudioModal({
                   <View 
                     style={[
                       styles.lyricRow, 
-                      { height: LINE_HEIGHT, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 0 },
+                      { height: LINE_HEIGHT, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 0, overflow: 'visible' },
                       isActive && styles.activeLyricRow
                     ]}
                   >
                     <Text 
                       numberOfLines={2}
-                      style={[styles.lyricText, isActive && styles.activeLyricText]}
+                      style={[
+                        styles.lyricText,
+                        isActive && styles.activeLyricText,
+                        {
+                          fontSize: isActive ? 21 : 16,
+                          lineHeight: isActive ? 26 : 22,
+                          textAlign: 'center',
+                          includeFontPadding: false,
+                        }
+                      ]}
                     >
                       {item.text}
                     </Text>

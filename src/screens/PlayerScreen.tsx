@@ -209,7 +209,7 @@ export function PlayerScreen({ navigation }: any) {
   const [syncedLines, setSyncedLines] = useState<SyncedLyricLine[]>([]);
   const [currentLyricIndex, setCurrentLyricIndex] = useState(-1);
   const [containerHeight, setContainerHeight] = useState(300);
-  const LINE_HEIGHT = 64;
+  const LINE_HEIGHT = 78;
   const verticalPadding = Math.max(0, (containerHeight - LINE_HEIGHT) / 2);
   const lyricsFlatListRef = useRef<FlatList>(null);
   
@@ -526,14 +526,21 @@ export function PlayerScreen({ navigation }: any) {
                       height: LINE_HEIGHT,
                       justifyContent: 'center',
                       alignItems: 'center',
-                      paddingHorizontal: 12,
+                      paddingHorizontal: 16,
+                      overflow: 'visible',
                     }}
                   >
                     <Text 
                       numberOfLines={2}
                       style={[
                         styles.syncedLyricLine, 
-                        { marginBottom: 0 },
+                        {
+                          marginBottom: 0,
+                          fontSize: isActive ? 21 : 16,
+                          lineHeight: isActive ? 26 : 22,
+                          textAlign: 'center',
+                          includeFontPadding: false,
+                        },
                         isActive && styles.activeLyricLine,
                         isPassed && styles.passedLyricLine
                       ]}
