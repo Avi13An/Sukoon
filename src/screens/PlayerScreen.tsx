@@ -4,7 +4,15 @@ import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode 
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
 import { parseSyncedLyrics, SyncedLyricLine } from '../utils/lyricsParser';
-import { toggleLoopMode, playNextTrack, playPreviousTrack, getCurrentTrack } from '../services/TrackPlayerService';
+import { 
+  toggleLoopMode, 
+  playNextTrack, 
+  playPreviousTrack, 
+  getCurrentTrack,
+  toggleSmartShuffle,
+  getIsShuffleActive,
+  subscribeToShuffle
+} from '../services/TrackPlayerService';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
@@ -33,6 +41,21 @@ import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 export function PlayerScreen({ navigation }: any) {
   const { width, height } = useWindowDimensions();
   const maxArtHeight = Math.min(width - 64, height * 0.35);
+
+  const [isShuffleActive, setIsShuffleActive] = useState(getIsShuffleActive());
+
+  useEffect(() => {
+    const unsub = subscribeToShuffle((active) => {
+      setIsShuffleActive(active);
+    });
+    return unsub;
+  }, []);
+
+  const handleToggleShuffle = async () => {
+    const nextState = await toggleSmartShuffle();
+    setIsShuffleActive(nextState);
+    showToast(nextState ? 'Smart Shuffle Enabled' : 'Smart Shuffle Disabled', 'shuffle');
+  };
 
   const track = useActiveMediaItem();
   const isPlaying = useIsPlaying();
@@ -451,6 +474,18 @@ export function PlayerScreen({ navigation }: any) {
           <Ionicons name="chevron-down" size={32} color="#ffffff" />
         </TouchableOpacity>
         <View style={styles.headerRight}>
+          <TouchableOpacity 
+            style={styles.headerIcon} 
+            onPress={handleToggleShuffle}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons 
+              name={isShuffleActive ? "shuffle" : "shuffle-outline"} 
+              size={22} 
+              color={isShuffleActive ? "#00ffcc" : "#ffffff"} 
+            />
+          </TouchableOpacity>
           <TouchableOpacity 
             style={styles.headerIcon} 
             onPress={() => setIsPartyModalVisible(true)}

@@ -68,9 +68,16 @@ export function getUpNextQueue(): TrackMetadata[] {
   return [...upNextQueue];
 }
 
+export function cleanTrackId(id?: string | null): string {
+  return (id || '').replace(/^yt_/i, '').trim();
+}
+
 export function addToUpNextQueue(track: TrackMetadata) {
   if (!track || !track.id) return;
-  if (!upNextQueue.some(t => t.id === track.id)) {
+  const cId = cleanTrackId(track.id);
+  const isCurrent = currentTrack && (currentTrack.id === track.id || (cId && cleanTrackId(currentTrack.id) === cId));
+  if (isCurrent) return;
+  if (!upNextQueue.some(t => t.id === track.id || (cId && cleanTrackId(t.id) === cId))) {
     upNextQueue.push(track);
     notifyQueueChange();
   }
@@ -146,17 +153,149 @@ export async function getNativeActiveIndex(): Promise<number> {
   return 0;
 }
 
+let isShuffleActive = false;
+let preShuffleUpNextQueue: TrackMetadata[] = [];
+const shuffleListeners: ((active: boolean) => void)[] = [];
+
+export function getIsShuffleActive(): boolean {
+  return isShuffleActive;
+}
+
+export function subscribeToShuffle(callback: (active: boolean) => void) {
+  shuffleListeners.push(callback);
+  callback(isShuffleActive);
+  return () => {
+    const idx = shuffleListeners.indexOf(callback);
+    if (idx !== -1) shuffleListeners.splice(idx, 1);
+  };
+}
+
+function notifyShuffleListeners() {
+  shuffleListeners.forEach(cb => {
+    try {
+      cb(isShuffleActive);
+    } catch {}
+  });
+}
+
 export async function addTracksToNativeQueue(tracks: any[]) {
   if (!tracks || tracks.length === 0) return;
   try {
+    const currentQueue = await getNativeQueue();
+    let activeTrack: any = null;
+    try {
+      if (typeof (TrackPlayer as any).getActiveTrack === 'function') {
+        activeTrack = await (TrackPlayer as any).getActiveTrack();
+      } else if (typeof (TrackPlayer as any).getActiveMediaItem === 'function') {
+        activeTrack = await (TrackPlayer as any).getActiveMediaItem();
+      }
+    } catch {}
+
+    const cleanId = (id: string) => (id || '').replace(/^yt_/i, '').trim();
+    const existingIds = new Set<string>();
+    currentQueue.forEach((t: any) => {
+      const tid = t?.id || t?.mediaId;
+      if (tid) {
+        existingIds.add(tid);
+        existingIds.add(cleanId(tid));
+      }
+    });
+
+    const activeId = activeTrack?.id || activeTrack?.mediaId || currentTrack?.id;
+    if (activeId) {
+      existingIds.add(activeId);
+      existingIds.add(cleanId(activeId));
+    }
+
+    const uniqueNewTracks = tracks.filter((track) => {
+      const tid = track?.id || track?.mediaId;
+      if (!tid) return false;
+      const cId = cleanId(tid);
+      return !existingIds.has(tid) && !existingIds.has(cId) && (!activeId || (tid !== activeId && cId !== cleanId(activeId)));
+    });
+
+    if (uniqueNewTracks.length === 0) return;
+
     if (typeof (TrackPlayer as any).addMediaItems === 'function') {
-      await (TrackPlayer as any).addMediaItems(tracks);
+      await (TrackPlayer as any).addMediaItems(uniqueNewTracks);
     } else if (typeof (TrackPlayer as any).add === 'function') {
-      await (TrackPlayer as any).add(tracks);
+      await (TrackPlayer as any).add(uniqueNewTracks);
     }
   } catch (err) {
     console.warn('[TrackPlayerService] addTracksToNativeQueue error:', err);
   }
+}
+
+export async function reorderNativeQueueFromUpNext(): Promise<void> {
+  try {
+    const queue = await getNativeQueue();
+    const activeIndex = (await getNativeActiveIndex()) ?? 0;
+
+    if (queue.length > activeIndex + 1) {
+      const tracksToRemoveCount = queue.length - (activeIndex + 1);
+      if (tracksToRemoveCount > 0) {
+        const removeIndices = Array.from(
+          { length: tracksToRemoveCount },
+          (_, i) => activeIndex + 1 + i
+        );
+        for (let i = removeIndices.length - 1; i >= 0; i--) {
+          try {
+            if (typeof (TrackPlayer as any).remove === 'function') {
+              await (TrackPlayer as any).remove(removeIndices[i]);
+            }
+          } catch {}
+        }
+      }
+    }
+
+    if (upNextQueue.length > 0) {
+      const nextBatch = upNextQueue.slice(0, 3);
+      const batchPayloads = await Promise.all(nextBatch.map(async (t) => {
+        const u = await resolveStreamUrl(t);
+        return formatForTrackPlayer(t, u);
+      }));
+      await addTracksToNativeQueue(batchPayloads);
+    }
+
+    notifyQueueListeners();
+  } catch (err) {
+    console.warn('[TrackPlayerService] reorderNativeQueueFromUpNext error:', err);
+  }
+}
+
+export async function applySmartShuffle(enable: boolean): Promise<boolean> {
+  try {
+    isShuffleActive = enable;
+
+    if (enable) {
+      preShuffleUpNextQueue = [...upNextQueue];
+
+      // Fisher-Yates shuffle
+      const shuffled = [...upNextQueue];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      upNextQueue = shuffled;
+    } else {
+      if (preShuffleUpNextQueue.length > 0) {
+        upNextQueue = [...preShuffleUpNextQueue];
+      }
+    }
+
+    notifyShuffleListeners();
+    notifyQueueListeners();
+    await reorderNativeQueueFromUpNext();
+    return isShuffleActive;
+  } catch (err) {
+    console.error('[SmartShuffle] Failed to shuffle upcoming queue:', err);
+    notifyShuffleListeners();
+    return isShuffleActive;
+  }
+}
+
+export async function toggleSmartShuffle(): Promise<boolean> {
+  return await applySmartShuffle(!isShuffleActive);
 }
 
 export async function getAudioStreamUrl(trackId: string, forceRefresh = true): Promise<string | null> {
@@ -202,6 +341,7 @@ let isMaintainingQueue = false;
 function filterRadioQueue(candidates: TrackMetadata[], current: TrackMetadata): TrackMetadata[] {
   const normalize = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const currentNormTitle = normalize(current?.title || '');
+  const cleanCurrentId = cleanTrackId(current?.id);
 
   const junkTerms = [
     'karaoke', 'instrumental', 'ringtone', '8d audio',
@@ -213,11 +353,20 @@ function filterRadioQueue(candidates: TrackMetadata[], current: TrackMetadata): 
   return candidates.filter((candidate) => {
     if (!candidate || !candidate.id) return false;
 
-    // Do not repeat current song
-    if (candidate.id === current?.id) return false;
+    const candCleanId = cleanTrackId(candidate.id);
 
-    // Do not repeat tracks recently played
-    if (playedTrackIds.has(candidate.id)) return false;
+    // Do not repeat current song (check raw and clean ID)
+    if (candidate.id === current?.id || (cleanCurrentId && candCleanId === cleanCurrentId)) {
+      return false;
+    }
+
+    // Do not repeat tracks recently played (check raw and prefixed variants)
+    if (
+      playedTrackIds.has(candidate.id) ||
+      (candCleanId && (playedTrackIds.has(candCleanId) || playedTrackIds.has(`yt_${candCleanId}`)))
+    ) {
+      return false;
+    }
 
     // Do not queue covers or duplicate versions of the exact same title
     const candidateNorm = normalize(candidate.title || '');
@@ -272,10 +421,29 @@ export async function fetchRadioQueue(track: TrackMetadata, sessionId: number): 
     const filteredTracks = filterRadioQueue(rawRadioTracks, track);
 
     if (filteredTracks.length > 0) {
-      const existingIds = new Set(upNextQueue.map(t => t.id));
-      const uniqueNewTracks = filteredTracks.filter(t => !existingIds.has(t.id));
+      const existingIds = new Set<string>();
+      const addIdVariants = (id?: string | null) => {
+        if (!id) return;
+        existingIds.add(id);
+        const c = cleanTrackId(id);
+        if (c) {
+          existingIds.add(c);
+          existingIds.add(`yt_${c}`);
+        }
+      };
+
+      addIdVariants(track?.id);
+      addIdVariants(currentTrack?.id);
+      upNextQueue.forEach(t => addIdVariants(t?.id));
+
+      const uniqueNewTracks = filteredTracks.filter(t => {
+        if (!t?.id) return false;
+        const c = cleanTrackId(t.id);
+        return !existingIds.has(t.id) && (!c || !existingIds.has(c));
+      });
 
       if (uniqueNewTracks.length > 0) {
+        uniqueNewTracks.forEach(t => addIdVariants(t.id));
         upNextQueue = [...upNextQueue, ...uniqueNewTracks];
         
         // Pre-seed ExoPlayer with next 2 tracks
@@ -341,13 +509,31 @@ export async function maintainMinimumQueue(
     const filteredTracks = filterRadioQueue(rawRadioTracks, currentTrack);
 
     if (filteredTracks.length > 0) {
-      const existingIds = new Set(upNextQueue.map(t => t.id));
-      const uniqueNewTracks = filteredTracks.filter(t => !existingIds.has(t.id));
+      const existingIds = new Set<string>();
+      const addIdVariants = (id?: string | null) => {
+        if (!id) return;
+        existingIds.add(id);
+        const c = cleanTrackId(id);
+        if (c) {
+          existingIds.add(c);
+          existingIds.add(`yt_${c}`);
+        }
+      };
+
+      addIdVariants(currentTrack?.id);
+      upNextQueue.forEach(t => addIdVariants(t?.id));
+
+      const uniqueNewTracks = filteredTracks.filter(t => {
+        if (!t?.id) return false;
+        const c = cleanTrackId(t.id);
+        return !existingIds.has(t.id) && (!c || !existingIds.has(c));
+      });
 
       for (const cand of uniqueNewTracks) {
         if (upNextQueue.length >= minSize) break;
         upNextQueue.push(cand);
         added.push(cand);
+        addIdVariants(cand.id);
       }
 
       if (assignedSessionId !== activeQueueSessionId) return [];
@@ -947,18 +1133,43 @@ export async function playTrack(
 
     currentTrack = safeTrack;
 
+    const cleanTargetId = cleanTrackId(safeTrack.id);
+
     if (Array.isArray(newQueue)) {
       const sanitizedQueue = sanitizeTrackList(newQueue);
-      const idx = sanitizedQueue.findIndex(t => t?.id === safeTrack.id);
+      const idx = sanitizedQueue.findIndex(t => {
+        if (!t?.id) return false;
+        return t.id === safeTrack.id || (cleanTargetId && cleanTrackId(t.id) === cleanTargetId);
+      });
       upNextQueue = idx !== -1 ? sanitizedQueue.slice(idx + 1) : [...sanitizedQueue];
-    } else if (isFromQueue || upNextQueue.some(t => t?.id === safeTrack.id)) {
-      const queueIndex = upNextQueue.findIndex(t => t?.id === safeTrack.id);
+    } else if (
+      isFromQueue || 
+      upNextQueue.some(t => t?.id === safeTrack.id || (cleanTargetId && cleanTrackId(t?.id) === cleanTargetId))
+    ) {
+      const queueIndex = upNextQueue.findIndex(t => {
+        if (!t?.id) return false;
+        return t.id === safeTrack.id || (cleanTargetId && cleanTrackId(t.id) === cleanTargetId);
+      });
       upNextQueue = queueIndex !== -1 ? upNextQueue.slice(queueIndex + 1) : [];
     } else {
       upNextQueue = [];
     }
 
+    // Ensure safeTrack itself is never present in upNextQueue
+    upNextQueue = upNextQueue.filter(t => {
+      if (!t?.id) return false;
+      return t.id !== safeTrack.id && (cleanTargetId ? cleanTrackId(t.id) !== cleanTargetId : true);
+    });
+
+    isShuffleActive = false;
+    preShuffleUpNextQueue = [];
+    notifyShuffleListeners();
+
     playedTrackIds.add(currentTrack.id);
+    if (cleanTargetId) {
+      playedTrackIds.add(cleanTargetId);
+      playedTrackIds.add(`yt_${cleanTargetId}`);
+    }
     setLastPlayedTrack(currentTrack);
     saveListenHistory(currentTrack);
     notifyQueueListeners();
@@ -983,9 +1194,13 @@ export async function playTrack(
         try { await (TrackPlayer as any).clear(); } catch {}
       }
 
+      const seedNext = upNextQueue
+        .filter(t => t?.id && t.id !== safeTrack.id && (cleanTargetId ? cleanTrackId(t.id) !== cleanTargetId : true))
+        .slice(0, 3);
+
       const seed = [
-        formatForTrackPlayer(currentTrack, playUrl, matchedUA),
-        ...upNextQueue.slice(0, 3).map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
+        formatForTrackPlayer(currentTrack || safeTrack, playUrl, matchedUA),
+        ...seedNext.map(t => formatForTrackPlayer(t, t.url || `https://invidious.f5.si/latest_version?id=${t.id}&itag=140`, matchedUA))
       ];
 
       if (typeof setMediaItems === 'function') {

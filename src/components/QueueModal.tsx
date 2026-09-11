@@ -22,7 +22,10 @@ import {
   clearUpNextQueue, 
   playFromQueue, 
   maintainMinimumQueue, 
-  getCurrentTrack 
+  getCurrentTrack,
+  toggleSmartShuffle,
+  getIsShuffleActive,
+  subscribeToShuffle
 } from '../services/TrackPlayerService';
 import { SafeErrorBoundary } from './SafeErrorBoundary';
 
@@ -44,6 +47,7 @@ function formatDuration(seconds?: number): string {
 export function QueueModal({ visible, onClose, currentTrack }: Props) {
   const [queue, setQueue] = useState<TrackMetadata[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isShuffleActive, setIsShuffleActive] = useState(getIsShuffleActive());
 
   useEffect(() => {
     const unsubscribe = subscribeToQueue((newQueue) => {
@@ -51,6 +55,18 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToShuffle((active) => {
+      setIsShuffleActive(active);
+    });
+    return unsub;
+  }, []);
+
+  const handleToggleShuffle = async () => {
+    const nextState = await toggleSmartShuffle();
+    setIsShuffleActive(nextState);
+  };
 
   const handleItemPress = async (index: number) => {
     if (index < 0 || index >= queue.length) return;
@@ -148,12 +164,39 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
                 </View>
               </View>
 
-              {queue.length > 0 && (
-                <TouchableOpacity onPress={clearUpNextQueue} style={styles.clearBtn}>
-                  <Ionicons name="trash-outline" size={14} color="#ff5555" />
-                  <Text style={styles.clearBtnText}>Clear All</Text>
-                </TouchableOpacity>
-              )}
+              <View style={styles.headerActionGroup}>
+                {queue.length > 1 && (
+                  <TouchableOpacity 
+                    onPress={handleToggleShuffle} 
+                    style={[
+                      styles.shuffleBtn, 
+                      isShuffleActive && styles.shuffleBtnActive
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons 
+                      name={isShuffleActive ? "shuffle" : "shuffle-outline"} 
+                      size={14} 
+                      color={isShuffleActive ? "#000000" : "#00ffcc"} 
+                    />
+                    <Text 
+                      style={[
+                        styles.shuffleBtnText, 
+                        isShuffleActive && styles.shuffleBtnTextActive
+                      ]}
+                    >
+                      Shuffle
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {queue.length > 0 && (
+                  <TouchableOpacity onPress={clearUpNextQueue} style={styles.clearBtn}>
+                    <Ionicons name="trash-outline" size={14} color="#ff5555" />
+                    <Text style={styles.clearBtnText}>Clear All</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             {queue.length === 0 ? (
@@ -418,6 +461,32 @@ const styles = StyleSheet.create({
   countText: {
     color: '#00ffcc',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  headerActionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shuffleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+  },
+  shuffleBtnActive: {
+    backgroundColor: '#00ffcc',
+  },
+  shuffleBtnText: {
+    color: '#00ffcc',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  shuffleBtnTextActive: {
+    color: '#000000',
     fontWeight: '700',
   },
   clearBtn: {

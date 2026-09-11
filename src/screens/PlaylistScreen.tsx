@@ -30,7 +30,7 @@ import {
   onPlaylistsChanged,
   isLikedSongsPlaylist,
 } from '../utils/storage';
-import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
+import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue, reorderNativeQueueFromUpNext } from '../services/TrackPlayerService';
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -191,7 +191,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     await playTrack(playlist.tracks[0], playlist.tracks);
   };
 
-  const handleSelectShuffleMode = (mode: SmartShuffleMode) => {
+  const handleSelectShuffleMode = async (mode: SmartShuffleMode) => {
     setShuffleMode(mode);
     setIsShuffleModalVisible(false);
     const sorted = applySmartShuffle(originalTracks, mode);
@@ -199,6 +199,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     
     clearUpNextQueue();
     sorted.slice(1).forEach(t => addToUpNextQueue(t));
+    await reorderNativeQueueFromUpNext();
     
     const modeNames: Record<SmartShuffleMode, string> = {
       none: 'Original Order',
@@ -210,11 +211,12 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     showToast(`Smart Shuffle: ${modeNames[mode]}`, 'sparkles');
   };
 
-  const handleResetShuffle = () => {
+  const handleResetShuffle = async () => {
     setShuffleMode('none');
     setPlaylist(prev => ({ ...prev, tracks: [...originalTracks] }));
     clearUpNextQueue();
     originalTracks.slice(1).forEach(t => addToUpNextQueue(t));
+    await reorderNativeQueueFromUpNext();
     showToast('Restored original playlist order', 'refresh-outline');
   };
 

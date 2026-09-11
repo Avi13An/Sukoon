@@ -92,6 +92,11 @@ export async function fetchYouTubeMusicAutomix(videoId: string): Promise<Track[]
       const renderer = item.playlistPanelVideoRenderer;
       if (!renderer || !renderer.videoId) continue;
 
+      // Exclude seed track itself to prevent immediate repeat in queue
+      if (renderer.videoId === cleanVideoId || `yt_${renderer.videoId}` === videoId) {
+        continue;
+      }
+
       // Extract title
       const title = renderer.title?.runs?.[0]?.text || 'Unknown Title';
 
