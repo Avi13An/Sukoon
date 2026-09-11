@@ -26,8 +26,10 @@ import {
   toggleSmartShuffle,
   getIsShuffleActive,
   subscribeToShuffle,
-  getUpNextQueue
+  getUpNextQueue,
+  shuffleUpNextQueue
 } from '../services/TrackPlayerService';
+import { showToast } from './ToastNotification';
 import { SafeErrorBoundary } from './SafeErrorBoundary';
 
 const { height } = Dimensions.get('window');
@@ -65,10 +67,10 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
   }, []);
 
   const handleToggleShuffle = async () => {
-    const nextState = await toggleSmartShuffle();
-    setIsShuffleActive(nextState);
-    const updated = getUpNextQueue();
-    setQueue([...updated]);
+    const shuffled = await shuffleUpNextQueue();
+    setIsShuffleActive(true);
+    setQueue([...shuffled]);
+    showToast('Queue shuffled', 'shuffle');
   };
 
   const handleItemPress = async (index: number) => {

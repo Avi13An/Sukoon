@@ -106,6 +106,7 @@ export const reorderUpNextQueue = reorderQueue;
 
 export function clearUpNextQueue() {
   upNextQueue = [];
+  isPlaylistQueueActive = false;
   notifyQueueChange();
 }
 
@@ -176,6 +177,16 @@ function notifyShuffleListeners() {
       cb(isShuffleActive);
     } catch {}
   });
+}
+
+let isPlaylistQueueActive = false;
+
+export function getIsPlaylistQueueActive(): boolean {
+  return isPlaylistQueueActive;
+}
+
+export function setIsPlaylistQueueActive(active: boolean) {
+  isPlaylistQueueActive = active;
 }
 
 export async function addTracksToNativeQueue(tracks: any[]) {
@@ -289,6 +300,25 @@ export async function applySmartShuffle(enable: boolean): Promise<boolean> {
 
 export async function toggleSmartShuffle(): Promise<boolean> {
   return await applySmartShuffle(!isShuffleActive);
+}
+
+export async function shuffleUpNextQueue(): Promise<TrackMetadata[]> {
+  try {
+    const shuffled = [...upNextQueue];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    upNextQueue = shuffled;
+    isShuffleActive = true;
+    notifyShuffleListeners();
+    notifyQueueListeners();
+    await reorderNativeQueueFromUpNext();
+    return [...shuffled];
+  } catch (err) {
+    console.error('[TrackPlayerService] shuffleUpNextQueue error:', err);
+    return [...upNextQueue];
+  }
 }
 
 export async function getAudioStreamUrl(trackId: string, forceRefresh = true): Promise<string | null> {
@@ -475,7 +505,34 @@ export async function maintainMinimumQueue(
   } catch {}
   const assignedSessionId = typeof sessionId === 'number' ? sessionId : activeQueueSessionId;
   if (isMaintainingQueue) return [];
-  if (!currentTrack || upNextQueue.length >= minSize) return [];
+  if (!currentTrack) return [];
+
+  // If playlist queue is active and has tracks ahead, let playlist play through first
+  if (isPlaylistQueueActive && upNextQueue.length > 1) {
+    try {
+      const nativeQueue = await getNativeQueue();
+      const activeIndex = (await getNativeActiveIndex()) ?? 0;
+      const remainingAhead = nativeQueue.length - 1 - activeIndex;
+
+      if (remainingAhead < 2 && upNextQueue.length > 0) {
+        const nextBatch = upNextQueue.slice(0, 3);
+        const batchPayloads = await Promise.all(nextBatch.map(async (t) => {
+          const u = await resolveStreamUrl(t);
+          return formatForTrackPlayer(t, u);
+        }));
+        if (assignedSessionId === activeQueueSessionId) {
+          await addTracksToNativeQueue(batchPayloads);
+        }
+      }
+    } catch {}
+    return [];
+  }
+
+  if (isPlaylistQueueActive && upNextQueue.length <= 1) {
+    isPlaylistQueueActive = false;
+  }
+
+  if (upNextQueue.length >= minSize) return [];
 
   isMaintainingQueue = true;
   const added: TrackMetadata[] = [];
@@ -595,6 +652,14 @@ export async function handleActiveTrackChanged(event: any) {
       setLastPlayedTrack(currentTrack);
       saveListenHistory(currentTrack);
     }
+
+    if (isPlaylistQueueActive && upNextQueue.length <= 1) {
+      isPlaylistQueueActive = false;
+      if (currentTrack) {
+        fetchRadioQueue(currentTrack, activeQueueSessionId).catch(() => {});
+      }
+    }
+
     notifyQueueChange();
 
     try {
@@ -1128,7 +1193,8 @@ export async function playTrack(
 
     const cleanTargetId = cleanTrackId(safeTrack.id);
 
-    if (Array.isArray(newQueue)) {
+    if (Array.isArray(newQueue) && newQueue.length > 0) {
+      isPlaylistQueueActive = true;
       const sanitizedQueue = sanitizeTrackList(newQueue);
       const idx = sanitizedQueue.findIndex(t => {
         if (!t?.id) return false;
@@ -1144,7 +1210,11 @@ export async function playTrack(
         return t.id === safeTrack.id || (cleanTargetId && cleanTrackId(t.id) === cleanTargetId);
       });
       upNextQueue = queueIndex !== -1 ? upNextQueue.slice(queueIndex + 1) : [];
+      if (upNextQueue.length <= 1) {
+        isPlaylistQueueActive = false;
+      }
     } else {
+      isPlaylistQueueActive = false;
       upNextQueue = [];
     }
 
@@ -1219,10 +1289,12 @@ export async function playTrack(
     setTimeout(() => { isLoadingTrack = false; }, 1200);
 
     // Replenish recommendations:
-    // If upNextQueue is empty (e.g. played single track from Search), generate related radio queue
-    if (upNextQueue.length === 0) {
+    // If single track or playlist is finishing, fetch infinite YouTube recommendations seamlessly
+    if (!isPlaylistQueueActive || upNextQueue.length === 0) {
       fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
-    } else if (upNextQueue.length < 10) {
+    } else if (upNextQueue.length <= 1) {
+      fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
+    } else {
       maintainMinimumQueue(10, currentSession).catch(() => {});
     }
 
