@@ -231,20 +231,13 @@ export async function reorderNativeQueueFromUpNext(): Promise<void> {
     const queue = await getNativeQueue();
     const activeIndex = (await getNativeActiveIndex()) ?? 0;
 
-    if (queue.length > activeIndex + 1) {
-      const tracksToRemoveCount = queue.length - (activeIndex + 1);
-      if (tracksToRemoveCount > 0) {
-        const removeIndices = Array.from(
-          { length: tracksToRemoveCount },
-          (_, i) => activeIndex + 1 + i
-        );
-        for (let i = removeIndices.length - 1; i >= 0; i--) {
-          try {
-            if (typeof (TrackPlayer as any).remove === 'function') {
-              await (TrackPlayer as any).remove(removeIndices[i]);
-            }
-          } catch {}
-        }
+    if (activeIndex !== undefined && activeIndex !== null && queue.length > activeIndex + 1) {
+      for (let i = queue.length - 1; i > activeIndex; i--) {
+        try {
+          if (typeof (TrackPlayer as any).remove === 'function') {
+            await (TrackPlayer as any).remove(i);
+          }
+        } catch {}
       }
     }
 

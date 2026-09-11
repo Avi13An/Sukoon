@@ -348,3 +348,27 @@ export function subscribeToSharedPlaylists(onNewPlaylist?: (playlist: Playlist) 
     return null;
   }
 }
+
+export async function syncPlaylistsToCloud(userId: string, playlists: any[]) {
+  try {
+    await supabase.auth.updateUser({
+      data: { sukoon_playlists: playlists },
+    });
+  } catch (err) {
+    console.warn('[CloudSync] Failed to push playlists to user metadata:', err);
+  }
+}
+
+export async function restorePlaylistsFromCloud(userId: string) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const cloudPlaylists = user?.user_metadata?.sukoon_playlists;
+    if (Array.isArray(cloudPlaylists) && cloudPlaylists.length > 0) {
+      saveUserPlaylists(cloudPlaylists, userId);
+      return cloudPlaylists;
+    }
+  } catch (err) {
+    console.warn('[CloudSync] Failed to restore playlists:', err);
+  }
+  return null;
+}

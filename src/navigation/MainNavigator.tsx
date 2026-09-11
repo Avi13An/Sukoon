@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -16,7 +16,9 @@ import { AuthScreen } from '../screens/AuthScreen';
 import { SetupScreen } from '../screens/SetupScreen';
 import { MiniPlayer } from '../components/MiniPlayer';
 import { SyncPromptModal } from '../components/SyncPromptModal';
-import { getActiveUser } from '../utils/storage';
+import { getActiveUser, setActiveSession } from '../utils/storage';
+import { supabase } from '../services/supabase';
+import { restorePlaylistsFromCloud } from '../services/cloudPlaylistService';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -86,6 +88,22 @@ const appTheme = {
 
 export function MainNavigator() {
   const hasSession = !!getActiveUser();
+
+  useEffect(() => {
+    async function checkSupabaseSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const rawName = session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User';
+          setActiveSession({ id: session.user.id, username: rawName });
+          restorePlaylistsFromCloud(session.user.id).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[MainNavigator] Supabase session check error:', err);
+      }
+    }
+    checkSupabaseSession();
+  }, []);
 
   return (
     <NavigationContainer theme={appTheme}>

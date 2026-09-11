@@ -1,6 +1,7 @@
 import { createMMKV } from 'react-native-mmkv';
 
 export const storage = createMMKV();
+export const mmkv = storage;
 
 export interface TrackMetadata {
   id: string;
@@ -450,9 +451,17 @@ export function getUserPlaylists(targetUserIdOrUsername?: string): Playlist[] {
 
 export function saveUserPlaylists(playlists: Playlist[], targetUserIdOrUsername?: string): void {
   const session = getActiveUserSession();
-  const key = getUserPlaylistsKey(targetUserIdOrUsername || session?.id);
+  const userId = targetUserIdOrUsername || session?.id;
+  const key = getUserPlaylistsKey(userId);
   storage.set(key, JSON.stringify(playlists));
   notifyStorageChanged();
+
+  if (userId) {
+    try {
+      const { syncPlaylistsToCloud } = require('../services/cloudPlaylistService');
+      syncPlaylistsToCloud(userId, playlists).catch(() => {});
+    } catch {}
+  }
 }
 
 export const getCustomPlaylists = getUserPlaylists;

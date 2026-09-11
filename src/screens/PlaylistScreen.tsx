@@ -191,16 +191,42 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     await playTrack(playlist.tracks[0], playlist.tracks);
   };
 
+  const handleShuffle = async () => {
+    if (!playlist.tracks || playlist.tracks.length === 0) {
+      showToast('No tracks in this playlist to shuffle', 'alert-circle');
+      return;
+    }
+
+    const shuffled = [...playlist.tracks];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    setPlaylist(prev => ({ ...prev, tracks: shuffled }));
+    setShuffleMode('balanced');
+    showToast('Playlist shuffled', 'shuffle');
+
+    await playTrack(shuffled[0], shuffled);
+  };
+
   const handleSelectShuffleMode = async (mode: SmartShuffleMode) => {
     setShuffleMode(mode);
     setIsShuffleModalVisible(false);
-    const sorted = applySmartShuffle(originalTracks, mode);
+    if (!playlist.tracks || playlist.tracks.length === 0) return;
+
+    let sorted = applySmartShuffle(originalTracks, mode);
+    if (mode === 'balanced') {
+      const shuffled = [...sorted];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      sorted = shuffled;
+    }
+
     setPlaylist(prev => ({ ...prev, tracks: sorted }));
-    
-    clearUpNextQueue();
-    sorted.slice(1).forEach(t => addToUpNextQueue(t));
-    await reorderNativeQueueFromUpNext();
-    
+
     const modeNames: Record<SmartShuffleMode, string> = {
       none: 'Original Order',
       soft_to_hype: 'Soft to Hype 🌿',
@@ -208,7 +234,9 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       artist_flow: 'Artist Flow 🎤',
       balanced: 'Smart Balanced ⚖️',
     };
-    showToast(`Smart Shuffle: ${modeNames[mode]}`, 'sparkles');
+    showToast(`Smart Shuffle: ${modeNames[mode]}`, 'shuffle');
+
+    await playTrack(sorted[0], sorted);
   };
 
   const handleResetShuffle = async () => {
@@ -430,7 +458,13 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         <Text style={styles.topBarTitle} numberOfLines={1}>
           {playlist.name}
         </Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity 
+          style={styles.topBarBackBtn} 
+          onPress={handleShuffle}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="shuffle" size={22} color={shuffleMode !== 'none' ? '#06B6D4' : '#ffffff'} />
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -535,11 +569,12 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 {/* Smart Shuffle */}
                 <TouchableOpacity 
                   style={[styles.secondaryPill, shuffleMode !== 'none' && styles.secondaryPillActive]} 
-                  onPress={() => setIsShuffleModalVisible(true)} 
+                  onPress={handleShuffle} 
+                  onLongPress={() => setIsShuffleModalVisible(true)}
                   activeOpacity={0.7}
                 >
                   <Ionicons 
-                    name="sparkles" 
+                    name="shuffle" 
                     size={16} 
                     color={shuffleMode !== 'none' ? '#06B6D4' : '#E2E8F0'} 
                   />

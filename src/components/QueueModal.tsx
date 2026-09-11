@@ -25,7 +25,8 @@ import {
   getCurrentTrack,
   toggleSmartShuffle,
   getIsShuffleActive,
-  subscribeToShuffle
+  subscribeToShuffle,
+  getUpNextQueue
 } from '../services/TrackPlayerService';
 import { SafeErrorBoundary } from './SafeErrorBoundary';
 
@@ -51,7 +52,7 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
 
   useEffect(() => {
     const unsubscribe = subscribeToQueue((newQueue) => {
-      setQueue(Array.isArray(newQueue) ? newQueue : []);
+      setQueue(Array.isArray(newQueue) ? [...newQueue] : []);
     });
     return () => unsubscribe();
   }, []);
@@ -66,6 +67,8 @@ export function QueueModal({ visible, onClose, currentTrack }: Props) {
   const handleToggleShuffle = async () => {
     const nextState = await toggleSmartShuffle();
     setIsShuffleActive(nextState);
+    const updated = getUpNextQueue();
+    setQueue([...updated]);
   };
 
   const handleItemPress = async (index: number) => {

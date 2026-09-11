@@ -11,12 +11,25 @@ import {
   StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { loginUser, registerUser, getUserPlaylists, notifyStorageChanged } from '../utils/storage';
+import { 
+  loginUser, 
+  registerUser, 
+  getUserPlaylists, 
+  notifyStorageChanged,
+  setActiveSession,
+  getUsersRegistry,
+  storage
+} from '../utils/storage';
 import { supabase } from '../services/supabase';
+import { restorePlaylistsFromCloud } from '../services/cloudPlaylistService';
+import { showToast } from '../components/ToastNotification';
 
 interface Props {
   navigation: any;
 }
+
+const toVirtualEmail = (name: string) => 
+  `${name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')}@sukoon.internal`;
 
 export function AuthScreen({ navigation }: Props) {
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -50,26 +63,97 @@ export function AuthScreen({ navigation }: Props) {
     setIsLoading(true);
     setError('');
 
+    const email = toVirtualEmail(rawUser);
+
     try {
       if (isLoginMode) {
-        const result = loginUser(rawUser, cleanPass);
-        if (!result.success) {
-          setError(result.error || 'Invalid username or password.');
+        let authSuccess = false;
+
+        try {
+          const { data, error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password: cleanPass,
+          });
+
+          if (signInError) {
+            // Local fallback for offline mode
+            const localResult = loginUser(rawUser, cleanPass);
+            if (!localResult.success) {
+              const msg = signInError.message?.includes('Invalid login credentials')
+                ? 'Invalid username or password.'
+                : (signInError.message || 'Invalid username or password.');
+              setError(msg);
+              showToast(msg, 'alert-circle');
+              setIsLoading(false);
+              return;
+            }
+            authSuccess = true;
+          } else if (data?.user) {
+            authSuccess = true;
+            setActiveSession({ id: data.user.id, username: rawUser });
+            await restorePlaylistsFromCloud(data.user.id);
+          }
+        } catch (netErr: any) {
+          const localResult = loginUser(rawUser, cleanPass);
+          if (!localResult.success) {
+            setError('Invalid username or password.');
+            showToast('Invalid username or password.', 'alert-circle');
+            setIsLoading(false);
+            return;
+          }
+          authSuccess = true;
+        }
+
+        if (!authSuccess) {
+          setError('Invalid username or password.');
           setIsLoading(false);
           return;
         }
       } else {
-        const result = registerUser(rawUser, cleanPass);
-        if (!result.success) {
-          setError(result.error || 'Username already exists. Please log in.');
-          setIsLoading(false);
-          return;
-        }
-
-        // Asynchronously sync profile to Supabase if available
+        // Sign Up Mode
         try {
-          await supabase.from('profiles').upsert([{ username: rawUser.toLowerCase() }]);
-        } catch {}
+          const { data, error: signUpError } = await supabase.auth.signUp({
+            email,
+            password: cleanPass,
+            options: {
+              data: {
+                username: rawUser,
+                sukoon_playlists: [],
+              },
+            },
+          });
+
+          if (signUpError) {
+            const msg = signUpError.message?.includes('already registered')
+              ? 'Username already exists. Please log in.'
+              : (signUpError.message || 'Sign up error. Please try again.');
+            setError(msg);
+            showToast(msg, 'alert-circle');
+            setIsLoading(false);
+            return;
+          }
+
+          if (data?.user) {
+            setActiveSession({ id: data.user.id, username: rawUser });
+            try {
+              await supabase.from('profiles').upsert([{ username: rawUser.toLowerCase() }]);
+            } catch {}
+          } else {
+            const regResult = registerUser(rawUser, cleanPass);
+            if (!regResult.success) {
+              setError(regResult.error || 'Username already exists. Please log in.');
+              setIsLoading(false);
+              return;
+            }
+          }
+        } catch (netErr: any) {
+          const regResult = registerUser(rawUser, cleanPass);
+          if (!regResult.success) {
+            setError(regResult.error || 'Username already exists. Please log in.');
+            setIsLoading(false);
+            return;
+          }
+        }
       }
 
       // Trigger playlist reload / state sync so the user's custom playlists and liked songs immediately appear
