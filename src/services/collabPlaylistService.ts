@@ -97,6 +97,11 @@ function handleIncomingMessage(topic: string, rawPayload: string) {
       }
 
       console.log(`[CollabService] Received tracks update for playlist: ${playlistId} from ${updatedBy}`);
+
+      const existingPlaylist = getCollaborativePlaylists().find(p => p.id === playlistId);
+      const existingTrackIds = new Set((existingPlaylist?.tracks || []).map(t => t.id));
+      const addedTracks = tracks.filter(t => !existingTrackIds.has(t.id));
+
       updateCollaborativePlaylistTracks(playlistId, tracks);
 
       // Notify any currently mounted PlaylistScreen listening to this playlist
@@ -107,7 +112,14 @@ function handleIncomingMessage(topic: string, rawPayload: string) {
         });
       }
 
-      showToast('Collaborative playlist updated', 'musical-notes');
+      // Only alert if an external collaborator actually added new track(s).
+      // Routine background sync, reconnects, pings, deletes, and self-actions stay completely silent.
+      if (existingPlaylist && addedTracks.length > 0 && updatedBy && updatedBy.trim().toLowerCase() !== myNorm) {
+        const addedDesc = addedTracks.length === 1 
+          ? `"${addedTracks[0].title}"` 
+          : `${addedTracks.length} tracks`;
+        showToast(`${updatedBy} added ${addedDesc} to "${existingPlaylist.title}"`, 'musical-notes');
+      }
     }
   } catch (err) {
     console.warn('[CollabService] Error parsing incoming message:', err);
