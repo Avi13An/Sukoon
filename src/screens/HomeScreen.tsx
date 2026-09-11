@@ -266,7 +266,7 @@ export function HomeScreen() {
       />
       <ScrollView 
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: totalBottomPadding }}
+        contentContainerStyle={{ paddingBottom: totalBottomPadding + 20 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 

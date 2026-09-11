@@ -5,11 +5,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Dimensions,
+  ScrollView,
+  useWindowDimensions,
   ActivityIndicator,
   Share,
 } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { 
@@ -22,14 +24,14 @@ import {
 } from '../services/partyService';
 import { showToast } from './ToastNotification';
 
-const { height } = Dimensions.get('window');
-
 interface Props {
   visible: boolean;
   onClose: () => void;
 }
 
 export function PartyModal({ visible, onClose }: Props) {
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const [partyState, setPartyState] = useState<PartyState>(getPartyState());
   const [joinCode, setJoinCode] = useState('');
   const [isJoining, setIsJoining] = useState(false);
@@ -109,7 +111,7 @@ export function PartyModal({ visible, onClose }: Props) {
   return (
     <View style={styles.overlay} pointerEvents={visible ? 'auto' : 'none'}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View style={[styles.modal, animatedStyle]}>
+      <Animated.View style={[styles.modal, { maxHeight: height * 0.88 }, animatedStyle]}>
         
         <View style={styles.handle} />
 
@@ -128,145 +130,153 @@ export function PartyModal({ visible, onClose }: Props) {
           </TouchableOpacity>
         </View>
 
-        {partyState.isActive ? (
-          /* ================= CONNECTED / ACTIVE STATE ================= */
-          <View style={styles.activeContainer}>
-            <View style={styles.activeBadge}>
-              <View style={styles.pulsingDot} />
-              <Text style={styles.activeBadgeText}>
-                Party Active with Room {partyState.roomCode}
-              </Text>
-            </View>
-
-            <View style={styles.codeDisplayCard}>
-              <Text style={styles.codeLabel}>ROOM CODE</Text>
-              <Text style={styles.codeText}>{partyState.roomCode}</Text>
-              
-              <View style={styles.codeActionsRow}>
-                <TouchableOpacity style={styles.codeActionBtn} onPress={handleCopyCode} activeOpacity={0.75}>
-                  <Ionicons name="copy-outline" size={16} color="#00ffcc" />
-                  <Text style={styles.codeActionBtnText}>Copy Code</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.codeActionBtn} onPress={handleShareCode} activeOpacity={0.75}>
-                  <Ionicons name="share-social-outline" size={16} color="#00ffcc" />
-                  <Text style={styles.codeActionBtnText}>Share Invite</Text>
-                </TouchableOpacity>
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: 'space-between',
+            paddingHorizontal: 20,
+            paddingBottom: Math.max(insets.bottom, 24) + 60,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          {partyState.isActive ? (
+            /* ================= CONNECTED / ACTIVE STATE ================= */
+            <View style={styles.activeContainer}>
+              <View style={styles.activeBadge}>
+                <View style={styles.pulsingDot} />
+                <Text style={styles.activeBadgeText}>
+                  Party Active with Room {partyState.roomCode}
+                </Text>
               </View>
-            </View>
 
-            <View style={styles.roleCard}>
-              <Ionicons 
-                name={partyState.role === 'host' ? 'radio-outline' : 'musical-note-outline'} 
-                size={20} 
-                color="#00ffcc" 
-              />
-              <Text style={styles.roleText}>
-                You are currently the <Text style={styles.roleHighlight}>{partyState.role?.toUpperCase()}</Text>
-                {partyState.role === 'host' && (
-                  <Text style={styles.roleSubtext}> • {(partyState.clientCount || 0) + 1} devices connected</Text>
-                )}
-              </Text>
-            </View>
-
-            <View style={styles.infoBox}>
-              <Ionicons name="sync" size={20} color="#00ffcc" style={{ marginTop: 2 }} />
-              <Text style={styles.infoText}>
-                All connected devices are synchronized. Any play, pause, seek, or song change reflects across all devices in real-time.
-              </Text>
-            </View>
-
-            <TouchableOpacity 
-              style={styles.leaveBtn} 
-              onPress={leaveParty}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="log-out-outline" size={20} color="#ff4444" />
-              <Text style={styles.leaveBtnText}>Leave Party</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          /* ================= DISCONNECTED STATE ================= */
-          <View style={styles.disconnectedContainer}>
-            
-            {/* Host Section */}
-            <View style={styles.sectionCard}>
-              <View style={styles.cardHeaderRow}>
-                <Ionicons name="radio" size={22} color="#00ffcc" />
-                <Text style={styles.cardTitle}>Host a Party</Text>
+              <View style={styles.codeDisplayCard}>
+                <Text style={styles.codeLabel}>ROOM CODE</Text>
+                <Text style={styles.codeText}>{partyState.roomCode}</Text>
+                
+                <View style={styles.codeActionsRow}>
+                  <TouchableOpacity style={styles.codeActionBtn} onPress={handleCopyCode} activeOpacity={0.75}>
+                    <Ionicons name="copy-outline" size={16} color="#00ffcc" />
+                    <Text style={styles.codeActionBtnText}>Copy Code</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.codeActionBtn} onPress={handleShareCode} activeOpacity={0.75}>
+                    <Ionicons name="share-social-outline" size={16} color="#00ffcc" />
+                    <Text style={styles.codeActionBtnText}>Share Invite</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <Text style={styles.cardDescription}>
-                Generate a room code to invite a friend. You control the DJ deck and your friend's playback stays in lockstep.
-              </Text>
+
+              <View style={styles.roleCard}>
+                <Ionicons 
+                  name={partyState.role === 'host' ? 'radio-outline' : 'musical-note-outline'} 
+                  size={20} 
+                  color="#00ffcc" 
+                />
+                <Text style={styles.roleText}>
+                  You are currently the <Text style={styles.roleHighlight}>{partyState.role?.toUpperCase()}</Text>
+                  {partyState.role === 'host' && (
+                    <Text style={styles.roleSubtext}> • {(partyState.clientCount || 0) + 1} devices connected</Text>
+                  )}
+                </Text>
+              </View>
+
+              <View style={styles.infoBox}>
+                <Ionicons name="sync" size={20} color="#00ffcc" style={{ marginTop: 2 }} />
+                <Text style={styles.infoText}>
+                  All connected devices are synchronized. Any play, pause, seek, or song change reflects across all devices in real-time.
+                </Text>
+              </View>
 
               <TouchableOpacity 
-                style={styles.hostBtn} 
-                onPress={handleHost}
-                disabled={isHosting}
-                activeOpacity={0.85}
+                style={[styles.leaveBtn, { marginBottom: 16 }]} 
+                onPress={leaveParty}
+                activeOpacity={0.8}
               >
-                {isHosting ? (
-                  <ActivityIndicator size="small" color="#000000" />
-                ) : (
-                  <>
-                    <Ionicons name="sparkles" size={18} color="#000000" />
-                    <Text style={styles.hostBtnText}>Create Party Room</Text>
-                  </>
-                )}
+                <Ionicons name="log-out-outline" size={20} color="#ff4444" />
+                <Text style={styles.leaveBtnText}>Leave Party</Text>
               </TouchableOpacity>
             </View>
+          ) : (
+            /* ================= DISCONNECTED STATE ================= */
+            <View style={styles.disconnectedContainer}>
+              
+              {/* Host Section */}
+              <View style={styles.sectionCard}>
+                <View style={styles.cardHeaderRow}>
+                  <Ionicons name="radio" size={22} color="#00ffcc" />
+                  <Text style={styles.cardTitle}>Host a Party</Text>
+                </View>
+                <Text style={styles.cardDescription}>
+                  Generate a room code to invite a friend. You control the DJ deck and your friend's playback stays in lockstep.
+                </Text>
 
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>OR</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Join Section */}
-            <View style={styles.sectionCard}>
-              <View style={styles.cardHeaderRow}>
-                <Ionicons name="enter" size={22} color="#00ffcc" />
-                <Text style={styles.cardTitle}>Join a Party</Text>
-              </View>
-              <Text style={styles.cardDescription}>
-                Enter the 6-character room code shared by your friend to sync your audio stream.
-              </Text>
-
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. SK-8492"
-                  placeholderTextColor="#666666"
-                  value={joinCode}
-                  onChangeText={setJoinCode}
-                  autoCapitalize="characters"
-                  maxLength={10}
-                />
                 <TouchableOpacity 
-                  style={styles.joinBtn} 
-                  onPress={handleJoin}
-                  disabled={isJoining}
+                  style={styles.hostBtn} 
+                  onPress={handleHost}
+                  disabled={isHosting}
                   activeOpacity={0.85}
                 >
-                  {isJoining ? (
+                  {isHosting ? (
                     <ActivityIndicator size="small" color="#000000" />
                   ) : (
-                    <Text style={styles.joinBtnText}>Connect</Text>
+                    <>
+                      <Ionicons name="sparkles" size={18} color="#000000" />
+                      <Text style={styles.hostBtnText}>Create Party Room</Text>
+                    </>
                   )}
                 </TouchableOpacity>
               </View>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Join Section */}
+              <View style={styles.sectionCard}>
+                <View style={styles.cardHeaderRow}>
+                  <Ionicons name="enter" size={22} color="#00ffcc" />
+                  <Text style={styles.cardTitle}>Join a Party</Text>
+                </View>
+                <Text style={styles.cardDescription}>
+                  Enter the 6-character room code shared by your friend to sync your audio stream.
+                </Text>
+
+                <View style={styles.inputRow}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. SK-8492"
+                    placeholderTextColor="#666666"
+                    value={joinCode}
+                    onChangeText={setJoinCode}
+                    autoCapitalize="characters"
+                    maxLength={10}
+                  />
+                  <TouchableOpacity 
+                    style={styles.joinBtn} 
+                    onPress={handleJoin}
+                    disabled={isJoining}
+                    activeOpacity={0.85}
+                  >
+                    {isJoining ? (
+                      <ActivityIndicator size="small" color="#000000" />
+                    ) : (
+                      <Text style={styles.joinBtnText}>Connect</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.privacyNote}>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#777777" />
+                <Text style={styles.privacyText}>
+                  Encrypted via TLS WebSockets. Zero credentials or account setup required.
+                </Text>
+              </View>
+
             </View>
-
-            <View style={styles.privacyNote}>
-              <Ionicons name="shield-checkmark-outline" size={16} color="#777777" />
-              <Text style={styles.privacyText}>
-                Encrypted via TLS WebSockets. Zero credentials or account setup required.
-              </Text>
-            </View>
-
-          </View>
-        )}
-
-        <View style={styles.bottomSpacer} />
+          )}
+        </ScrollView>
       </Animated.View>
     </View>
   );
@@ -288,9 +298,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#101012',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 20,
     paddingTop: 12,
-    maxHeight: height * 0.85,
     borderTopWidth: 1,
     borderColor: '#26262a',
   },
@@ -306,7 +314,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   headerTitleRow: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, PanResponder, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, useWindowDimensions, ActivityIndicator, Alert, TextInput, PanResponder, FlatList } from 'react-native';
 import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
@@ -30,9 +30,10 @@ import {
 } from '../utils/storage';
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
-const { width } = Dimensions.get('window');
-
 export function PlayerScreen({ navigation }: any) {
+  const { width, height } = useWindowDimensions();
+  const maxArtHeight = Math.min(width - 64, height * 0.35);
+
   const track = useActiveMediaItem();
   const isPlaying = useIsPlaying();
   const progress = useProgress(200);
@@ -563,98 +564,120 @@ export function PlayerScreen({ navigation }: any) {
         </View>
       ) : (
         <View style={styles.mainPlayer}>
-          <Image 
-            source={{ uri: artworkUri }} 
-            style={styles.artworkLg} 
-            resizeMode="cover" 
-          />
-          <View style={styles.trackInfoContainer}>
-            <Text style={styles.titleLg} numberOfLines={2}>{track.title}</Text>
-            <Text style={styles.artistLg} numberOfLines={1}>{track.artist}</Text>
+          <View style={[styles.artworkContainer, { width: maxArtHeight, height: maxArtHeight, marginVertical: height < 700 ? 8 : 16 }]}>
+            <Image 
+              source={{ uri: artworkUri }} 
+              style={{ width: '100%', height: '100%', borderRadius: 16 }} 
+              resizeMode="cover" 
+            />
+          </View>
+          <View style={[styles.trackInfoContainer, { marginBottom: height < 700 ? 6 : 14 }]}>
+            <Text style={[styles.titleLg, { fontSize: height < 700 ? 20 : 24, marginBottom: 4 }]} numberOfLines={2}>{track.title}</Text>
+            <Text style={[styles.artistLg, { fontSize: height < 700 ? 14 : 16 }]} numberOfLines={1}>{track.artist}</Text>
           </View>
         </View>
       )}
 
-      <View style={styles.controlsContainer}>
+      <View style={[styles.controlsContainer, { paddingBottom: height < 700 ? 20 : 36 }]}>
         {/* Scrubber Container */}
         <View
           collapsable={false}
-          onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
-          {...panResponder.panHandlers}
-          style={styles.sliderContainer}
+          style={[styles.sliderContainer, { marginTop: 4, marginBottom: height < 700 ? 4 : 12 }]}
         >
-          <View style={styles.sliderTrackBackground}>
-            <View style={[styles.sliderTrackActive, { width: `${progressPercent}%` }]} />
+          <View
+            style={styles.sliderInteractiveArea}
+            onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
+            {...panResponder.panHandlers}
+          >
+            <View style={styles.sliderTrackBackground}>
+              <View style={[styles.sliderTrackActive, { width: `${progressPercent}%` }]} />
+            </View>
+            <View style={[styles.sliderThumb, { left: `${progressPercent}%` }]} />
           </View>
-          <View style={[styles.sliderThumb, { left: `${progressPercent}%` }]} />
         </View>
-        <View style={styles.timeRow}>
+        <View style={[styles.timeRow, { marginBottom: height < 700 ? 10 : 16 }]}>
           <Text style={styles.timeText}>{formatTime(currentPos)}</Text>
           <Text style={styles.timeText}>{formatTime(duration)}</Text>
         </View>
 
         <View style={styles.buttonsRow}>
-          <TouchableOpacity onPress={handleLoopToggle} style={styles.controlSideBtn} activeOpacity={0.7}>
+          <TouchableOpacity 
+            onPress={handleLoopToggle} 
+            style={[styles.controlSideBtn, { width: height < 700 ? 42 : 48, height: height < 700 ? 42 : 48 }]} 
+            activeOpacity={0.7}
+          >
             <Ionicons 
               name={repeatMode === RepeatMode.One ? "repeat-outline" : "repeat"} 
-              size={24} 
+              size={height < 700 ? 20 : 24} 
               color={repeatMode === RepeatMode.Off ? "#888888" : "#00ffcc"} 
             />
           </TouchableOpacity>
-          <TouchableOpacity onPress={skipPrev} style={styles.controlSkipBtn} activeOpacity={0.7}>
-            <Ionicons name="play-skip-back" size={34} color="#ffffff" />
+          <TouchableOpacity 
+            onPress={skipPrev} 
+            style={[styles.controlSkipBtn, { width: height < 700 ? 44 : 52, height: height < 700 ? 44 : 52 }]} 
+            activeOpacity={0.7}
+          >
+            <Ionicons name="play-skip-back" size={height < 700 ? 28 : 34} color="#ffffff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={togglePlayback} style={styles.playPauseBtn} activeOpacity={0.85}>
-            <Ionicons name={isPlaying ? "pause" : "play"} size={44} color="#000000" />
+          <TouchableOpacity 
+            onPress={togglePlayback} 
+            style={[styles.playPauseBtn, { width: height < 700 ? 64 : 76, height: height < 700 ? 64 : 76, borderRadius: height < 700 ? 32 : 38 }]} 
+            activeOpacity={0.85}
+          >
+            <Ionicons name={isPlaying ? "pause" : "play"} size={height < 700 ? 36 : 44} color="#000000" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={skipNext} style={styles.controlSkipBtn} activeOpacity={0.7}>
-            <Ionicons name="play-skip-forward" size={34} color="#ffffff" />
+          <TouchableOpacity 
+            onPress={skipNext} 
+            style={[styles.controlSkipBtn, { width: height < 700 ? 44 : 52, height: height < 700 ? 44 : 52 }]} 
+            activeOpacity={0.7}
+          >
+            <Ionicons name="play-skip-forward" size={height < 700 ? 28 : 34} color="#ffffff" />
           </TouchableOpacity>
           <TouchableOpacity 
             onPress={handleToggleLike} 
-            style={styles.controlSideBtn} 
+            style={[styles.controlSideBtn, { width: height < 700 ? 42 : 48, height: height < 700 ? 42 : 48 }]} 
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons 
               name={isLiked ? "heart" : "heart-outline"} 
-              size={26} 
+              size={height < 700 ? 22 : 26} 
               color={isLiked ? "#FF3B30" : "#A0AAB8"} 
             />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.secondaryActionsRow}>
+        <View style={[styles.secondaryActionsRow, { marginTop: height < 700 ? 14 : 24 }]}>
           <TouchableOpacity 
             style={styles.secondaryActionBtn} 
             onPress={() => setIsKaraokeStudioVisible(true)}
           >
-            <Ionicons name="mic" size={22} color="#ff3b30" />
-            <Text style={[styles.secondaryActionText, { color: '#ff3b30' }]}>Studio</Text>
+            <Ionicons name="mic" size={height < 700 ? 18 : 22} color="#ff3b30" />
+            <Text style={[styles.secondaryActionText, { color: '#ff3b30', fontSize: height < 700 ? 10 : 11 }]}>Studio</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={styles.secondaryActionBtn} 
             onPress={() => setIsLyricsModalVisible(true)}
           >
-            <Ionicons name="document-text-outline" size={22} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Lyrics</Text>
+            <Ionicons name="document-text-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
+            <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Lyrics</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={styles.secondaryActionBtn} 
             onPress={() => setIsQueueModalVisible(true)}
           >
-            <Ionicons name="list-outline" size={22} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Queue</Text>
+            <Ionicons name="list-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
+            <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Queue</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={styles.secondaryActionBtn} 
             onPress={() => setIsPlaylistModalVisible(true)}
           >
-            <Ionicons name="add-circle-outline" size={22} color="#aaaaaa" />
-            <Text style={styles.secondaryActionText}>Playlist</Text>
+            <Ionicons name="add-circle-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
+            <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Playlist</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -670,13 +693,13 @@ export function PlayerScreen({ navigation }: any) {
               </View>
             ) : isDownloaded ? (
               <>
-                <Ionicons name="checkmark-circle" size={22} color="#00ffcc" />
-                <Text style={[styles.secondaryActionText, { color: '#00ffcc' }]}>Saved</Text>
+                <Ionicons name="checkmark-circle" size={height < 700 ? 18 : 22} color="#00ffcc" />
+                <Text style={[styles.secondaryActionText, { color: '#00ffcc', fontSize: height < 700 ? 10 : 11 }]}>Saved</Text>
               </>
             ) : (
               <>
-                <Ionicons name="arrow-down-circle-outline" size={22} color="#aaaaaa" />
-                <Text style={styles.secondaryActionText}>Download</Text>
+                <Ionicons name="arrow-down-circle-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
+                <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Download</Text>
               </>
             )}
           </TouchableOpacity>
@@ -795,7 +818,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     marginHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 10,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 204, 0.4)',
@@ -831,35 +854,45 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
   },
-  artworkLg: {
-    width: width - 64,
-    height: width - 64,
-    borderRadius: 8,
+  artworkContainer: {
+    borderRadius: 16,
     backgroundColor: '#121212',
-    marginBottom: 32,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+    alignSelf: 'center',
   },
   trackInfoContainer: {
     width: '100%',
+    paddingHorizontal: 24,
     alignItems: 'flex-start',
   },
   titleLg: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    marginBottom: 4,
   },
   artistLg: {
-    color: '#aaaaaa',
-    fontSize: 18,
+    color: 'rgba(255, 255, 255, 0.65)',
   },
   controlsContainer: {
     width: '100%',
-    paddingHorizontal: 28,
-    paddingBottom: 48,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    flexShrink: 0,
   },
   sliderContainer: {
+    width: '100%',
+    paddingHorizontal: 16,
+    height: 32,
+    justifyContent: 'center',
+  },
+  sliderInteractiveArea: {
     width: '100%',
     height: 32,
     justifyContent: 'center',
@@ -894,9 +927,9 @@ const styles = StyleSheet.create({
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
     marginTop: -4,
-    marginBottom: 20,
-    paddingHorizontal: 2,
+    marginBottom: 16,
   },
   timeText: {
     color: '#aaaaaa',
@@ -908,6 +941,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 4,
+    flexShrink: 0,
   },
   controlSideBtn: {
     width: 48,
@@ -941,6 +975,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 26,
     paddingHorizontal: 0,
+    flexShrink: 0,
   },
   secondaryActionBtn: {
     flex: 1,
