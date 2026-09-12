@@ -523,7 +523,7 @@ export function PlayerScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons 
-                name={partyState.isActive ? "sparkles" : "sparkles-outline"} 
+                name={partyState.isActive ? "radio" : "radio-outline"} 
                 size={18} 
                 color={partyState.isActive ? "#00ffcc" : "#ffffff"} 
               />
@@ -539,7 +539,7 @@ export function PlayerScreen({ navigation }: any) {
           >
             <View style={styles.partyBannerPulse} />
             <Text style={styles.partyBannerText}>
-              🎉 Party Sync Active • Code: {partyState.roomCode}
+              Party Active • Code: {partyState.roomCode}
             </Text>
             <Ionicons name="chevron-forward" size={14} color="#00ffcc" />
           </TouchableOpacity>
@@ -783,7 +783,7 @@ export function PlayerScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons name="add-circle-outline" size={21} color="#bbbbbb" />
-              <Text style={styles.dockLabel} numberOfLines={1}>+ Playlist</Text>
+              <Text style={styles.dockLabel} numberOfLines={1}>Playlist</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 

@@ -415,7 +415,7 @@ export function LibraryScreen({ navigation }: any) {
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarInitial}>{profileInitial}</Text>
           </View>
-          <Text style={styles.headerTitle}>Your Library</Text>
+          <Text style={styles.headerTitle}>Library</Text>
         </View>
         <TouchableOpacity 
           style={styles.logoutBtn} 
@@ -440,7 +440,7 @@ export function LibraryScreen({ navigation }: any) {
           <View style={styles.quickAccessTextCol}>
             <Text style={styles.quickAccessTitle}>Downloads</Text>
             <Text style={styles.quickAccessSubtitle} numberOfLines={1}>
-              {downloadedTracks.length} offline tracks
+              {downloadedTracks.length} tracks
             </Text>
           </View>
         </TouchableOpacity>
@@ -452,12 +452,11 @@ export function LibraryScreen({ navigation }: any) {
         >
           <View style={styles.quickAccessIconWrapRed}>
             <Ionicons name="mic" size={24} color="#ff4d4d" />
-            <View style={styles.livePulseDot} />
           </View>
           <View style={styles.quickAccessTextCol}>
             <Text style={styles.quickAccessTitle}>Studio</Text>
             <Text style={styles.quickAccessSubtitle} numberOfLines={1}>
-              {recordingCount} vocal takes
+              {recordingCount} takes
             </Text>
           </View>
         </TouchableOpacity>
@@ -471,12 +470,12 @@ export function LibraryScreen({ navigation }: any) {
           activeOpacity={0.8}
         >
           <Ionicons 
-            name="folder" 
+            name="folder-outline" 
             size={14} 
             color={activeTab === 'my_playlists' ? '#000000' : '#888896'} 
           />
           <Text style={[styles.segmentedTabText, activeTab === 'my_playlists' && styles.segmentedTabTextActive]}>
-            My Playlists ({playlists.length})
+            Playlists ({playlists.length})
           </Text>
         </TouchableOpacity>
 
@@ -486,12 +485,12 @@ export function LibraryScreen({ navigation }: any) {
           activeOpacity={0.8}
         >
           <Ionicons 
-            name="people" 
+            name="people-outline" 
             size={14} 
             color={activeTab === 'shared_playlists' ? '#000000' : '#888896'} 
           />
           <Text style={[styles.segmentedTabText, activeTab === 'shared_playlists' && styles.segmentedTabTextActive]}>
-            Shared Playlists ({collabPlaylists.length})
+            Shared ({collabPlaylists.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -499,7 +498,7 @@ export function LibraryScreen({ navigation }: any) {
       {/* Playlists Header & Action Buttons */}
       {activeTab === 'my_playlists' ? (
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Your Playlists</Text>
+          <Text style={styles.sectionTitle}>Playlists</Text>
           <View style={styles.headerButtonsRow}>
             <TouchableOpacity 
               style={styles.importPlaylistBtn} 
@@ -515,23 +514,20 @@ export function LibraryScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons name="add" size={17} color="#000000" />
-              <Text style={styles.newPlaylistBtnText}>+ New</Text>
+              <Text style={styles.newPlaylistBtnText}>New</Text>
             </TouchableOpacity>
           </View>
         </View>
       ) : (
         <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Shared Playlists</Text>
-            <Text style={styles.sectionSubtitle}>2-User Real-time Collaborative Playlists</Text>
-          </View>
+          <Text style={styles.sectionTitle}>Shared Playlists</Text>
           <TouchableOpacity 
             style={styles.newCollabBtn} 
             onPress={() => setIsCreateCollabModalVisible(true)}
             activeOpacity={0.7}
           >
             <Ionicons name="people" size={15} color="#000000" />
-            <Text style={styles.newCollabBtnText}>+ New</Text>
+            <Text style={styles.newCollabBtnText}>New</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -559,7 +555,7 @@ export function LibraryScreen({ navigation }: any) {
               <Ionicons name="heart" size={42} color="#ff3366" />
             </View>
             <View style={styles.likedProtectedBadge}>
-              <Text style={styles.likedProtectedBadgeText}>♥ Protected</Text>
+              <Text style={styles.likedProtectedBadgeText}>Favorites</Text>
             </View>
           </View>
           <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>

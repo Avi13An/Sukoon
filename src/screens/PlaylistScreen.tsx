@@ -281,10 +281,10 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
 
     const modeNames: Record<SmartShuffleMode, string> = {
       none: 'Original Order',
-      soft_to_hype: 'Soft to Hype 🌿',
-      hype_to_soft: 'Hype to Soft 🔥',
-      artist_flow: 'Artist Flow 🎤',
-      balanced: 'Smart Balanced ⚖️',
+      soft_to_hype: 'Soft to Hype',
+      hype_to_soft: 'Hype to Soft',
+      artist_flow: 'Artist Flow',
+      balanced: 'Smart Balanced',
     };
     showToast(`Smart Shuffle: ${modeNames[mode]}`, 'shuffle');
 
@@ -757,7 +757,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 activeOpacity={0.7}
               >
                 <View style={styles.shuffleModeIconBox}>
-                  <Text style={{ fontSize: 18 }}>🌿</Text>
+                  <Ionicons name="leaf-outline" size={18} color="#00ffcc" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.shuffleModeTitle}>Soft to Hype</Text>
@@ -771,7 +771,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 activeOpacity={0.7}
               >
                 <View style={styles.shuffleModeIconBox}>
-                  <Text style={{ fontSize: 18 }}>🔥</Text>
+                  <Ionicons name="flame-outline" size={18} color="#00ffcc" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.shuffleModeTitle}>Hype to Soft</Text>
@@ -785,7 +785,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 activeOpacity={0.7}
               >
                 <View style={styles.shuffleModeIconBox}>
-                  <Text style={{ fontSize: 18 }}>🎤</Text>
+                  <Ionicons name="mic-outline" size={18} color="#00ffcc" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.shuffleModeTitle}>Artist Flow</Text>
@@ -799,7 +799,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 activeOpacity={0.7}
               >
                 <View style={styles.shuffleModeIconBox}>
-                  <Text style={{ fontSize: 18 }}>⚖️</Text>
+                  <Ionicons name="scale-outline" size={18} color="#00ffcc" />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.shuffleModeTitle}>Smart Balanced</Text>

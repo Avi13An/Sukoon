@@ -120,7 +120,7 @@ export function TrackOptionsModal({
             </View>
 
             <Pressable style={styles.actionButton} onPress={handlePlay}>
-              <Text style={styles.actionIcon}>🎵</Text>
+              <Ionicons name="play-circle-outline" size={20} color="#00ffcc" style={styles.actionIconVector} />
               <Text style={styles.actionText}>Play Now</Text>
             </Pressable>
 
@@ -144,20 +144,25 @@ export function TrackOptionsModal({
                   style={styles.actionButton}
                   onPress={() => setShowSyncInput(true)}
                 >
-                  <Text style={styles.actionIcon}>👥</Text>
+                  <Ionicons name="radio-outline" size={20} color="#00ffcc" style={styles.actionIconVector} />
                   <Text style={styles.actionText}>Start Co-Sync Party</Text>
                 </Pressable>
               )
             )}
 
             <Pressable style={styles.actionButton} onPress={handleAddPlaylist}>
-              <Text style={styles.actionIcon}>➕</Text>
+              <Ionicons name="add-circle-outline" size={20} color="#ffffff" style={styles.actionIconVector} />
               <Text style={styles.actionText}>Add to Playlist</Text>
             </Pressable>
 
             {onSaveToLibrary && (
               <Pressable style={styles.actionButton} onPress={handleSave}>
-                <Text style={styles.actionIcon}>{isTrackLiked ? '❤️' : '💾'}</Text>
+                <Ionicons 
+                  name={isTrackLiked ? "heart" : "heart-outline"} 
+                  size={20} 
+                  color={isTrackLiked ? "#ff3366" : "#ffffff"} 
+                  style={styles.actionIconVector} 
+                />
                 <Text style={styles.actionText}>
                   {isTrackLiked ? 'Saved in Liked Songs' : 'Save to Library'}
                 </Text>
@@ -251,6 +256,11 @@ const styles = StyleSheet.create({
   actionIcon: {
     fontSize: 18,
     marginRight: 16,
+  },
+  actionIconVector: {
+    marginRight: 16,
+    width: 24,
+    textAlign: 'center',
   },
   actionText: {
     color: '#ffffff',

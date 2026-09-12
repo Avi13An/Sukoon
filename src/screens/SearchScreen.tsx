@@ -313,7 +313,7 @@ export function SearchScreen() {
               style={styles.suggestionItem}
               onPress={() => handleSuggestionTap(suggestion)}
             >
-              <Text style={styles.suggestionIcon}>🔍</Text>
+              <Ionicons name="search-outline" size={15} color="#888896" style={{ marginRight: 10 }} />
               <Text style={styles.suggestionText} numberOfLines={1}>{suggestion}</Text>
             </TouchableOpacity>
           ))}
@@ -335,7 +335,7 @@ export function SearchScreen() {
                 style={styles.recentItem}
                 onPress={() => handleRecentTap(term)}
               >
-                <Text style={styles.recentIcon}>🕒</Text>
+                <Ionicons name="time-outline" size={15} color="#888896" style={{ marginRight: 10 }} />
                 <Text style={styles.recentItemText} numberOfLines={1}>{term}</Text>
               </TouchableOpacity>
             ))}

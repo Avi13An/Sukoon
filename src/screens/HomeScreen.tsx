@@ -44,18 +44,18 @@ interface MoodPill {
 }
 
 const MOOD_PILLS: MoodPill[] = [
-  { id: 'chill', label: '☕ Chill & Sukoon' },
-  { id: 'romance', label: '❤️ Romance' },
-  { id: 'energy', label: '⚡ Workout & Energy' },
-  { id: 'heartbreak', label: '💔 Dard & Heartbreak' },
-  { id: 'desi_indie', label: '📻 Desi Indie' },
-  { id: 'nostalgia', label: '📼 90s & 2000s Nostalgia' },
-  { id: 'late_night', label: '🌃 Late Night Drive' },
-  { id: 'party', label: '🎉 Party & Dance' },
-  { id: 'focus', label: '🎧 Deep Focus' },
-  { id: 'sufi', label: '🕊️ Sufi & Spiritual' },
-  { id: 'global', label: '🌍 Global Pop' },
-  { id: 'acoustic', label: '🎸 Acoustic & Unplugged' },
+  { id: 'chill', label: 'Chill & Sukoon' },
+  { id: 'romance', label: 'Romance' },
+  { id: 'energy', label: 'Workout & Energy' },
+  { id: 'heartbreak', label: 'Heartbreak' },
+  { id: 'desi_indie', label: 'Desi Indie' },
+  { id: 'nostalgia', label: 'Nostalgia' },
+  { id: 'late_night', label: 'Late Night' },
+  { id: 'party', label: 'Party' },
+  { id: 'focus', label: 'Focus' },
+  { id: 'sufi', label: 'Sufi' },
+  { id: 'global', label: 'Global Pop' },
+  { id: 'acoustic', label: 'Acoustic' },
 ];
 
 interface ArtistItem {
@@ -408,9 +408,9 @@ export function HomeScreen() {
                 onPress={() => setIsPartyModalVisible(true)}
                 activeOpacity={0.8}
               >
-                <Ionicons name="sparkles" size={13} color={partyState.isActive ? "#000000" : "#00ffcc"} />
+                <Ionicons name="radio-outline" size={13} color={partyState.isActive ? "#000000" : "#00ffcc"} />
                 <Text style={[styles.partyPillText, partyState.isActive && styles.partyPillTextActive]}>
-                  {partyState.isActive ? `Jam: ${partyState.roomCode}` : 'Jam'}
+                  {partyState.isActive ? 'Jamming' : 'Jam'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -423,9 +423,6 @@ export function HomeScreen() {
             <View style={styles.sectionHeaderContainer}>
               <View style={styles.sectionHeaderTextWrapper}>
                 <Text style={styles.sectionTitle}>Quick Picks</Text>
-                <Text style={styles.sectionSubtitle}>
-                  {lastPlayedSong ? `Similar to ${lastPlayedSong.title}` : 'Based on your recent listening'}
-                </Text>
               </View>
             </View>
             <ScrollView
@@ -470,16 +467,11 @@ export function HomeScreen() {
           </View>
         )}
 
-        {/* Trending Charts Shelf (3-Row Horizontal Pill Carousel) */}
+        {/* Trending Shelf (3-Row Horizontal Pill Carousel) */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderContainer}>
             <View style={styles.sectionHeaderTextWrapper}>
-              <Text style={styles.sectionTitle}>Trending Charts</Text>
-              <Text style={styles.sectionSubtitle}>
-                {chartRegion === 'india'
-                  ? 'Top trending Hindi & Bollywood hits'
-                  : 'Top global chart-toppers around the world'}
-              </Text>
+              <Text style={styles.sectionTitle}>Trending</Text>
             </View>
             <View style={styles.chartRegionToggleRow}>
               <TouchableOpacity
@@ -496,7 +488,7 @@ export function HomeScreen() {
                     chartRegion === 'india' ? styles.regionPillTextActive : styles.regionPillTextInactive,
                   ]}
                 >
-                  🇮🇳 India
+                  India
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -513,7 +505,7 @@ export function HomeScreen() {
                     chartRegion === 'global' ? styles.regionPillTextActive : styles.regionPillTextInactive,
                   ]}
                 >
-                  🌐 Global
+                  Global
                 </Text>
               </TouchableOpacity>
             </View>
@@ -580,7 +572,6 @@ export function HomeScreen() {
           <View style={styles.sectionHeaderContainer}>
             <View style={styles.sectionHeaderTextWrapper}>
               <Text style={styles.sectionTitle}>Top Artists</Text>
-              <Text style={styles.sectionSubtitle}>Leading voices & creators</Text>
             </View>
           </View>
           <FlatList
@@ -607,14 +598,11 @@ export function HomeScreen() {
           />
         </View>
 
-        {/* Curated Playlists & Moods Hub (12 Authentic Moods) */}
+        {/* Curated Playlists & Moods Hub */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderContainer}>
             <View style={styles.sectionHeaderTextWrapper}>
-              <Text style={styles.sectionTitle}>Curated Playlists & Moods</Text>
-              <Text style={styles.sectionSubtitle}>
-                Handpicked stations and thematic collections
-              </Text>
+              <Text style={styles.sectionTitle}>Curated</Text>
             </View>
           </View>
 
@@ -724,7 +712,6 @@ export function HomeScreen() {
             <View style={styles.sectionHeaderContainer}>
               <View style={styles.sectionHeaderTextWrapper}>
                 <Text style={styles.sectionTitle}>Jump Back In</Text>
-                <Text style={styles.sectionSubtitle}>Pick up right where you left off</Text>
               </View>
             </View>
             <FlatList
