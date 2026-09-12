@@ -756,7 +756,7 @@ export function PlayerScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons name="mic-outline" size={21} color="#ff4d4d" />
-              <Text style={[styles.dockLabel, { color: '#ff4d4d' }]}>Studio</Text>
+              <Text style={[styles.dockLabel, { color: '#ff4d4d' }]} numberOfLines={1}>Studio</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -765,7 +765,7 @@ export function PlayerScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons name="document-text-outline" size={21} color="#bbbbbb" />
-              <Text style={styles.dockLabel}>Lyrics</Text>
+              <Text style={styles.dockLabel} numberOfLines={1}>Lyrics</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -774,7 +774,7 @@ export function PlayerScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons name="list-outline" size={21} color="#bbbbbb" />
-              <Text style={styles.dockLabel}>Queue</Text>
+              <Text style={styles.dockLabel} numberOfLines={1}>Queue</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -783,7 +783,7 @@ export function PlayerScreen({ navigation }: any) {
               activeOpacity={0.7}
             >
               <Ionicons name="add-circle-outline" size={21} color="#bbbbbb" />
-              <Text style={styles.dockLabel}>+ Playlist</Text>
+              <Text style={styles.dockLabel} numberOfLines={1}>+ Playlist</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -794,19 +794,19 @@ export function PlayerScreen({ navigation }: any) {
               {isDownloading ? (
                 <View style={{ alignItems: 'center' }}>
                   <ActivityIndicator size="small" color="#00ffcc" />
-                  <Text style={[styles.dockLabel, { color: '#00ffcc' }]}>
+                  <Text style={[styles.dockLabel, { color: '#00ffcc' }]} numberOfLines={1}>
                     {Math.round(downloadProgress * 100)}%
                   </Text>
                 </View>
               ) : isDownloaded ? (
                 <>
                   <Ionicons name="checkmark-circle" size={21} color="#00ffcc" />
-                  <Text style={[styles.dockLabel, { color: '#00ffcc' }]}>Saved</Text>
+                  <Text style={[styles.dockLabel, { color: '#00ffcc' }]} numberOfLines={1}>Saved</Text>
                 </>
               ) : (
                 <>
                   <Ionicons name="arrow-down-circle-outline" size={21} color="#bbbbbb" />
-                  <Text style={styles.dockLabel}>Download</Text>
+                  <Text style={styles.dockLabel} numberOfLines={1}>Download</Text>
                 </>
               )}
             </TouchableOpacity>

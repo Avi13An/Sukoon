@@ -108,7 +108,7 @@ export function ArtistScreen({ route, navigation }: Props) {
         >
           <Ionicons name="chevron-back" size={24} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.topBarTitle} numberOfLines={1}>
+        <Text style={styles.topBarTitle} numberOfLines={1} ellipsizeMode="tail">
           {artistName}
         </Text>
         <View style={{ width: 40 }} />
@@ -269,6 +269,9 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 8,
   },
   headerContainer: {
     paddingBottom: 16,
