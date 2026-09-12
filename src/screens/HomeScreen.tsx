@@ -24,7 +24,7 @@ import {
   TrackMetadata, 
   Playlist 
 } from '../utils/storage';
-import { getRecommendedTracks, searchTracks } from '../services/musicApi';
+import { getRecommendedTracks, searchTracks, fetchTrendingCharts } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { PartyModal } from '../components/PartyModal';
@@ -158,12 +158,19 @@ export function HomeScreen() {
   const quickCardWidth = Math.floor((width - 32 - 10) / 2);
 
   const [activeVibe, setActiveVibe] = useState('✨ All');
+  const [chartRegion, setChartRegion] = useState<'india' | 'global'>('india');
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
+  const [indiaCharts, setIndiaCharts] = useState<TrackMetadata[]>([]);
+  const [globalCharts, setGlobalCharts] = useState<TrackMetadata[]>([]);
   const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
   const [vibeTracks, setVibeTracks] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
   const [quickItems, setQuickItems] = useState<QuickAccessItem[]>([]);
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
+
+  const currentChartList = useMemo(() => {
+    return chartRegion === 'india' ? indiaCharts : globalCharts;
+  }, [chartRegion, indiaCharts, globalCharts]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isVibeLoading, setIsVibeLoading] = useState(false);
@@ -211,15 +218,20 @@ export function HomeScreen() {
     const likedPl = userPlaylists.find(isLikedSongsPlaylist);
 
     try {
-      const [recs, trending] = await Promise.all([
+      const [recs, indiaData, globalData] = await Promise.all([
         getRecommendedTracks(),
-        searchTracks('Trending Indian music hits 2024')
+        fetchTrendingCharts('india'),
+        fetchTrendingCharts('global')
       ]);
 
       const safeRecs = Array.isArray(recs) ? recs : [];
-      const safeTrending = Array.isArray(trending) ? trending.slice(0, 10) : [];
+      const safeIndia = Array.isArray(indiaData) ? indiaData : [];
+      const safeGlobal = Array.isArray(globalData) ? globalData : [];
+
       setRecommendations(safeRecs);
-      setTrendingTracks(safeTrending);
+      setIndiaCharts(safeIndia);
+      setGlobalCharts(safeGlobal);
+      setTrendingTracks(safeIndia);
 
       // Build 6-item Quick Access items
       const items: QuickAccessItem[] = [];
@@ -264,7 +276,7 @@ export function HomeScreen() {
       });
 
       // 4. Fill remaining slots with recommendations or trending
-      const pool = safeRecs.length > 0 ? safeRecs : safeTrending;
+      const pool = safeRecs.length > 0 ? safeRecs : safeIndia;
       for (const t of pool) {
         if (items.length >= 6) break;
         if (!items.some(i => i.track?.id === t.id)) {
@@ -303,7 +315,11 @@ export function HomeScreen() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await loadData();
+    await Promise.all([
+      loadData(),
+      fetchTrendingCharts('india', true).then(d => setIndiaCharts(d)),
+      fetchTrendingCharts('global', true).then(d => setGlobalCharts(d)),
+    ]);
     if (activeVibe !== '✨ All') {
       await handleSelectVibe(activeVibe);
     }
@@ -650,28 +666,65 @@ export function HomeScreen() {
           )}
         </View>
 
-        {/* Trending Charts Shelf (With Rank Badges) */}
+        {/* Trending Charts Shelf (With Rank Badges & Region Toggles) */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Trending Charts</Text>
-            <View style={styles.hotBadge}>
-              <Text style={styles.hotBadgeText}>🔥 TOP 10</Text>
+            <Text style={styles.sectionTitle}>📈 Trending Charts</Text>
+            <View style={styles.chartRegionToggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.regionPill,
+                  chartRegion === 'india' ? styles.regionPillActive : styles.regionPillInactive,
+                ]}
+                onPress={() => setChartRegion('india')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionPillText,
+                    chartRegion === 'india' ? styles.regionPillTextActive : styles.regionPillTextInactive,
+                  ]}
+                >
+                  🇮🇳 India
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.regionPill,
+                  chartRegion === 'global' ? styles.regionPillActive : styles.regionPillInactive,
+                ]}
+                onPress={() => setChartRegion('global')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionPillText,
+                    chartRegion === 'global' ? styles.regionPillTextActive : styles.regionPillTextInactive,
+                  ]}
+                >
+                  🌍 Global
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
-          <Text style={styles.subtitle}>Top charts and viral releases right now</Text>
+          <Text style={styles.subtitle}>
+            {chartRegion === 'india'
+              ? 'Official top 20 trending hits across India'
+              : 'Global top 20 chart-toppers around the world'}
+          </Text>
           
-          {isLoading && !isRefreshing ? (
+          {isLoading && !isRefreshing && currentChartList.length === 0 ? (
             <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color="#00ffcc" />
             </View>
           ) : (
             <FlatList
               horizontal
-              data={trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 10)}
-              keyExtractor={(item, index) => `trend-${item.id}-${index}`}
+              data={currentChartList.length > 0 ? currentChartList : recommendations.slice(0, 10)}
+              keyExtractor={(item, index) => `${chartRegion}-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 10), true)}
+              renderItem={renderTrackCard(currentChartList, true)}
             />
           )}
         </View>
@@ -1001,6 +1054,36 @@ const styles = StyleSheet.create({
     color: '#ff5555',
     fontSize: 10,
     fontWeight: '800',
+  },
+  chartRegionToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  regionPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  regionPillActive: {
+    backgroundColor: '#00ffcc',
+    borderColor: '#00ffcc',
+  },
+  regionPillInactive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  regionPillText: {
+    fontSize: 12,
+  },
+  regionPillTextActive: {
+    color: '#000000',
+    fontWeight: '800',
+  },
+  regionPillTextInactive: {
+    color: '#b0b0bc',
+    fontWeight: '600',
   },
   subtitle: {
     color: '#8e8e98',

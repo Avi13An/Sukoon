@@ -428,4 +428,101 @@ export async function getRelatedTracks(videoId: string): Promise<TrackMetadata[]
   return getRecommendedTracks();
 }
 
+interface ChartCacheEntry {
+  data: TrackMetadata[];
+  timestamp: number;
+}
+
+const chartCache: Record<'india' | 'global', ChartCacheEntry | null> = {
+  india: null,
+  global: null,
+};
+
+const CHART_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL
+
+/**
+ * Strategy D: Accurate YouTube Music India & Global Top Charts
+ * Pre-fetches, deduplicates, and caches the top 20 ranked tracks.
+ */
+export async function fetchTrendingCharts(
+  region: 'india' | 'global' = 'india',
+  forceRefresh = false
+): Promise<TrackMetadata[]> {
+  const cached = chartCache[region];
+  const now = Date.now();
+  if (!forceRefresh && cached && cached.data.length > 0 && now - cached.timestamp < CHART_CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const primaryQuery =
+      region === 'india'
+        ? 'Top 50 Songs India YouTube Music'
+        : 'Global Top 50 YouTube Music';
+    const fallbackQuery =
+      region === 'india'
+        ? 'Trending Songs India Top Hits'
+        : 'Billboard Hot 100 top hits';
+
+    let rawTracks = await searchTracks(primaryQuery);
+    if (!Array.isArray(rawTracks) || rawTracks.length < 10) {
+      const fallbackTracks = await searchTracks(fallbackQuery);
+      if (Array.isArray(fallbackTracks)) {
+        rawTracks = [...(rawTracks || []), ...fallbackTracks];
+      }
+    }
+
+    const seenIds = new Set<string>();
+    const cleanedTracks: TrackMetadata[] = [];
+
+    for (const t of rawTracks) {
+      if (!t || !t.id) continue;
+      const cleanId = String(t.id).replace(/^yt_/i, '').trim();
+      if (!cleanId || seenIds.has(cleanId)) continue;
+      seenIds.add(cleanId);
+
+      const title = (t.title || 'Unknown Title')
+        .replace(/[\(\[\{]?(official\s*(music\s*)?(video|audio|lyric\s*video|track|remix)?)[\)\]\}]?/gi, '')
+        .trim();
+      const artist = (t.artist || 'Popular Artist').trim();
+
+      let artwork = t.artwork || (t as any)?.artworkUrl || (t as any)?.thumbnail;
+      if (artwork && typeof artwork === 'string') {
+        if (artwork.includes('w120-h120') || artwork.includes('w60-h60')) {
+          artwork = artwork.replace(/w\d+-h\d+/, 'w500-h500');
+        }
+      } else {
+        artwork = `https://i.ytimg.com/vi/${cleanId}/hqdefault.jpg`;
+      }
+
+      cleanedTracks.push({
+        id: cleanId,
+        url: t.url || cleanId,
+        title: title || t.title,
+        artist: artist || 'Popular Artist',
+        artwork,
+        duration: t.duration,
+      });
+
+      if (cleanedTracks.length >= 20) break;
+    }
+
+    if (cleanedTracks.length > 0) {
+      chartCache[region] = {
+        data: cleanedTracks,
+        timestamp: now,
+      };
+      return cleanedTracks;
+    }
+  } catch (err) {
+    console.error(`[musicApi] Error fetching ${region} trending charts:`, err);
+  }
+
+  if (chartCache[region]?.data?.length) {
+    return chartCache[region]!.data;
+  }
+  return FALLBACK_RESULTS;
+}
+
+
 
