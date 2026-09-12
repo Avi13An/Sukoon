@@ -5,13 +5,15 @@ import {
   StyleSheet, 
   Image, 
   TouchableOpacity, 
-  ScrollView,
+  ScrollView, 
   FlatList, 
   Dimensions, 
   TextInput, 
-  Alert,
-  SafeAreaView,
-  StatusBar
+  Alert, 
+  SafeAreaView, 
+  StatusBar,
+  useWindowDimensions,
+  Platform
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -110,6 +112,11 @@ function applySmartShuffle(tracks: TrackMetadata[], mode: SmartShuffleMode): Tra
 
 export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const artworkSize = height < 700 
+    ? Math.min(width * 0.45, 180) 
+    : Math.min(width * 0.55, 220);
+  const isStackedHeader = width < 450;
   const { totalBottomPadding } = useBottomClearance(32);
   const initialPlaylist: Playlist = route.params?.playlist || {
     id: 'unknown',
@@ -448,11 +455,11 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
       
-      {/* Top Navigation Bar */}
-      <View style={styles.topBar}>
+      {/* Top Navigation Bar with Dynamic Safe Insets */}
+      <View style={[styles.topBar, { paddingTop: insets.top + (Platform.OS === 'android' ? 8 : 4) }]}>
         <TouchableOpacity 
           style={styles.topBarBackBtn} 
           onPress={() => navigation.goBack()}
@@ -483,45 +490,48 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         ListHeaderComponent={
           <View style={styles.listHeaderWrapper}>
             {/* Fluid Responsive Header Card */}
-            <View style={styles.headerCard}>
+            <View style={[styles.headerCard, isStackedHeader && styles.headerCardStacked]}>
               {playlist.coverImage ? (
-                <Image source={{ uri: playlist.coverImage }} style={styles.headerArtwork} />
+                <Image 
+                  source={{ uri: playlist.coverImage }} 
+                  style={[styles.headerArtwork, { width: artworkSize, height: artworkSize }]} 
+                />
               ) : (
-                <View style={styles.headerPlaceholder}>
+                <View style={[styles.headerPlaceholder, { width: artworkSize, height: artworkSize }]}>
                   <Ionicons 
                     name={isCollaborative ? "people" : isLikedSongsPlaylist(playlist) ? "heart" : "musical-notes"} 
-                    size={48} 
+                    size={Math.min(artworkSize * 0.4, 48)} 
                     color={isCollaborative ? "#06B6D4" : isLikedSongsPlaylist(playlist) ? "#FF3B30" : "#38BDF8"} 
                   />
                 </View>
               )}
               
-              <View style={styles.headerInfoCol}>
+              <View style={[styles.headerInfoCol, isStackedHeader && styles.headerInfoColStacked]}>
                 {isCollaborative && (
-                  <View style={styles.collabHeaderBadge}>
+                  <View style={[styles.collabHeaderBadge, isStackedHeader && { alignSelf: 'center' }]}>
                     <View style={styles.greenLiveDot} />
                     <Text style={styles.collabHeaderBadgeText}>Live Shared Playlist</Text>
                   </View>
                 )}
 
                 {playlist.isImported && !isCollaborative && (
-                  <View style={styles.viewOnlyBadge}>
+                  <View style={[styles.viewOnlyBadge, isStackedHeader && { alignSelf: 'center' }]}>
                     <Ionicons name="lock-closed" size={11} color="#06B6D4" />
                     <Text style={styles.viewOnlyBadgeText}>Shared (View Only)</Text>
                   </View>
                 )}
 
-                <Text style={styles.headerTitle} numberOfLines={2}>
+                <Text style={[styles.headerTitle, isStackedHeader && { textAlign: 'center' }]} numberOfLines={2}>
                   {playlist.name}
                 </Text>
 
                 {playlist.description ? (
-                  <Text style={styles.headerDesc} numberOfLines={2}>
+                  <Text style={[styles.headerDesc, isStackedHeader && { textAlign: 'center' }]} numberOfLines={2}>
                     {playlist.description}
                   </Text>
                 ) : null}
 
-                <View style={styles.metadataRow}>
+                <View style={[styles.metadataRow, isStackedHeader && { justifyContent: 'center' }]}>
                   <Text style={styles.metadataText}>
                     {playlist.tracks.length} {playlist.tracks.length === 1 ? 'track' : 'tracks'}
                     {playlistId === 'downloads' 
@@ -809,7 +819,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
 
       {/* Floating MiniPlayer */}
       <MiniPlayer />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -823,7 +833,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: '#000000',
   },
@@ -862,6 +871,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1F293D',
     alignItems: 'center',
+  },
+  headerCardStacked: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingVertical: 18,
+  },
+  headerInfoColStacked: {
+    marginLeft: 0,
+    marginTop: 14,
+    alignItems: 'center',
+    width: '100%',
   },
   headerArtwork: {
     width: 120,

@@ -116,8 +116,9 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  // Cross-device responsive layout calculation for 2-column quick grid
+  // Cross-device responsive layout calculation for 2-column quick grid and curated shelf
   const quickCardWidth = Math.floor((width - 32 - 10) / 2);
+  const cardSize = Math.min(width * 0.4, 155);
 
   const [selectedMood, setSelectedMood] = useState('chill');
   const [curatedPlaylists, setCuratedPlaylists] = useState<Playlist[]>([]);
@@ -678,7 +679,7 @@ export function HomeScreen() {
         </View>
 
         {/* Curated Playlists & Moods Hub (12 Authentic Moods) */}
-        <View style={[styles.section, { paddingHorizontal: 0 }]}>
+        <View style={[styles.section, { paddingHorizontal: 0, overflow: 'visible' }]}>
           <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
             <Text style={styles.sectionTitle}>🎧 Curated Playlists & Moods</Text>
             <Text style={styles.sectionAccent}>Curated</Text>
@@ -718,7 +719,7 @@ export function HomeScreen() {
             })}
           </ScrollView>
 
-          {/* Curated 155x155 Playlist Shelf */}
+          {/* Curated Playlist Shelf */}
           {isMoodLoading && curatedPlaylists.length === 0 ? (
             <View style={styles.moodLoadingContainer}>
               <ActivityIndicator size="large" color="#00ffcc" />
@@ -732,11 +733,11 @@ export function HomeScreen() {
               contentContainerStyle={styles.playlistShelfContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.curatedCard}
+                  style={[styles.curatedCard, { width: cardSize }]}
                   activeOpacity={0.8}
                   onPress={() => handlePlaylistCardPress(item)}
                 >
-                  <View style={styles.curatedArtworkWrapper}>
+                  <View style={[styles.curatedArtworkWrapper, { width: cardSize, height: cardSize, borderRadius: 14 }]}>
                     <Image
                       source={{
                         uri:
@@ -744,7 +745,7 @@ export function HomeScreen() {
                           item.tracks?.[0]?.artwork ||
                           'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500',
                       }}
-                      style={styles.curatedArtwork}
+                      style={[styles.curatedArtwork, { width: cardSize, height: cardSize, borderRadius: 14 }]}
                       resizeMode="cover"
                     />
                     <LinearGradient
@@ -1226,6 +1227,8 @@ const styles = StyleSheet.create({
   },
   playlistShelfContent: {
     paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
     gap: 14,
   },
   curatedCard: {
