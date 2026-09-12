@@ -562,9 +562,13 @@ async function fetchChartPlaylistFromYouTube(playlistId: string): Promise<TrackM
   return [];
 }
 
+// In-memory cache for New Releases
+const NEW_RELEASES_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const newReleasesCache: Record<string, { data: TrackMetadata[]; timestamp: number }> = {};
+
 /**
- * Strategy D: Official YouTube Music India & Global Top 100 Charts
- * Queries official chart playlist IDs, extracts ranked tracks, and caches top 25 results.
+ * Strategy D: Official YouTube Music India (Hindi) & Global Top 100 Charts
+ * Queries official chart playlist IDs and targeted feeds, extracts ranked tracks, and caches top 20 results.
  */
 export async function fetchTrendingCharts(
   region: 'india' | 'global' = 'india',
@@ -577,45 +581,57 @@ export async function fetchTrendingCharts(
   }
 
   // Official Chart Playlist IDs
-  // India: PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ (Top 100 India), fallbacks: PL4fGSI1pDJn40WjZ6utkIuj2rNg-7iGsq, PL4fGSI1pDJn5oibdgJt8Hy0-dr2B7kSs2
-  // Global: PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc (Top 100 Global), fallback: PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v
+  // India (Hindi): PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ, PL4fGSI1pDJn5e0Zao6PO7QdCDOo43YY4G
+  // Global: PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc, PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v
   const chartCandidates =
     region === 'india'
-      ? ['PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ', 'PL4fGSI1pDJn40WjZ6utkIuj2rNg-7iGsq', 'PL4fGSI1pDJn5oibdgJt8Hy0-dr2B7kSs2']
+      ? ['PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ', 'PL4fGSI1pDJn5e0Zao6PO7QdCDOo43YY4G']
       : ['PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc', 'PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v'];
 
   for (const playlistId of chartCandidates) {
     try {
       const chartTracks = await fetchChartPlaylistFromYouTube(playlistId);
       if (Array.isArray(chartTracks) && chartTracks.length > 0) {
-        const top25 = chartTracks.slice(0, 25);
-        chartCache[region] = {
-          data: top25,
-          timestamp: now,
-        };
-        return top25;
+        const filtered = region === 'india'
+          ? chartTracks.filter(t => {
+              const lower = `${t.title} ${t.artist}`.toLowerCase();
+              return !lower.includes('tamil') && !lower.includes('telugu') && !lower.includes('malayalam') && !lower.includes('kannada') && !lower.includes('bhangra');
+            })
+          : chartTracks;
+
+        if (filtered.length >= 10) {
+          const top20 = filtered.slice(0, 20);
+          chartCache[region] = {
+            data: top20,
+            timestamp: now,
+          };
+          return top20;
+        }
       }
     } catch (err) {
       console.warn(`[musicApi] Failed fetching chart playlist ${playlistId}:`, err);
     }
   }
 
-  // Fallback to search query if official chart playlists are unavailable
+  // Fallback to targeted search query specifically for Top Hindi / Global songs
   try {
     const primaryQuery =
       region === 'india'
-        ? 'Top 50 Songs India YouTube Music'
+        ? 'Top Hindi Songs YouTube Music'
         : 'Global Top 50 YouTube Music';
-    const fallbackQuery =
+    const fallbackQueries =
       region === 'india'
-        ? 'Trending Songs India Top Hits'
-        : 'Billboard Hot 100 top hits';
+        ? ['Bollywood Hitlist Official', 'Top 50 Hindi Songs', 'Bollywood Top 50 Hits']
+        : ['Billboard Hot 100 top hits', 'Latest English Pop Hits 2026'];
 
     let rawTracks = await searchTracks(primaryQuery);
-    if (!Array.isArray(rawTracks) || rawTracks.length < 10) {
-      const fallbackTracks = await searchTracks(fallbackQuery);
-      if (Array.isArray(fallbackTracks)) {
-        rawTracks = [...(rawTracks || []), ...fallbackTracks];
+    if (!Array.isArray(rawTracks) || rawTracks.length < 15) {
+      for (const fq of fallbackQueries) {
+        const fallbackTracks = await searchTracks(fq);
+        if (Array.isArray(fallbackTracks)) {
+          rawTracks = [...(rawTracks || []), ...fallbackTracks];
+        }
+        if (rawTracks.length >= 25) break;
       }
     }
 
@@ -628,10 +644,44 @@ export async function fetchTrendingCharts(
       if (!cleanId || seenIds.has(cleanId)) continue;
       seenIds.add(cleanId);
 
-      const title = (t.title || 'Unknown Title')
+      const rawTitle = t.title || 'Unknown Title';
+      const rawArtist = t.artist || 'Popular Artist';
+      const lowerT = rawTitle.toLowerCase();
+      const lowerA = rawArtist.toLowerCase();
+
+      // Filter out non-stop megamixes and mixtapes
+      if (
+        lowerT.includes('non-stop') ||
+        lowerT.includes('non stop') ||
+        lowerT.includes('megamix') ||
+        lowerT.includes('mashup') ||
+        lowerT.includes('dj remix') ||
+        lowerT.includes('mixtape')
+      ) {
+        continue;
+      }
+
+      // For India, strictly filter out multilingual/regional songs
+      if (region === 'india') {
+        if (
+          lowerT.includes('tamil') ||
+          lowerT.includes('telugu') ||
+          lowerT.includes('malayalam') ||
+          lowerT.includes('kannada') ||
+          lowerT.includes('bhangra') ||
+          lowerA.includes('tamil') ||
+          lowerA.includes('telugu') ||
+          lowerA.includes('kannada') ||
+          lowerA.includes('malayalam')
+        ) {
+          continue;
+        }
+      }
+
+      const title = rawTitle
         .replace(/[\(\[\{]?(official\s*(music\s*)?(video|audio|lyric\s*video|track|remix)?)[\)\]\}]?/gi, '')
         .trim();
-      const artist = (t.artist || 'Popular Artist').trim();
+      const artist = rawArtist.trim();
 
       let artwork = t.artwork || (t as any)?.artworkUrl || (t as any)?.thumbnail;
       if (artwork && typeof artwork === 'string') {
@@ -645,13 +695,13 @@ export async function fetchTrendingCharts(
       cleanedTracks.push({
         id: cleanId,
         url: cleanId,
-        title: title || t.title,
+        title: title || rawTitle,
         artist: artist || 'Popular Artist',
         artwork,
         duration: t.duration,
       });
 
-      if (cleanedTracks.length >= 25) break;
+      if (cleanedTracks.length >= 20) break;
     }
 
     if (cleanedTracks.length > 0) {
@@ -669,6 +719,120 @@ export async function fetchTrendingCharts(
     return chartCache[region]!.data;
   }
   return FALLBACK_RESULTS;
+}
+
+/**
+ * Fetch latest releases for Hindi and English with in-memory caching for instant switching.
+ */
+export async function fetchNewReleases(
+  language: 'hindi' | 'english' = 'hindi',
+  forceRefresh = false
+): Promise<TrackMetadata[]> {
+  const cached = newReleasesCache[language];
+  const now = Date.now();
+  if (!forceRefresh && cached && cached.data.length > 0 && now - cached.timestamp < NEW_RELEASES_CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const queries =
+      language === 'hindi'
+        ? ['Latest Hindi Songs 2026 New Releases', 'New Hindi Music YouTube Music', 'Latest Hindi Songs 2025']
+        : ['New Music Friday Global YouTube Music', 'Latest English Pop Hits 2026', 'New English Songs Pop'];
+
+    const rawTracks: TrackMetadata[] = [];
+    for (const q of queries) {
+      const results = await searchTracks(q);
+      if (Array.isArray(results) && results.length > 0) {
+        rawTracks.push(...results);
+      }
+      if (rawTracks.length >= 25) break;
+    }
+
+    const seenIds = new Set<string>();
+    const cleanedTracks: TrackMetadata[] = [];
+
+    for (const t of rawTracks) {
+      if (!t || !t.id) continue;
+      const cleanId = String(t.id).replace(/^yt_/i, '').trim();
+      if (!cleanId || seenIds.has(cleanId)) continue;
+      seenIds.add(cleanId);
+
+      const rawTitle = t.title || 'Unknown Title';
+      const rawArtist = t.artist || 'Popular Artist';
+      const lowerT = rawTitle.toLowerCase();
+      const lowerA = rawArtist.toLowerCase();
+
+      // Filter out long mixes, DJ non-stops, mixtapes
+      if (
+        lowerT.includes('non-stop') ||
+        lowerT.includes('non stop') ||
+        lowerT.includes('megamix') ||
+        lowerT.includes('mashup') ||
+        lowerT.includes('mixtape') ||
+        lowerT.includes('dj remix')
+      ) {
+        continue;
+      }
+
+      if (language === 'hindi') {
+        if (
+          lowerT.includes('tamil') ||
+          lowerT.includes('telugu') ||
+          lowerT.includes('malayalam') ||
+          lowerT.includes('kannada') ||
+          lowerT.includes('bhangra') ||
+          lowerA.includes('tamil') ||
+          lowerA.includes('telugu') ||
+          lowerA.includes('kannada') ||
+          lowerA.includes('malayalam')
+        ) {
+          continue;
+        }
+      }
+
+      const title = rawTitle
+        .replace(/[\(\[\{]?(official\s*(music\s*)?(video|audio|lyric\s*video|track|remix)?)[\)\]\}]?/gi, '')
+        .trim();
+      const artist = rawArtist.trim();
+
+      let artwork = t.artwork || (t as any)?.artworkUrl || (t as any)?.thumbnail;
+      if (artwork && typeof artwork === 'string') {
+        if (artwork.includes('w120-h120') || artwork.includes('w60-h60')) {
+          artwork = artwork.replace(/w\d+-h\d+/, 'w500-h500');
+        }
+      } else {
+        artwork = `https://i.ytimg.com/vi/${cleanId}/hqdefault.jpg`;
+      }
+
+      cleanedTracks.push({
+        id: cleanId,
+        url: cleanId,
+        title: title || rawTitle,
+        artist: artist || 'Popular Artist',
+        artwork,
+        duration: t.duration,
+      });
+
+      if (cleanedTracks.length >= 20) break;
+    }
+
+    if (cleanedTracks.length > 0) {
+      newReleasesCache[language] = {
+        data: cleanedTracks,
+        timestamp: now,
+      };
+      return cleanedTracks;
+    }
+  } catch (err) {
+    console.error(`[musicApi] Error fetching new releases for ${language}:`, err);
+  }
+
+  if (cached && cached.data.length > 0) {
+    return cached.data;
+  }
+
+  return [];
 }
 
 interface MoodPlaylistDefinition {

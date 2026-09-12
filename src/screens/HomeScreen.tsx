@@ -26,6 +26,7 @@ import {
   getRecommendedTracks, 
   searchTracks, 
   fetchTrendingCharts, 
+  fetchNewReleases,
   fetchMoodPlaylists 
 } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
@@ -130,6 +131,14 @@ export function HomeScreen() {
   const currentChartList = useMemo(() => {
     return chartRegion === 'india' ? indiaCharts : globalCharts;
   }, [chartRegion, indiaCharts, globalCharts]);
+
+  const [newReleaseLang, setNewReleaseLang] = useState<'hindi' | 'english'>('hindi');
+  const [hindiNewReleases, setHindiNewReleases] = useState<TrackMetadata[]>([]);
+  const [englishNewReleases, setEnglishNewReleases] = useState<TrackMetadata[]>([]);
+
+  const activeNewReleases = useMemo(() => {
+    return newReleaseLang === 'hindi' ? hindiNewReleases : englishNewReleases;
+  }, [newReleaseLang, hindiNewReleases, englishNewReleases]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -174,14 +183,18 @@ export function HomeScreen() {
     setCurrentAmbientTrack(lastTrack);
 
     try {
-      const [recs, indiaData, globalData] = await Promise.all([
+      const [recs, indiaData, globalData, hindiReleases, englishReleases] = await Promise.all([
         getRecommendedTracks(lastTrack?.id),
         fetchTrendingCharts('india'),
-        fetchTrendingCharts('global')
+        fetchTrendingCharts('global'),
+        fetchNewReleases('hindi'),
+        fetchNewReleases('english'),
       ]);
 
       const safeIndia = Array.isArray(indiaData) ? indiaData : [];
       const safeGlobal = Array.isArray(globalData) ? globalData : [];
+      const safeHindiNew = Array.isArray(hindiReleases) ? hindiReleases : [];
+      const safeEnglishNew = Array.isArray(englishReleases) ? englishReleases : [];
       const rawRecs = Array.isArray(recs) ? recs : [];
       const safeRecs = rawRecs.length > 0 ? rawRecs : (safeIndia.length > 0 ? safeIndia : []);
 
@@ -194,6 +207,8 @@ export function HomeScreen() {
       setIndiaCharts(safeIndia);
       setGlobalCharts(safeGlobal);
       setTrendingTracks(safeIndia);
+      setHindiNewReleases(safeHindiNew);
+      setEnglishNewReleases(safeEnglishNew);
     } catch (err) {
       console.error('[HomeScreen] Error loading data:', err);
     }
@@ -249,6 +264,8 @@ export function HomeScreen() {
       loadData(),
       fetchTrendingCharts('india', true).then(d => setIndiaCharts(d)),
       fetchTrendingCharts('global', true).then(d => setGlobalCharts(d)),
+      fetchNewReleases('hindi', true).then(d => setHindiNewReleases(d)),
+      fetchNewReleases('english', true).then(d => setEnglishNewReleases(d)),
       loadCuratedPlaylists(selectedMood, true),
     ]);
     setIsRefreshing(false);
@@ -359,7 +376,7 @@ export function HomeScreen() {
 
   // Safe padding configuration
   const topSafePadding = insets.top + 8;
-  const bottomSafePadding = insets.bottom + 120;
+  const bottomSafePadding = insets.bottom + 130;
 
   return (
     <View style={styles.screen}>
@@ -488,7 +505,7 @@ export function HomeScreen() {
                     chartRegion === 'india' ? styles.regionPillTextActive : styles.regionPillTextInactive,
                   ]}
                 >
-                  🇮🇳 India
+                  🇮🇳 Hindi
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -512,7 +529,7 @@ export function HomeScreen() {
           </View>
           <Text style={styles.subtitle}>
             {chartRegion === 'india'
-              ? 'Official top 20 trending hits across India'
+              ? 'Top 20 trending Hindi & Bollywood hits'
               : 'Global top 20 chart-toppers around the world'}
           </Text>
           
@@ -528,6 +545,109 @@ export function HomeScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
               renderItem={renderTrackCard(currentChartList, true)}
+            />
+          )}
+        </View>
+
+        {/* ✨ New Releases Shelf (Hindi / English Toggles) */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>✨ New Releases</Text>
+            <View style={styles.chartRegionToggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.regionPill,
+                  newReleaseLang === 'hindi' ? styles.regionPillActive : styles.regionPillInactive,
+                ]}
+                onPress={() => setNewReleaseLang('hindi')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionPillText,
+                    newReleaseLang === 'hindi' ? styles.regionPillTextActive : styles.regionPillTextInactive,
+                  ]}
+                >
+                  🇮🇳 Hindi
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.regionPill,
+                  newReleaseLang === 'english' ? styles.regionPillActive : styles.regionPillInactive,
+                ]}
+                onPress={() => setNewReleaseLang('english')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionPillText,
+                    newReleaseLang === 'english' ? styles.regionPillTextActive : styles.regionPillTextInactive,
+                  ]}
+                >
+                  🌍 English
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <Text style={styles.subtitle}>
+            {newReleaseLang === 'hindi'
+              ? 'Fresh Bollywood & Hindi drops'
+              : 'Global Friday releases & chart arrivals'}
+          </Text>
+
+          {isLoading && !isRefreshing && activeNewReleases.length === 0 ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color="#00ffcc" />
+            </View>
+          ) : (
+            <FlatList
+              horizontal
+              data={activeNewReleases}
+              keyExtractor={(item, index) => `new-${newReleaseLang}-${item.id}-${index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.listContent}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.newReleaseCard}
+                  activeOpacity={0.8}
+                  onPress={() => handlePlayTrack(item, activeNewReleases)}
+                  onLongPress={() => setPlaylistModalTrack(item)}
+                >
+                  <View style={styles.newReleaseArtworkWrapper}>
+                    <Image
+                      source={{
+                        uri:
+                          item.artwork ||
+                          (item as any)?.thumbnail ||
+                          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300',
+                      }}
+                      style={styles.newReleaseArtwork}
+                      resizeMode="cover"
+                    />
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.75)']}
+                      style={styles.cardGradientOverlay}
+                    />
+                    <View style={styles.newReleaseBadge}>
+                      <Text style={styles.newReleaseBadgeText}>NEW</Text>
+                    </View>
+                    <View style={styles.playButtonOverlay}>
+                      {loadingTrackId === item.id ? (
+                        <ActivityIndicator size="small" color="#000000" />
+                      ) : (
+                        <Ionicons name="play" size={14} color="#000000" style={{ marginLeft: 2 }} />
+                      )}
+                    </View>
+                  </View>
+                  <Text style={styles.newReleaseTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {item.title}
+                  </Text>
+                  <Text style={styles.newReleaseArtist} numberOfLines={1} ellipsizeMode="tail">
+                    {item.artist}
+                  </Text>
+                </TouchableOpacity>
+              )}
             />
           )}
         </View>
@@ -1164,5 +1284,53 @@ const styles = StyleSheet.create({
   },
   pillPlayIcon: {
     marginLeft: 8,
+  },
+  newReleaseCard: {
+    width: 135,
+    marginRight: 14,
+  },
+  newReleaseArtworkWrapper: {
+    width: 135,
+    height: 135,
+    borderRadius: 12,
+    backgroundColor: '#18181c',
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: '#24242c',
+  },
+  newReleaseArtwork: {
+    width: 135,
+    height: 135,
+    borderRadius: 12,
+  },
+  newReleaseBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#00ffcc',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    zIndex: 2,
+  },
+  newReleaseBadgeText: {
+    color: '#000000',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  newReleaseTitle: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+    letterSpacing: -0.2,
+  },
+  newReleaseArtist: {
+    color: '#8e8e98',
+    fontSize: 11,
+    marginTop: 2,
+    letterSpacing: -0.1,
   },
 });
