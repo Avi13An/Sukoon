@@ -748,14 +748,14 @@ export function PlayerScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          {/* Floating Action Dock */}
+          {/* Floating Action Dock (5 balanced items) */}
           <View style={[styles.floatingDock, { marginBottom: insets.bottom + 8 }]}>
             <TouchableOpacity 
               style={styles.dockItem} 
               onPress={() => setIsKaraokeStudioVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="mic" size={20} color="#ff4d4d" />
+              <Ionicons name="mic-outline" size={21} color="#ff4d4d" />
               <Text style={[styles.dockLabel, { color: '#ff4d4d' }]}>Studio</Text>
             </TouchableOpacity>
 
@@ -764,7 +764,7 @@ export function PlayerScreen({ navigation }: any) {
               onPress={() => setIsLyricsModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="document-text-outline" size={20} color="#bbbbbb" />
+              <Ionicons name="document-text-outline" size={21} color="#bbbbbb" />
               <Text style={styles.dockLabel}>Lyrics</Text>
             </TouchableOpacity>
 
@@ -773,8 +773,17 @@ export function PlayerScreen({ navigation }: any) {
               onPress={() => setIsQueueModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="list-outline" size={20} color="#bbbbbb" />
+              <Ionicons name="list-outline" size={21} color="#bbbbbb" />
               <Text style={styles.dockLabel}>Queue</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.dockItem} 
+              onPress={() => setIsPlaylistModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add-circle-outline" size={21} color="#bbbbbb" />
+              <Text style={styles.dockLabel}>+ Playlist</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -791,12 +800,12 @@ export function PlayerScreen({ navigation }: any) {
                 </View>
               ) : isDownloaded ? (
                 <>
-                  <Ionicons name="checkmark-circle" size={20} color="#00ffcc" />
+                  <Ionicons name="checkmark-circle" size={21} color="#00ffcc" />
                   <Text style={[styles.dockLabel, { color: '#00ffcc' }]}>Saved</Text>
                 </>
               ) : (
                 <>
-                  <Ionicons name="arrow-down-circle-outline" size={20} color="#bbbbbb" />
+                  <Ionicons name="arrow-down-circle-outline" size={21} color="#bbbbbb" />
                   <Text style={styles.dockLabel}>Download</Text>
                 </>
               )}
@@ -1127,11 +1136,12 @@ const styles = StyleSheet.create({
   dockItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 2,
+    flex: 1,
   },
   dockLabel: {
-    fontSize: 10,
-    color: '#bbbbbb',
+    fontSize: 9.5,
+    color: '#aaaaaa',
     marginTop: 3,
     fontWeight: '500',
   },
