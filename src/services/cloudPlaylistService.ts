@@ -327,6 +327,13 @@ export function subscribeToSharedPlaylists(onNewPlaylist?: (playlist: Playlist) 
         (payload) => {
           const incomingPlaylist = payload?.new?.playlist_data as Playlist;
           if (incomingPlaylist) {
+            const { isPlaylistLeftOrUnlinked } = require('../utils/storage');
+            if (
+              isPlaylistLeftOrUnlinked(incomingPlaylist.id) || 
+              (incomingPlaylist.shareCode && isPlaylistLeftOrUnlinked(incomingPlaylist.shareCode))
+            ) {
+              return;
+            }
             incomingPlaylist.name = `${incomingPlaylist.name} (Shared by ${payload.new?.shared_by || 'Friend'})`;
             const activeUser = getActiveUserSession();
             const userId = activeUser?.id;
@@ -364,8 +371,15 @@ export async function restorePlaylistsFromCloud(userId: string) {
     const { data: { user } } = await supabase.auth.getUser();
     const cloudPlaylists = user?.user_metadata?.sukoon_playlists;
     if (Array.isArray(cloudPlaylists) && cloudPlaylists.length > 0) {
-      saveUserPlaylists(cloudPlaylists, userId);
-      return cloudPlaylists;
+      const { getLeftSharedPlaylistIds } = require('../utils/storage');
+      const leftIds = getLeftSharedPlaylistIds(userId);
+      const leftSet = new Set(leftIds.map((id: string) => id.trim().toLowerCase()));
+      const filtered = cloudPlaylists.filter((p: any) => 
+        !leftSet.has((p.id || '').trim().toLowerCase()) && 
+        (!p.shareCode || !leftSet.has(p.shareCode.trim().toLowerCase()))
+      );
+      saveUserPlaylists(filtered, userId);
+      return filtered;
     }
   } catch (err) {
     console.warn('[CloudSync] Failed to restore playlists:', err);

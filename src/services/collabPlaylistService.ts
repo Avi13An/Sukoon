@@ -6,7 +6,8 @@ import {
   getCollaborativePlaylists, 
   saveCollaborativePlaylist, 
   updateCollaborativePlaylistTracks,
-  notifyStorageChanged 
+  notifyStorageChanged,
+  isPlaylistLeftOrUnlinked,
 } from '../utils/storage';
 import { showToast } from '../components/ToastNotification';
 
@@ -18,7 +19,9 @@ const activePlaylistSubscriptions = new Set<string>();
 
 // Listener callbacks when active PlaylistScreen is open
 type CollabTracksListener = (tracks: TrackMetadata[]) => void;
+type CollabTitleListener = (newTitle: string) => void;
 const playlistListeners = new Map<string, Set<CollabTracksListener>>();
+const playlistTitleListeners = new Map<string, Set<CollabTitleListener>>();
 
 /**
  * Ensures connection to HiveMQ MQTT broker
@@ -76,6 +79,11 @@ function handleIncomingMessage(topic: string, rawPayload: string) {
     if (topic.startsWith('sukoon/collab_inbox/')) {
       if (data.type === 'COLLAB_INVITE' && data.playlist) {
         const playlist: CollaborativePlaylist = data.playlist;
+        // Never accept invites for playlists the user permanently left
+        if (isPlaylistLeftOrUnlinked(playlist.id)) {
+          console.log('[CollabService] Ignoring invite for left playlist:', playlist.id);
+          return;
+        }
         const exists = getCollaborativePlaylists().some(p => p.id === playlist.id);
         if (!exists) {
           saveCollaborativePlaylist(playlist);
@@ -86,10 +94,53 @@ function handleIncomingMessage(topic: string, rawPayload: string) {
       return;
     }
 
-    // 2. Playlist Track Updates
+    // 2. Playlist Topic Updates
     if (topic.startsWith('sukoon/collab_playlist/')) {
-      const { playlistId, tracks, updatedBy } = data;
-      if (!playlistId || !Array.isArray(tracks)) return;
+      const { playlistId, tracks, updatedBy, type } = data;
+      if (!playlistId) return;
+
+      // Never process updates for playlists this user left
+      if (isPlaylistLeftOrUnlinked(playlistId)) {
+        return;
+      }
+
+      // 2a. Live Rename Broadcast
+      if (type === 'COLLAB_RENAME' && data.newTitle) {
+        if (data.renamedBy && data.renamedBy.trim().toLowerCase() === myNorm) {
+          return;
+        }
+        const existing = getCollaborativePlaylists().find(p => p.id === playlistId);
+        if (existing) {
+          existing.title = data.newTitle;
+          existing.updatedAt = Date.now();
+          saveCollaborativePlaylist(existing);
+          const listeners = playlistTitleListeners.get(playlistId);
+          if (listeners) {
+            listeners.forEach(cb => { try { cb(data.newTitle); } catch {} });
+          }
+          showToast(`Playlist renamed to "${data.newTitle}" by @${data.renamedBy || 'collaborator'}`, 'sparkles');
+        }
+        return;
+      }
+
+      // 2b. Collaborator Left Broadcast
+      if (type === 'COLLAB_MEMBER_LEFT' && data.username) {
+        const departingUser = data.username.trim();
+        if (departingUser.toLowerCase() === myNorm) {
+          return;
+        }
+        const existing = getCollaborativePlaylists().find(p => p.id === playlistId);
+        if (existing && existing.collaborators) {
+          existing.collaborators = existing.collaborators.filter(c => c.toLowerCase() !== departingUser.toLowerCase());
+          existing.updatedAt = Date.now();
+          saveCollaborativePlaylist(existing);
+          showToast(`@${departingUser} left the playlist`, 'exit-outline');
+        }
+        return;
+      }
+
+      // 2c. Playlist Tracks Update
+      if (!Array.isArray(tracks)) return;
 
       // Ignore self-broadcasts
       if (updatedBy && updatedBy.trim().toLowerCase() === myNorm) {
@@ -113,7 +164,6 @@ function handleIncomingMessage(topic: string, rawPayload: string) {
       }
 
       // Only alert if an external collaborator actually added new track(s).
-      // Routine background sync, reconnects, pings, deletes, and self-actions stay completely silent.
       if (existingPlaylist && addedTracks.length > 0 && updatedBy && updatedBy.trim().toLowerCase() !== myNorm) {
         const addedDesc = addedTracks.length === 1 
           ? `"${addedTracks[0].title}"` 
@@ -276,16 +326,25 @@ export async function syncCollabTracks(
 }
 
 /**
- * Registers a live track updates callback for an active PlaylistScreen
+ * Registers a live track & title updates callback for an active PlaylistScreen
  */
 export function subscribeToCollabPlaylist(
   playlistId: string, 
-  callback: (tracks: TrackMetadata[]) => void
+  callback: (tracks: TrackMetadata[]) => void,
+  titleCallback?: (newTitle: string) => void
 ): () => void {
   if (!playlistListeners.has(playlistId)) {
     playlistListeners.set(playlistId, new Set());
   }
   playlistListeners.get(playlistId)!.add(callback);
+
+  if (titleCallback) {
+    if (!playlistTitleListeners.has(playlistId)) {
+      playlistTitleListeners.set(playlistId, new Set());
+    }
+    playlistTitleListeners.get(playlistId)!.add(titleCallback);
+  }
+
   subscribeToPlaylistTopic(playlistId);
 
   return () => {
@@ -294,6 +353,15 @@ export function subscribeToCollabPlaylist(
       set.delete(callback);
       if (set.size === 0) {
         playlistListeners.delete(playlistId);
+      }
+    }
+    if (titleCallback) {
+      const titleSet = playlistTitleListeners.get(playlistId);
+      if (titleSet) {
+        titleSet.delete(titleCallback);
+        if (titleSet.size === 0) {
+          playlistTitleListeners.delete(playlistId);
+        }
       }
     }
   };
@@ -322,3 +390,65 @@ export async function addTrackToCollaborativePlaylist(
     return false;
   }
 }
+
+/**
+ * Broadcasts a member leaving event to the collaborator without deleting the root playlist
+ */
+export async function leaveCollaborativePlaylistCloud(
+  playlistId: string, 
+  username: string
+): Promise<void> {
+  try {
+    const client = await getMqttClient();
+    const topic = `sukoon/collab_playlist/${playlistId}`;
+    const payload = JSON.stringify({
+      type: 'COLLAB_MEMBER_LEFT',
+      playlistId,
+      username,
+      timestamp: Date.now(),
+    });
+
+    client.publish(topic, payload, { retain: true, qos: 1 }, (err) => {
+      if (err) {
+        console.warn('[CollabService] Member left broadcast error:', err);
+      } else {
+        console.log(`[CollabService] Broadcasted member ${username} left on ${topic}`);
+      }
+    });
+  } catch (err) {
+    console.warn('[CollabService] leaveCollaborativePlaylistCloud error:', err);
+  }
+}
+
+/**
+ * Broadcasts a playlist title rename to the peer collaborator
+ */
+export async function renameCollaborativePlaylistCloud(
+  playlistId: string, 
+  newTitle: string
+): Promise<void> {
+  const session = getActiveUserSession();
+  const myNorm = session?.username?.trim().toLowerCase() || 'user';
+  try {
+    const client = await getMqttClient();
+    const topic = `sukoon/collab_playlist/${playlistId}`;
+    const payload = JSON.stringify({
+      type: 'COLLAB_RENAME',
+      playlistId,
+      newTitle,
+      renamedBy: myNorm,
+      timestamp: Date.now(),
+    });
+
+    client.publish(topic, payload, { retain: true, qos: 1 }, (err) => {
+      if (err) {
+        console.warn('[CollabService] Rename broadcast error:', err);
+      } else {
+        console.log(`[CollabService] Broadcasted rename "${newTitle}" on ${topic}`);
+      }
+    });
+  } catch (err) {
+    console.warn('[CollabService] renameCollaborativePlaylistCloud error:', err);
+  }
+}
+

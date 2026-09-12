@@ -12,6 +12,7 @@ import {
   Alert, 
   SafeAreaView, 
   StatusBar,
+  Modal,
   useWindowDimensions,
   Platform
 } from 'react-native';
@@ -26,6 +27,9 @@ import {
   getUserPlaylists,
   deletePlaylist,
   deleteCollaborativePlaylist,
+  getCollaborativePlaylists,
+  leaveSharedPlaylist,
+  renamePlaylist,
   removeTrackFromPlaylist, 
   getDownloadedTracks,
   clonePlaylistToUser,
@@ -36,6 +40,7 @@ import { playTrack, addTracks, clearUpNextQueue, addToUpNextQueue, reorderNative
 import { downloadPlaylistTracks, deleteDownloadedTrack, getOfflineStorageUsage } from '../services/downloadService';
 import { sharePlaylist } from '../services/cloudPlaylistService';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { RenamePlaylistModal } from '../components/RenamePlaylistModal';
 import { createPartyRoom } from '../services/partyService';
 import { subscribeToCollabPlaylist, syncCollabTracks } from '../services/collabPlaylistService';
 import { useBottomClearance } from '../hooks/useBottomClearance';
@@ -134,6 +139,22 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   const [shuffleMode, setShuffleMode] = useState<SmartShuffleMode>('none');
   const [isShuffleModalVisible, setIsShuffleModalVisible] = useState(false);
   const [storageSize, setStorageSize] = useState<string>('0 MB');
+  const isShared = isCollaborative || Boolean(playlist.isImported);
+
+  // Options Menu & Rename Modal State
+  const [isOptionsMenuVisible, setIsOptionsMenuVisible] = useState(false);
+  const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
+
+  const handleSaveRename = async (newTitle: string) => {
+    const targetId = isCollaborative ? collabId : playlist.id;
+    const success = await renamePlaylist(targetId, newTitle);
+    if (success) {
+      setPlaylist(prev => ({ ...prev, name: newTitle }));
+      showToast(`Playlist renamed to "${newTitle}"`, 'checkmark-circle');
+    } else {
+      showToast('Failed to rename playlist', 'alert-circle');
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -149,21 +170,35 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         });
         setOriginalTracks(downloaded);
         getOfflineStorageUsage().then(usage => setStorageSize(usage.formattedSize));
-      } else if (playlistId && !isCollaborative) {
-        const found = getUserPlaylists().find(p => p.id === playlistId);
-        if (found) {
-          setPlaylist(found);
-          setOriginalTracks(found.tracks || []);
+      } else if (playlistId) {
+        if (isCollaborative) {
+          const foundCollab = getCollaborativePlaylists().find(p => p.id === collabId);
+          if (foundCollab) {
+            setPlaylist(prev => ({ ...prev, name: foundCollab.title, tracks: foundCollab.tracks }));
+            setOriginalTracks(foundCollab.tracks || []);
+          }
+        } else {
+          const found = getUserPlaylists().find(p => p.id === playlistId);
+          if (found) {
+            setPlaylist(found);
+            setOriginalTracks(found.tracks || []);
+          }
         }
       }
-    }, [playlistId, isCollaborative])
+    }, [playlistId, isCollaborative, collabId])
   );
 
-  // Local storage listener for standard playlists
+  // Local storage listener for standard & collaborative playlists
   useEffect(() => {
-    if (isCollaborative) return;
     const unsub = onPlaylistsChanged(() => {
-      if (playlistId && playlistId !== 'downloads') {
+      if (playlistId === 'downloads') return;
+      if (isCollaborative) {
+        const found = getCollaborativePlaylists().find(p => p.id === collabId);
+        if (found) {
+          setPlaylist(prev => ({ ...prev, name: found.title, tracks: found.tracks }));
+          setOriginalTracks(found.tracks || []);
+        }
+      } else {
         const found = getUserPlaylists().find(p => p.id === playlistId);
         if (found) {
           setPlaylist(found);
@@ -172,17 +207,24 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       }
     });
     return unsub;
-  }, [playlistId, isCollaborative]);
+  }, [playlistId, isCollaborative, collabId]);
 
   // Real-time listener for collaborative playlists
   useEffect(() => {
     if (isCollaborative && collabId) {
       console.log(`[PlaylistScreen] Subscribing to collaborative playlist: ${collabId}`);
-      const unsubscribe = subscribeToCollabPlaylist(collabId, (updatedTracks) => {
-        console.log(`[PlaylistScreen] Received live collab update (${updatedTracks.length} tracks)`);
-        setPlaylist(prev => ({ ...prev, tracks: updatedTracks }));
-        setOriginalTracks(updatedTracks);
-      });
+      const unsubscribe = subscribeToCollabPlaylist(
+        collabId, 
+        (updatedTracks) => {
+          console.log(`[PlaylistScreen] Received live collab update (${updatedTracks.length} tracks)`);
+          setPlaylist(prev => ({ ...prev, tracks: updatedTracks }));
+          setOriginalTracks(updatedTracks);
+        },
+        (newTitle) => {
+          console.log(`[PlaylistScreen] Received live collab rename: ${newTitle}`);
+          setPlaylist(prev => ({ ...prev, name: newTitle }));
+        }
+      );
       return () => {
         unsubscribe();
       };
@@ -470,13 +512,24 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         <Text style={styles.topBarTitle} numberOfLines={1}>
           {playlist.name}
         </Text>
-        <TouchableOpacity 
-          style={styles.topBarBackBtn} 
-          onPress={handleShuffle}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="shuffle" size={22} color={shuffleMode !== 'none' ? '#06B6D4' : '#ffffff'} />
-        </TouchableOpacity>
+        <View style={styles.topBarRightActions}>
+          <TouchableOpacity 
+            style={styles.topBarShuffleBtn} 
+            onPress={handleShuffle}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="shuffle" size={20} color={shuffleMode !== 'none' ? '#06B6D4' : '#ffffff'} />
+          </TouchableOpacity>
+          {playlistId !== 'downloads' && !isLikedSongsPlaylist(playlist) && (
+            <TouchableOpacity 
+              style={styles.topBarFrostedBtn} 
+              onPress={() => setIsOptionsMenuVisible(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={20} color="#ffffff" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <FlatList
@@ -648,55 +701,15 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                   <Ionicons name="radio-outline" size={16} color="#06B6D4" />
                   <Text style={styles.secondaryPillText}>Sukoon Jam</Text>
                 </TouchableOpacity>
-
-                {/* Download */}
-                <TouchableOpacity 
-                  style={styles.secondaryPill} 
-                  onPress={handleDownloadAll} 
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="arrow-down-circle-outline" size={16} color="#E2E8F0" />
-                  <Text style={styles.secondaryPillText}>Download</Text>
-                </TouchableOpacity>
-
-                {/* Duplicate if imported */}
-                {playlist.isImported && !isCollaborative && (
-                  <TouchableOpacity 
-                    style={[styles.secondaryPill, { borderColor: 'rgba(6, 182, 212, 0.4)' }]} 
-                    onPress={handleDuplicateToMyLibrary} 
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="duplicate-outline" size={16} color="#06B6D4" />
-                    <Text style={[styles.secondaryPillText, { color: '#06B6D4' }]}>Copy to Account</Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Delete */}
-                {!isProtectedPlaylist && !playlist.isImported && (
-                  <TouchableOpacity 
-                    style={styles.secondaryPill} 
-                    onPress={handleDeletePlaylist} 
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="trash-outline" size={16} color="#FF3B30" />
-                    <Text style={[styles.secondaryPillText, { color: '#FF3B30' }]}>Delete</Text>
-                  </TouchableOpacity>
-                )}
               </ScrollView>
             </View>
-
-            <View style={styles.headerSeparator} />
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="musical-note-outline" size={48} color="#444444" />
-            <Text style={styles.emptyText}>No tracks in this playlist yet.</Text>
-            <Text style={styles.emptySubtext}>
-              {isCollaborative 
-                ? 'Search for songs and add them here to share with your collaborator!' 
-                : 'Search for songs and tap "Add to Playlist" to add them here!'}
-            </Text>
+            <Ionicons name="musical-note-outline" size={48} color="#4A5568" />
+            <Text style={styles.emptyText}>This playlist is empty</Text>
+            <Text style={styles.emptySubtext}>Search and add songs to start listening</Text>
           </View>
         }
       />
@@ -748,7 +761,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.shuffleModeTitle}>Soft to Hype</Text>
-                  <Text style={styles.shuffleModeDesc}>Acoustic & chill melodies → High-tempo bangers</Text>
+                  <Text style={styles.shuffleModeDesc}>Gradually builds energy from acoustic/chill to upbeat bangers</Text>
                 </View>
               </TouchableOpacity>
 
@@ -762,7 +775,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.shuffleModeTitle}>Hype to Soft</Text>
-                  <Text style={styles.shuffleModeDesc}>High-energy party hits → Smooth wind-down</Text>
+                  <Text style={styles.shuffleModeDesc}>High octane party starters easing down to chillout vibes</Text>
                 </View>
               </TouchableOpacity>
 
@@ -805,6 +818,114 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
           </View>
         </View>
       )}
+
+      {/* Options Menu Modal */}
+      <Modal
+        visible={isOptionsMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsOptionsMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.optionsModalOverlay}
+          activeOpacity={1}
+          onPress={() => setIsOptionsMenuVisible(false)}
+        >
+          <View style={styles.optionsMenuCard}>
+            <View style={styles.optionsMenuHeader}>
+              <Text style={styles.optionsMenuTitle} numberOfLines={1}>
+                {playlist.name}
+              </Text>
+            </View>
+
+            {/* Rename Option */}
+            <TouchableOpacity
+              style={styles.optionsMenuItem}
+              onPress={() => {
+                setIsOptionsMenuVisible(false);
+                setIsRenameModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.optionsMenuIconBox}>
+                <Ionicons name="pencil-outline" size={18} color="#ffffff" />
+              </View>
+              <Text style={styles.optionsMenuItemText}>Rename Playlist</Text>
+            </TouchableOpacity>
+
+            {/* Leave (if shared) or Delete (if personal) */}
+            {isShared ? (
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setIsOptionsMenuVisible(false);
+                  setConfirmModal({
+                    visible: true,
+                    title: 'Leave Playlist',
+                    message: 'Leave Playlist? This will remove it from your library. Collaborators will still have access.',
+                    confirmText: 'Leave',
+                    cancelText: 'Cancel',
+                    isDestructive: true,
+                    onConfirm: async () => {
+                      await leaveSharedPlaylist(isCollaborative ? collabId : playlist.id);
+                      showToast(`Left "${playlist.name}"`, 'exit-outline');
+                      navigation.goBack();
+                    },
+                  });
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.optionsMenuIconBox, { backgroundColor: 'rgba(255, 77, 77, 0.12)' }]}>
+                  <Ionicons name="exit-outline" size={18} color="#ff4d4d" />
+                </View>
+                <Text style={[styles.optionsMenuItemText, { color: '#ff4d4d' }]}>Leave Playlist</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.optionsMenuItem}
+                onPress={() => {
+                  setIsOptionsMenuVisible(false);
+                  setConfirmModal({
+                    visible: true,
+                    title: 'Delete Playlist',
+                    message: `Are you sure you want to delete "${playlist.name}"? This action cannot be undone.`,
+                    confirmText: 'Delete',
+                    cancelText: 'Cancel',
+                    isDestructive: true,
+                    onConfirm: () => {
+                      deletePlaylist(playlist.id);
+                      showToast(`Deleted "${playlist.name}"`, 'trash-outline');
+                      navigation.goBack();
+                    },
+                  });
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.optionsMenuIconBox, { backgroundColor: 'rgba(255, 77, 77, 0.12)' }]}>
+                  <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
+                </View>
+                <Text style={[styles.optionsMenuItemText, { color: '#ff4d4d' }]}>Delete Playlist</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.optionsMenuCancelBtn}
+              onPress={() => setIsOptionsMenuVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.optionsMenuCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Sleek Rename Modal */}
+      <RenamePlaylistModal
+        visible={isRenameModalVisible}
+        initialTitle={playlist.name}
+        onSave={handleSaveRename}
+        onClose={() => setIsRenameModalVisible(false)}
+      />
 
       <ConfirmModal
         visible={confirmModal.visible}
@@ -853,6 +974,31 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 8,
+  },
+  topBarRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  topBarShuffleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#131826',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1F293D',
+  },
+  topBarFrostedBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   listContent: {
     paddingBottom: 60,
@@ -1247,5 +1393,72 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 13,
     fontWeight: 'bold',
+  },
+  optionsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  optionsMenuCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#121216',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  optionsMenuHeader: {
+    paddingBottom: 14,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  optionsMenuTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  optionsMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  optionsMenuIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  optionsMenuItemText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  optionsMenuCancelBtn: {
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionsMenuCancelText: {
+    color: '#aaaaaa',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -365,6 +365,65 @@ export function isLikedSongsPlaylist(playlist: Playlist | null | undefined): boo
   );
 }
 
+// ==========================================
+// Permanent Left / Unlinked Shared Playlists Blacklist
+// ==========================================
+
+export function getLeftSharedPlaylistsKey(targetUserIdOrUsername?: string | null): string {
+  const session = getActiveUserSession();
+  const id = targetUserIdOrUsername || session?.username || session?.id || 'guest';
+  return `@sukoon_left_shared_playlists_${id.trim().toLowerCase()}`;
+}
+
+export function getLeftSharedPlaylistIds(targetUserIdOrUsername?: string): string[] {
+  try {
+    const key = getLeftSharedPlaylistsKey(targetUserIdOrUsername);
+    const raw = storage.getString(key);
+    const unlinkedGeneral = storage.getString('UNLINKED_SHARED_PLAYLISTS');
+    const ids: string[] = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) ids.push(...parsed);
+      } catch {}
+    }
+    if (unlinkedGeneral) {
+      try {
+        const parsed = JSON.parse(unlinkedGeneral);
+        if (Array.isArray(parsed)) ids.push(...parsed);
+      } catch {}
+    }
+    return Array.from(new Set(ids));
+  } catch (err) {
+    console.warn('[Storage] getLeftSharedPlaylistIds error:', err);
+    return [];
+  }
+}
+
+export function addLeftSharedPlaylistId(playlistId: string, targetUserIdOrUsername?: string): void {
+  if (!playlistId) return;
+  try {
+    const key = getLeftSharedPlaylistsKey(targetUserIdOrUsername);
+    const current = getLeftSharedPlaylistIds(targetUserIdOrUsername);
+    const cleanId = playlistId.trim();
+    if (!current.includes(cleanId)) {
+      current.push(cleanId);
+    }
+    storage.set(key, JSON.stringify(current));
+    // Also store in general UNLINKED_SHARED_PLAYLISTS key for cross-engine compatibility
+    storage.set('UNLINKED_SHARED_PLAYLISTS', JSON.stringify(current));
+  } catch (err) {
+    console.warn('[Storage] addLeftSharedPlaylistId error:', err);
+  }
+}
+
+export function isPlaylistLeftOrUnlinked(playlistId: string, targetUserIdOrUsername?: string): boolean {
+  if (!playlistId) return false;
+  const leftList = getLeftSharedPlaylistIds(targetUserIdOrUsername);
+  const cleanId = playlistId.trim().toLowerCase();
+  return leftList.some(id => id.trim().toLowerCase() === cleanId);
+}
+
 export function getUserPlaylists(targetUserIdOrUsername?: string): Playlist[] {
   const session = getActiveUserSession();
   const key = getUserPlaylistsKey(targetUserIdOrUsername || session?.id);
@@ -447,6 +506,13 @@ export function getUserPlaylists(targetUserIdOrUsername?: string): Playlist[] {
 
   if (needsSave) {
     saveUserPlaylists(playlists, targetUserIdOrUsername);
+  }
+
+  // Filter out any shared/imported playlists that the user permanently left
+  const leftList = getLeftSharedPlaylistIds(targetUserIdOrUsername);
+  if (leftList.length > 0) {
+    const leftSet = new Set(leftList);
+    playlists = playlists.filter(p => !leftSet.has(p.id) && (!p.shareCode || !leftSet.has(p.shareCode)));
   }
 
   return playlists;
@@ -900,7 +966,16 @@ export function getCollaborativePlaylists(forUser?: string): CollaborativePlayli
     const raw = storage.getString(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    let list: CollaborativePlaylist[] = Array.isArray(parsed) ? parsed : [];
+
+    // Filter out any collaborative playlists that the user permanently left
+    const leftList = getLeftSharedPlaylistIds(norm);
+    if (leftList.length > 0) {
+      const leftSet = new Set(leftList.map(id => id.trim().toLowerCase()));
+      list = list.filter(p => !leftSet.has(p.id.trim().toLowerCase()));
+    }
+
+    return list;
   } catch (err) {
     console.warn('[Storage] getCollaborativePlaylists error:', err);
     return [];
@@ -967,4 +1042,132 @@ export function deleteCollaborativePlaylist(playlistId: string, forUser?: string
     console.warn('[Storage] deleteCollaborativePlaylist error:', err);
   }
 }
+
+// ==========================================
+// Permanent Leave Shared Playlist & Rename Engine
+// ==========================================
+
+export async function leaveSharedPlaylist(playlistId: string, targetUserIdOrUsername?: string): Promise<void> {
+  if (!playlistId) return;
+  const cleanId = playlistId.trim();
+  const session = getActiveUserSession();
+  const username = targetUserIdOrUsername || session?.username || 'user';
+  const norm = username.trim().toLowerCase();
+
+  // 1. Add to permanent blacklist registry immediately so it can never resurrect
+  addLeftSharedPlaylistId(cleanId, targetUserIdOrUsername);
+
+  // 2. If it's a Collaborative Playlist:
+  const collabList = getCollaborativePlaylists(norm);
+  const collabTarget = collabList.find(p => p.id === cleanId);
+  if (collabTarget) {
+    // Notify peer collaborator via MQTT without deleting the root playlist
+    try {
+      const { leaveCollaborativePlaylistCloud } = require('../services/collabPlaylistService');
+      await leaveCollaborativePlaylistCloud(cleanId, username);
+    } catch (e) {
+      console.warn('[Storage] Error notifying collab cloud leave:', e);
+    }
+    // Remove from local collaborative playlists for this user
+    deleteCollaborativePlaylist(cleanId, norm);
+  }
+
+  // 3. If it's in userPlaylists (e.g. imported shared playlist or code-shared playlist):
+  const userPlaylists = getUserPlaylists(targetUserIdOrUsername);
+  const userTarget = userPlaylists.find(p => p.id === cleanId);
+  if (userTarget) {
+    if (userTarget.shareCode) {
+      addLeftSharedPlaylistId(userTarget.shareCode, targetUserIdOrUsername);
+    }
+    const filtered = userPlaylists.filter(p => p.id !== cleanId);
+    saveUserPlaylists(filtered, targetUserIdOrUsername);
+  }
+
+  // 4. Remove from local shared cache if exists
+  try {
+    const rawLocalShared = storage.getString('@sukoon_shared_playlists');
+    if (rawLocalShared) {
+      const map = JSON.parse(rawLocalShared);
+      let changed = false;
+      for (const k of Object.keys(map)) {
+        if (
+          k.toLowerCase() === cleanId.toLowerCase() || 
+          (userTarget?.shareCode && k.toUpperCase() === userTarget.shareCode.toUpperCase())
+        ) {
+          delete map[k];
+          changed = true;
+        }
+      }
+      if (changed) {
+        storage.set('@sukoon_shared_playlists', JSON.stringify(map));
+      }
+    }
+  } catch {}
+
+  notifyStorageChanged();
+}
+
+export async function renamePlaylist(
+  playlistId: string, 
+  newTitle: string, 
+  targetUserIdOrUsername?: string
+): Promise<boolean> {
+  if (!playlistId || !newTitle || !newTitle.trim()) return false;
+  const cleanTitle = newTitle.trim();
+  const session = getActiveUserSession();
+  const normUser = (targetUserIdOrUsername || session?.username || session?.id || '').trim().toLowerCase();
+
+  // 1. Check user playlists
+  const userPlaylists = getUserPlaylists(targetUserIdOrUsername);
+  const targetUserPlaylist = userPlaylists.find(p => p.id === playlistId);
+  if (targetUserPlaylist) {
+    if (isLikedSongsPlaylist(targetUserPlaylist)) {
+      console.warn('[Storage] Cannot rename protected Liked Songs playlist');
+      return false;
+    }
+    targetUserPlaylist.name = cleanTitle;
+    saveUserPlaylists(userPlaylists, targetUserIdOrUsername);
+
+    // If shared, update local shared cache
+    if (targetUserPlaylist.shareCode) {
+      try {
+        const rawLocalShared = storage.getString('@sukoon_shared_playlists');
+        if (rawLocalShared) {
+          const map = JSON.parse(rawLocalShared);
+          const scKey = targetUserPlaylist.shareCode.toUpperCase();
+          if (map[scKey]) {
+            map[scKey].title = cleanTitle;
+            storage.set('@sukoon_shared_playlists', JSON.stringify(map));
+          }
+        }
+      } catch {}
+    }
+
+    notifyStorageChanged();
+    return true;
+  }
+
+  // 2. Check collaborative playlists
+  const collabList = getCollaborativePlaylists(normUser);
+  const collabTarget = collabList.find(p => p.id === playlistId);
+  if (collabTarget) {
+    collabTarget.title = cleanTitle;
+    collabTarget.updatedAt = Date.now();
+    collabTarget.version = (collabTarget.version || 1) + 1;
+    saveCollaborativePlaylist(collabTarget, normUser);
+
+    try {
+      const { renameCollaborativePlaylistCloud } = require('../services/collabPlaylistService');
+      await renameCollaborativePlaylistCloud(playlistId, cleanTitle);
+    } catch (e) {
+      console.warn('[Storage] Error broadcasting collab rename:', e);
+    }
+
+    notifyStorageChanged();
+    return true;
+  }
+
+  return false;
+}
+
 
