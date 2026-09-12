@@ -1,5 +1,5 @@
 import { Alert } from 'react-native';
-import { TrackMetadata, getListenHistory } from '../utils/storage';
+import { TrackMetadata, Playlist, getListenHistory } from '../utils/storage';
 
 const API_BASE = 'https://sukoon-api.vercel.app';
 
@@ -523,6 +523,433 @@ export async function fetchTrendingCharts(
   }
   return FALLBACK_RESULTS;
 }
+
+interface MoodPlaylistDefinition {
+  title: string;
+  description: string;
+  query: string;
+  coverImage: string;
+}
+
+const MOOD_PLAYLIST_DEFINITIONS: Record<string, MoodPlaylistDefinition[]> = {
+  chill: [
+    {
+      title: 'Bollywood Acoustic Chill',
+      description: 'Mellow acoustic guitar & soothing Bollywood unplugged hits',
+      query: 'Bollywood Acoustic Chill unplugged songs',
+      coverImage: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Indie India Sukoon Hits',
+      description: 'Soulful indie acoustic tracks from India’s best singer-songwriters',
+      query: 'Indie India Sukoon Hits songs',
+      coverImage: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Hindi Lofi Chill Mix',
+      description: 'Calm lo-fi beats blended with timeless Hindi melodies',
+      query: 'Hindi Lofi Chill Mix songs',
+      coverImage: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Coke Studio Unplugged Melodies',
+      description: 'Raw unplugged live recordings and studio sessions',
+      query: 'Coke Studio Unplugged Melodies songs',
+      coverImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  romance: [
+    {
+      title: 'Bollywood Romantic Essentials',
+      description: 'Heart-melting love songs that defined romance in Bollywood',
+      query: 'Bollywood Romantic Essentials love songs',
+      coverImage: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Heartfelt Hindi Love Songs',
+      description: 'Contemporary romantic ballads and soulful melodies',
+      query: 'Heartfelt Hindi Love Songs latest',
+      coverImage: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Indie Romance Anuv & Prateek',
+      description: 'Gentle acoustic love serenades and modern indie ballads',
+      query: 'Indie Romance Anuv Prateek songs',
+      coverImage: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Soulful Bollywood Duets',
+      description: 'Harmonious classic and modern Bollywood vocal duets',
+      query: 'Soulful Bollywood Duets romantic hits',
+      coverImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  energy: [
+    {
+      title: 'Punjabi Gym Workout Hits',
+      description: 'High-octane Punjabi beats designed to push your limits',
+      query: 'Punjabi Gym Workout Hits songs',
+      coverImage: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Bollywood High Voltage Dance',
+      description: 'High tempo, pulse-pounding Bollywood dance tracks',
+      query: 'Bollywood High Voltage Dance songs',
+      coverImage: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Desi Hip Hop Workout Beats',
+      description: 'Hard-hitting Indian hip-hop and rap pump-up anthems',
+      query: 'Desi Hip Hop Workout Beats songs',
+      coverImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Bhangra Energy Gym',
+      description: 'Relentless dhol grooves and explosive bhangra rhythms',
+      query: 'Bhangra Energy Gym workout songs',
+      coverImage: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  heartbreak: [
+    {
+      title: 'Soulful Sad Hindi Songs',
+      description: 'Deep emotional melodies for contemplative solitude',
+      query: 'Soulful Sad Hindi Songs emotional',
+      coverImage: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Arijit Singh Heartbreak Essentials',
+      description: 'The defining voice of soulful and poignant Bollywood ballads',
+      query: 'Arijit Singh Heartbreak Essentials songs',
+      coverImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Slowed Broken Heart Melodies',
+      description: 'Slowed and reverb sorrowful tunes for late night healing',
+      query: 'Slowed Broken Heart Melodies hindi',
+      coverImage: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Dard Bhare Geet',
+      description: 'Timeless grief and nostalgia from the golden ages of Hindi music',
+      query: 'Dard Bhare Geet hindi songs',
+      coverImage: 'https://images.unsplash.com/photo-1445985543470-41f30c08f107?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  desi_indie: [
+    {
+      title: 'Best of Indian Indie Pop',
+      description: 'The fresh, vibrant sounds shaping independent Indian music',
+      query: 'Best of Indian Indie Pop songs',
+      coverImage: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Pakistani Indie & Pop Hits',
+      description: 'Enchanting compositions and breakthrough tracks across the border',
+      query: 'Pakistani Indie Pop Hits songs',
+      coverImage: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Desi Singer-Songwriters',
+      description: 'Intimate storytelling and acoustic guitar from indie artists',
+      query: 'Desi Singer Songwriters indie hindi songs',
+      coverImage: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Underground Indie India',
+      description: 'Hidden gems and experimental indie sounds of the subcontinent',
+      query: 'Underground Indie India songs',
+      coverImage: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  nostalgia: [
+    {
+      title: '90s Golden Era Bollywood',
+      description: 'Nostalgic chartbusters from the golden 1990s decade',
+      query: '90s Golden Era Bollywood hits',
+      coverImage: 'https://images.unsplash.com/photo-1485579149621-3123dd979885?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: '2000s Nostalgia Hindi Hits',
+      description: 'The iconic childhood soundtracks and college anthems of the 2000s',
+      query: '2000s Nostalgia Hindi Hits songs',
+      coverImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'KK & Emraan Hashmi Era',
+      description: 'The legendary combination that ruled every heart with passion',
+      query: 'KK Emraan Hashmi era songs hits',
+      coverImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Evergreen Kishore & Rafi',
+      description: 'Immortal classics by the greatest musical legends of all time',
+      query: 'Evergreen Kishore Rafi songs classic',
+      coverImage: 'https://images.unsplash.com/photo-1445985543470-41f30c08f107?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  late_night: [
+    {
+      title: 'Late Night Drive Hindi',
+      description: 'Atmospheric moody music for quiet midnight journeys',
+      query: 'Late Night Drive Hindi songs',
+      coverImage: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Midnight Desi Hip Hop & RnB',
+      description: 'Smooth, nocturnal cadence and urban desi vibrations',
+      query: 'Midnight Desi Hip Hop RnB songs',
+      coverImage: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Slowed & Reverb Hindi Midnight',
+      description: 'Immersive echoing vocals and hazy atmospheric reverbs',
+      query: 'Slowed Reverb Hindi Midnight songs',
+      coverImage: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Quiet Night Sukoon',
+      description: 'Peaceful acoustic serenades to wind down your day',
+      query: 'Quiet Night Sukoon peaceful songs',
+      coverImage: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  party: [
+    {
+      title: 'Bollywood Club & Wedding Dance',
+      description: 'The definitive desi wedding & party dancefloor anthems',
+      query: 'Bollywood Club Wedding Dance songs',
+      coverImage: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'All Time Punjabi Party Hits',
+      description: 'Bhangra bangers and high-energy Punjabi club smashes',
+      query: 'All Time Punjabi Party Hits songs',
+      coverImage: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Desi Dancefloor Bangers',
+      description: 'Electrifying beats crafted for non-stop celebrations',
+      query: 'Desi Dancefloor Bangers songs',
+      coverImage: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'High Bass Bollywood Party',
+      description: 'Bass-heavy club remixes and high energy party starters',
+      query: 'High Bass Bollywood Party songs',
+      coverImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  focus: [
+    {
+      title: 'Indian Classical Sitar & Flute Instrumental',
+      description: 'Meditative rāgas, sitar strings, and bamboo flute resonance',
+      query: 'Indian Classical Sitar Flute Instrumental meditation',
+      coverImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Hindi Acoustic Instrumental Study',
+      description: 'Gentle guitar and piano arrangements of beloved melodies',
+      query: 'Hindi Acoustic Instrumental Study music',
+      coverImage: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Lofi Hindi Study Beats',
+      description: 'Lo-fi chill beats with subtle Hindi vocal chops to stay in flow',
+      query: 'Lofi Hindi Study Beats songs',
+      coverImage: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Deep Focus Soundscapes',
+      description: 'Ambient drone, peaceful textures, and uninterrupted clarity',
+      query: 'Deep Focus Soundscapes ambient instrumental',
+      coverImage: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  sufi: [
+    {
+      title: 'Coke Studio Sufi Classics',
+      description: 'Transcendent spiritual journeys and legendary studio renditions',
+      query: 'Coke Studio Sufi Classics songs',
+      coverImage: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Nusrat & Rahat Fateh Ali Khan Essentials',
+      description: 'Masterworks of ecstasy and qawwali devotion',
+      query: 'Nusrat Rahat Fateh Ali Khan Essentials qawwali',
+      coverImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Soulful Qawwali & Sufi Rock',
+      description: 'Fusion of driving rock guitars with eternal mystic poetry',
+      query: 'Soulful Qawwali Sufi Rock songs',
+      coverImage: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Spiritual Sukoon Melodies',
+      description: 'Inner peace through divine harmonies and acoustic devotion',
+      query: 'Spiritual Sukoon Melodies sufi songs',
+      coverImage: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  global: [
+    {
+      title: "Today's Top Global Hits",
+      description: 'The biggest songs around the globe right now',
+      query: "Today's Top Global Hits songs",
+      coverImage: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Billboard Hot 100 English',
+      description: 'Chart-dominating western pop, hip-hop, and hits',
+      query: 'Billboard Hot 100 English songs',
+      coverImage: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Viral Pop & RnB Essentials',
+      description: 'Trending anthems making waves worldwide',
+      query: 'Viral Pop RnB Essentials songs',
+      coverImage: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Global Acoustic Hits',
+      description: 'Stripped back global melodies and acoustic interpretations',
+      query: 'Global Acoustic Hits unplugged pop',
+      coverImage: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+  acoustic: [
+    {
+      title: 'MTV Unplugged India',
+      description: 'Iconic raw live acoustic performances from India’s greatest',
+      query: 'MTV Unplugged India songs live',
+      coverImage: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Raw Acoustic Bollywood Covers',
+      description: 'Intimate guitar & vocal interpretations of timeless tracks',
+      query: 'Raw Acoustic Bollywood Covers songs',
+      coverImage: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Stripped Studio Sessions',
+      description: 'Intimate studio microphone takes with pure acoustic warmth',
+      query: 'Stripped Studio Sessions acoustic hindi',
+      coverImage: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500&auto=format&fit=crop&q=80',
+    },
+    {
+      title: 'Guitar & Piano Acoustic Hindi',
+      description: 'Delicate piano keys and fingerstyle acoustic guitar arrangements',
+      query: 'Guitar Piano Acoustic Hindi songs',
+      coverImage: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=80',
+    },
+  ],
+};
+
+const moodPlaylistCache: Record<string, Playlist[]> = {};
+
+/**
+ * Strategy E: 12-Mood Curated Playlists with YouTube Music mapping.
+ * Pre-fetches, sanitizes, and caches 4 rich curated playlists per mood.
+ */
+export async function fetchMoodPlaylists(
+  moodId: string,
+  forceRefresh = false
+): Promise<Playlist[]> {
+  const normalizedMood = (moodId || 'chill').toLowerCase().trim();
+  const defs = MOOD_PLAYLIST_DEFINITIONS[normalizedMood] || MOOD_PLAYLIST_DEFINITIONS.chill;
+
+  if (!forceRefresh && moodPlaylistCache[normalizedMood]?.length) {
+    return moodPlaylistCache[normalizedMood];
+  }
+
+  try {
+    const playlists: Playlist[] = await Promise.all(
+      defs.map(async (def, idx) => {
+        let rawTracks = await searchTracks(def.query);
+        if (!Array.isArray(rawTracks) || rawTracks.length === 0) {
+          rawTracks = await searchTracks(def.title);
+        }
+
+        const seenIds = new Set<string>();
+        const cleanedTracks: TrackMetadata[] = [];
+
+        for (const t of rawTracks || []) {
+          if (!t || !t.id) continue;
+          const cleanId = String(t.id).replace(/^yt_/i, '').trim();
+          if (!cleanId || seenIds.has(cleanId)) continue;
+          seenIds.add(cleanId);
+
+          const title = (t.title || 'Unknown Title')
+            .replace(/[\(\[\{]?(official\s*(music\s*)?(video|audio|lyric\s*video|track|remix)?)[\)\]\}]?/gi, '')
+            .trim();
+          const artist = (t.artist || 'Artist').trim();
+
+          let artwork = t.artwork || (t as any)?.artworkUrl || (t as any)?.thumbnail;
+          if (artwork && typeof artwork === 'string') {
+            if (artwork.includes('w120-h120') || artwork.includes('w60-h60')) {
+              artwork = artwork.replace(/w\d+-h\d+/, 'w500-h500');
+            }
+          } else {
+            artwork = `https://i.ytimg.com/vi/${cleanId}/hqdefault.jpg`;
+          }
+
+          cleanedTracks.push({
+            id: cleanId,
+            url: t.url || cleanId,
+            title: title || t.title,
+            artist: artist || 'Artist',
+            artwork,
+            duration: t.duration,
+          });
+
+          if (cleanedTracks.length >= 25) break;
+        }
+
+        const coverImage =
+          cleanedTracks[0]?.artwork && !cleanedTracks[0].artwork.includes('placeholder')
+            ? cleanedTracks[0].artwork
+            : def.coverImage;
+
+        const playlist: Playlist = {
+          id: `curated_${normalizedMood}_${idx + 1}`,
+          shareCode: `MOOD-${normalizedMood.toUpperCase().slice(0, 4)}-${idx + 1}`,
+          name: def.title,
+          description: def.description,
+          createdAt: Date.now(),
+          coverImage,
+          tracks: cleanedTracks.length > 0 ? cleanedTracks : FALLBACK_RESULTS,
+          isImported: true,
+        };
+
+        return playlist;
+      })
+    );
+
+    if (playlists.length > 0) {
+      moodPlaylistCache[normalizedMood] = playlists;
+      return playlists;
+    }
+  } catch (err) {
+    console.error(`[musicApi] Error fetching mood playlists for ${normalizedMood}:`, err);
+  }
+
+  if (moodPlaylistCache[normalizedMood]?.length) {
+    return moodPlaylistCache[normalizedMood];
+  }
+
+  return defs.map((def, idx) => ({
+    id: `curated_${normalizedMood}_${idx + 1}`,
+    shareCode: `MOOD-${normalizedMood.toUpperCase().slice(0, 4)}-${idx + 1}`,
+    name: def.title,
+    description: def.description,
+    createdAt: Date.now(),
+    coverImage: def.coverImage,
+    tracks: FALLBACK_RESULTS,
+    isImported: true,
+  }));
+}
+
 
 
 

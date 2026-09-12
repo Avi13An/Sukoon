@@ -118,6 +118,7 @@ export function MainNavigator() {
         <RootStack.Screen name="MainTabs" component={TabNavigator} />
         <RootStack.Screen name="Player" component={PlayerScreen} />
         <RootStack.Screen name="PlaylistDetail" component={PlaylistScreen} options={{ presentation: 'card' }} />
+        <RootStack.Screen name="PlaylistScreen" component={PlaylistScreen} options={{ presentation: 'card' }} />
         <RootStack.Screen name="ArtistScreen" component={ArtistScreen} options={{ presentation: 'card' }} />
       </RootStack.Navigator>
       {hasSession && <SyncPromptModal />}

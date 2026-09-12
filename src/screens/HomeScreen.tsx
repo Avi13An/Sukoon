@@ -24,7 +24,12 @@ import {
   TrackMetadata, 
   Playlist 
 } from '../utils/storage';
-import { getRecommendedTracks, searchTracks, fetchTrendingCharts } from '../services/musicApi';
+import { 
+  getRecommendedTracks, 
+  searchTracks, 
+  fetchTrendingCharts, 
+  fetchMoodPlaylists 
+} from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { PartyModal } from '../components/PartyModal';
@@ -32,67 +37,24 @@ import { getPartyState, subscribeToPartyState, PartyState } from '../services/pa
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 import { showToast } from '../components/ToastNotification';
 
-const VIBE_PILLS = [
-  '✨ All',
-  '☕ Chill & Sukoon',
-  '⚡ Energy',
-  '🎧 Focus',
-  '❤️ Romance',
-  '🌃 Late Night',
-  '📻 Desi Top 50',
-];
-
-const VIBE_QUERIES: Record<string, string> = {
-  '☕ Chill & Sukoon': 'Chill acoustic sukoon songs hindi',
-  '⚡ Energy': 'High energy workout punjabi songs hits',
-  '🎧 Focus': 'Lo-fi study beats calm instrumental',
-  '❤️ Romance': 'Romantic hindi love songs top',
-  '🌃 Late Night': 'Late night slow lofi chill hindi',
-  '📻 Desi Top 50': 'Trending Indian music hits top 50',
-};
-
-interface MoodMix {
+interface MoodPill {
   id: string;
-  title: string;
-  subtitle: string;
-  query: string;
-  colors: [string, string, string];
-  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
 }
 
-const MOOD_MIXES: MoodMix[] = [
-  {
-    id: 'mix-1',
-    title: 'Late Night Chill',
-    subtitle: 'Mellow Lo-Fi & ambient beats',
-    query: 'Late night lofi chill songs',
-    colors: ['#3b1d60', '#1c0f33', '#110920'],
-    icon: 'moon',
-  },
-  {
-    id: 'mix-2',
-    title: 'Bollywood Acoustic',
-    subtitle: 'Soul-stirring unplugged melodies',
-    query: 'Bollywood acoustic unplugged songs',
-    colors: ['#60231d', '#33130f', '#200b09'],
-    icon: 'musical-note',
-  },
-  {
-    id: 'mix-3',
-    title: 'Punjabi Bangers',
-    subtitle: 'High energy Punjabi party hits',
-    query: 'Punjabi top hits songs',
-    colors: ['#604a1d', '#33270f', '#201809'],
-    icon: 'flame',
-  },
-  {
-    id: 'mix-4',
-    title: 'Soulful Sufi',
-    subtitle: 'Timeless spiritual qawwalis & sufi',
-    query: 'Soulful sufi songs hits',
-    colors: ['#1d5360', '#0f2933', '#091b20'],
-    icon: 'heart',
-  },
+const MOOD_PILLS: MoodPill[] = [
+  { id: 'chill', label: '☕ Chill & Sukoon' },
+  { id: 'romance', label: '❤️ Romance' },
+  { id: 'energy', label: '⚡ Workout & Energy' },
+  { id: 'heartbreak', label: '💔 Dard & Heartbreak' },
+  { id: 'desi_indie', label: '📻 Desi Indie' },
+  { id: 'nostalgia', label: '📼 90s & 2000s Nostalgia' },
+  { id: 'late_night', label: '🌃 Late Night Drive' },
+  { id: 'party', label: '🎉 Party & Dance' },
+  { id: 'focus', label: '🎧 Deep Focus' },
+  { id: 'sufi', label: '🕊️ Sufi & Spiritual' },
+  { id: 'global', label: '🌍 Global Pop' },
+  { id: 'acoustic', label: '🎸 Acoustic & Unplugged' },
 ];
 
 interface ArtistItem {
@@ -157,13 +119,14 @@ export function HomeScreen() {
   // Cross-device responsive layout calculation for 2-column quick grid
   const quickCardWidth = Math.floor((width - 32 - 10) / 2);
 
-  const [activeVibe, setActiveVibe] = useState('✨ All');
+  const [selectedMood, setSelectedMood] = useState('chill');
+  const [curatedPlaylists, setCuratedPlaylists] = useState<Playlist[]>([]);
+  const [isMoodLoading, setIsMoodLoading] = useState(false);
   const [chartRegion, setChartRegion] = useState<'india' | 'global'>('india');
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
   const [indiaCharts, setIndiaCharts] = useState<TrackMetadata[]>([]);
   const [globalCharts, setGlobalCharts] = useState<TrackMetadata[]>([]);
   const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
-  const [vibeTracks, setVibeTracks] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
   const [quickItems, setQuickItems] = useState<QuickAccessItem[]>([]);
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
@@ -173,7 +136,6 @@ export function HomeScreen() {
   }, [chartRegion, indiaCharts, globalCharts]);
   
   const [isLoading, setIsLoading] = useState(false);
-  const [isVibeLoading, setIsVibeLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [playlistModalTrack, setPlaylistModalTrack] = useState<TrackMetadata | null>(null);
@@ -313,35 +275,43 @@ export function HomeScreen() {
     }, [loadData])
   );
 
+  const loadCuratedPlaylists = useCallback(async (moodId: string, forceRefresh = false) => {
+    setIsMoodLoading(true);
+    try {
+      const pl = await fetchMoodPlaylists(moodId, forceRefresh);
+      setCuratedPlaylists(pl);
+    } catch (err) {
+      console.error('[HomeScreen] Error loading curated playlists:', err);
+    } finally {
+      setIsMoodLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCuratedPlaylists(selectedMood);
+  }, [selectedMood, loadCuratedPlaylists]);
+
+  const handleSelectMood = (moodId: string) => {
+    setSelectedMood(moodId);
+  };
+
+  const handlePlaylistCardPress = (playlist: Playlist) => {
+    navigation.navigate('PlaylistDetail', { 
+      playlist, 
+      tracks: playlist.tracks,
+      playlistId: playlist.id 
+    });
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await Promise.all([
       loadData(),
       fetchTrendingCharts('india', true).then(d => setIndiaCharts(d)),
       fetchTrendingCharts('global', true).then(d => setGlobalCharts(d)),
+      loadCuratedPlaylists(selectedMood, true),
     ]);
-    if (activeVibe !== '✨ All') {
-      await handleSelectVibe(activeVibe);
-    }
     setIsRefreshing(false);
-  };
-
-  const handleSelectVibe = async (vibe: string) => {
-    setActiveVibe(vibe);
-    if (vibe === '✨ All') {
-      setVibeTracks([]);
-      return;
-    }
-    setIsVibeLoading(true);
-    try {
-      const query = VIBE_QUERIES[vibe] || `${vibe} songs`;
-      const res = await searchTracks(query);
-      setVibeTracks(Array.isArray(res) ? res.slice(0, 12) : []);
-    } catch (e) {
-      console.error('[HomeScreen] Vibe fetch error:', e);
-    } finally {
-      setIsVibeLoading(false);
-    }
   };
 
   const handlePlayTrack = async (item: TrackMetadata, contextQueue?: TrackMetadata[]) => {
@@ -352,20 +322,6 @@ export function HomeScreen() {
       console.error('[HomeScreen] Error playing track:', err);
     } finally {
       setLoadingTrackId(null);
-    }
-  };
-
-  const handlePlayMoodMix = async (mix: MoodMix) => {
-    try {
-      setIsLoading(true);
-      const tracks = await searchTracks(mix.query);
-      if (tracks && tracks.length > 0) {
-        await playTrack(tracks[0], tracks.slice(1));
-      }
-    } catch (err) {
-      console.error('[HomeScreen] Error playing mood mix:', err);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -388,22 +344,34 @@ export function HomeScreen() {
   };
 
   const getAmbientColors = (): [string, string, string] => {
-    if (activeVibe === '✨ All' && currentAmbientTrack) {
+    if (currentAmbientTrack) {
       return getAmbientThemeForTrack(currentAmbientTrack).gradient;
     }
-    switch (activeVibe) {
-      case '☕ Chill & Sukoon':
+    switch (selectedMood) {
+      case 'chill':
         return ['rgba(0, 255, 204, 0.22)', 'rgba(0, 40, 35, 0.5)', '#000000'];
-      case '⚡ Energy':
-        return ['rgba(255, 170, 0, 0.22)', 'rgba(51, 39, 15, 0.5)', '#000000'];
-      case '🎧 Focus':
-        return ['rgba(80, 140, 255, 0.22)', 'rgba(20, 35, 60, 0.5)', '#000000'];
-      case '❤️ Romance':
+      case 'romance':
         return ['rgba(255, 75, 130, 0.22)', 'rgba(50, 15, 25, 0.5)', '#000000'];
-      case '🌃 Late Night':
+      case 'energy':
+        return ['rgba(255, 170, 0, 0.22)', 'rgba(51, 39, 15, 0.5)', '#000000'];
+      case 'heartbreak':
+        return ['rgba(147, 112, 219, 0.25)', 'rgba(30, 15, 45, 0.5)', '#000000'];
+      case 'desi_indie':
+        return ['rgba(255, 140, 0, 0.22)', 'rgba(45, 25, 10, 0.5)', '#000000'];
+      case 'nostalgia':
+        return ['rgba(218, 165, 32, 0.22)', 'rgba(40, 30, 10, 0.5)', '#000000'];
+      case 'late_night':
         return ['rgba(138, 43, 226, 0.25)', 'rgba(28, 15, 51, 0.5)', '#000000'];
-      case '📻 Desi Top 50':
-        return ['rgba(255, 42, 109, 0.22)', 'rgba(40, 10, 30, 0.5)', '#000000'];
+      case 'party':
+        return ['rgba(255, 42, 109, 0.25)', 'rgba(40, 10, 30, 0.5)', '#000000'];
+      case 'focus':
+        return ['rgba(80, 140, 255, 0.22)', 'rgba(20, 35, 60, 0.5)', '#000000'];
+      case 'sufi':
+        return ['rgba(29, 83, 96, 0.25)', 'rgba(15, 41, 51, 0.5)', '#000000'];
+      case 'global':
+        return ['rgba(0, 200, 255, 0.22)', 'rgba(10, 35, 50, 0.5)', '#000000'];
+      case 'acoustic':
+        return ['rgba(180, 120, 70, 0.22)', 'rgba(40, 25, 15, 0.5)', '#000000'];
       default:
         return ['rgba(0, 255, 204, 0.18)', 'rgba(0, 30, 25, 0.4)', '#000000'];
     }
@@ -534,57 +502,6 @@ export function HomeScreen() {
           </View>
         </View>
 
-        {/* Dynamic Vibe & Mood Filter Pills */}
-        <View style={styles.vibeSection}>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.vibeScroll}
-          >
-            {VIBE_PILLS.map((vibe) => {
-              const isActive = activeVibe === vibe;
-              return (
-                <TouchableOpacity
-                  key={vibe}
-                  style={[styles.vibePill, isActive && styles.vibePillActive]}
-                  onPress={() => handleSelectVibe(vibe)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.vibePillText, isActive && styles.vibePillTextActive]}>
-                    {vibe}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* Dynamic Vibe Showcase Shelf (Visible when a vibe filter is chosen) */}
-        {activeVibe !== '✨ All' && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>{activeVibe} Mix</Text>
-              <Text style={styles.sectionAccent}>Curated Vibe</Text>
-            </View>
-            <Text style={styles.subtitle}>Handpicked tracks perfectly matched for this mood</Text>
-
-            {isVibeLoading ? (
-              <View style={styles.loaderContainer}>
-                <ActivityIndicator size="large" color="#00ffcc" />
-              </View>
-            ) : (
-              <FlatList
-                horizontal
-                data={vibeTracks}
-                keyExtractor={(item, index) => `vibe-${item.id}-${index}`}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.listContent}
-                renderItem={renderTrackCard(vibeTracks)}
-              />
-            )}
-          </View>
-        )}
-
         {/* Quick-Access 6-Grid (Spotify-Style) */}
         {quickItems.length > 0 && (
           <View style={styles.quickSection}>
@@ -618,53 +535,6 @@ export function HomeScreen() {
             </View>
           </View>
         )}
-
-        {/* Jump Back In (Listening History) */}
-        {recentTracks.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Jump Back In</Text>
-              <Ionicons name="time-outline" size={18} color="#00ffcc" />
-            </View>
-            <Text style={styles.subtitle}>Pick up right where you left off</Text>
-            <FlatList
-              horizontal
-              data={recentTracks.slice(0, 10)}
-              keyExtractor={(item, index) => `recent-${item.id}-${index}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(recentTracks.slice(0, 10))}
-            />
-          </View>
-        )}
-
-        {/* Made For You (Recommendations Shelf) */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Made For You</Text>
-            <Ionicons name="sparkles-outline" size={18} color="#00ffcc" />
-          </View>
-          <Text style={styles.subtitle}>Crafted specifically for your acoustic taste</Text>
-          
-          {isLoading && !isRefreshing ? (
-            <View style={styles.loaderContainer}>
-              <ActivityIndicator size="large" color="#00ffcc" />
-            </View>
-          ) : recommendations.length === 0 ? (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderText}>Pull down to discover fresh tracks tailored for you.</Text>
-            </View>
-          ) : (
-            <FlatList
-              horizontal
-              data={recommendations}
-              keyExtractor={(item, index) => `rec-${item.id}-${index}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(recommendations)}
-            />
-          )}
-        </View>
 
         {/* Trending Charts Shelf (With Rank Badges & Region Toggles) */}
         <View style={styles.section}>
@@ -760,42 +630,161 @@ export function HomeScreen() {
           />
         </View>
 
-        {/* Mood & Genre Mixes */}
+        {/* Jump Back In (Listening History) */}
+        {recentTracks.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Jump Back In</Text>
+              <Ionicons name="time-outline" size={18} color="#00ffcc" />
+            </View>
+            <Text style={styles.subtitle}>Pick up right where you left off</Text>
+            <FlatList
+              horizontal
+              data={recentTracks.slice(0, 10)}
+              keyExtractor={(item, index) => `recent-${item.id}-${index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.listContent}
+              renderItem={renderTrackCard(recentTracks.slice(0, 10))}
+            />
+          </View>
+        )}
+
+        {/* Made For You (Recommendations Shelf) */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Mood & Genre Mixes</Text>
-          <Text style={styles.subtitle}>One-tap infinite stations designed for every feeling</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Made For You</Text>
+            <Ionicons name="sparkles-outline" size={18} color="#00ffcc" />
+          </View>
+          <Text style={styles.subtitle}>Crafted specifically for your acoustic taste</Text>
+          
+          {isLoading && !isRefreshing ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color="#00ffcc" />
+            </View>
+          ) : recommendations.length === 0 ? (
+            <View style={styles.placeholder}>
+              <Text style={styles.placeholderText}>Pull down to discover fresh tracks tailored for you.</Text>
+            </View>
+          ) : (
+            <FlatList
+              horizontal
+              data={recommendations}
+              keyExtractor={(item, index) => `rec-${item.id}-${index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.listContent}
+              renderItem={renderTrackCard(recommendations)}
+            />
+          )}
+        </View>
+
+        {/* Curated Playlists & Moods Hub (12 Authentic Moods) */}
+        <View style={[styles.section, { paddingHorizontal: 0 }]}>
+          <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
+            <Text style={styles.sectionTitle}>🎧 Curated Playlists & Moods</Text>
+            <Text style={styles.sectionAccent}>Curated</Text>
+          </View>
+          <Text style={[styles.subtitle, { paddingHorizontal: 16 }]}>
+            Handpicked stations and thematic collections
+          </Text>
+
+          {/* 12-Mood Selector Pills */}
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.moodScroll}
+            contentContainerStyle={styles.moodPillsScroll}
           >
-            {MOOD_MIXES.map((mix) => (
-              <TouchableOpacity
-                key={mix.id}
-                style={styles.moodCard}
-                onPress={() => handlePlayMoodMix(mix)}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={mix.colors}
-                  style={styles.moodGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
+            {MOOD_PILLS.map((pill) => {
+              const isSelected = selectedMood === pill.id;
+              return (
+                <TouchableOpacity
+                  key={pill.id}
+                  style={[
+                    styles.moodSelectorPill,
+                    isSelected ? styles.moodSelectorPillActive : styles.moodSelectorPillInactive,
+                  ]}
+                  onPress={() => handleSelectMood(pill.id)}
+                  activeOpacity={0.7}
                 >
-                  <View style={styles.moodTopRow}>
-                    <Ionicons name={mix.icon} size={22} color="#ffffff" />
-                    <View style={styles.moodPlayIcon}>
-                      <Ionicons name="play" size={14} color="#000000" style={{ marginLeft: 2 }} />
-                    </View>
-                  </View>
-                  <View>
-                    <Text style={styles.moodTitle}>{mix.title}</Text>
-                    <Text style={styles.moodSubtitle} numberOfLines={1} ellipsizeMode="tail">{mix.subtitle}</Text>
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={[
+                      styles.moodSelectorPillText,
+                      isSelected ? styles.moodSelectorPillTextActive : styles.moodSelectorPillTextInactive,
+                    ]}
+                  >
+                    {pill.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
+
+          {/* Curated 155x155 Playlist Shelf */}
+          {isMoodLoading && curatedPlaylists.length === 0 ? (
+            <View style={styles.moodLoadingContainer}>
+              <ActivityIndicator size="large" color="#00ffcc" />
+            </View>
+          ) : (
+            <FlatList
+              horizontal
+              data={curatedPlaylists}
+              keyExtractor={(item) => item.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.playlistShelfContent}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.curatedCard}
+                  activeOpacity={0.8}
+                  onPress={() => handlePlaylistCardPress(item)}
+                >
+                  <View style={styles.curatedArtworkWrapper}>
+                    <Image
+                      source={{
+                        uri:
+                          item.coverImage ||
+                          item.tracks?.[0]?.artwork ||
+                          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500',
+                      }}
+                      style={styles.curatedArtwork}
+                      resizeMode="cover"
+                    />
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.75)']}
+                      style={styles.curatedGradientOverlay}
+                    />
+                    
+                    {/* Track count badge */}
+                    <View style={styles.curatedTrackBadge}>
+                      <Text style={styles.curatedTrackBadgeText}>
+                        {item.tracks?.length || 0} Songs
+                      </Text>
+                    </View>
+
+                    {/* Floating translucent play button */}
+                    <TouchableOpacity
+                      style={styles.curatedPlayButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      activeOpacity={0.8}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        if (item.tracks && item.tracks.length > 0) {
+                          handlePlayTrack(item.tracks[0], item.tracks);
+                        }
+                      }}
+                    >
+                      <Ionicons name="play" size={16} color="#000000" style={{ marginLeft: 2 }} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.curatedTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {item.name}
+                  </Text>
+                  <Text style={styles.curatedSubtitle} numberOfLines={1} ellipsizeMode="tail">
+                    {item.description || 'Curated Station'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
         </View>
       </ScrollView>
 
@@ -944,34 +933,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.5,
-  },
-  vibeSection: {
-    marginBottom: 16,
-  },
-  vibeScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  vibePill: {
-    backgroundColor: '#121214',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#222226',
-  },
-  vibePillActive: {
-    backgroundColor: '#00ffcc',
-    borderColor: '#00ffcc',
-  },
-  vibePillText: {
-    color: '#8e8e98',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  vibePillTextActive: {
-    color: '#000000',
-    fontWeight: '800',
   },
   quickSection: {
     paddingHorizontal: 16,
@@ -1221,45 +1182,119 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 1,
   },
-  moodScroll: {
-    paddingRight: 16,
-    gap: 12,
+  moodPillsScroll: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 16,
+    gap: 8,
   },
-  moodCard: {
-    width: 200,
-    height: 110,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  moodGradient: {
-    flex: 1,
-    padding: 14,
-    justifyContent: 'space-between',
+  moodSelectorPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  moodTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  moodSelectorPillActive: {
+    backgroundColor: '#00ffcc',
+    borderColor: '#00ffcc',
+    shadowColor: '#00ffcc',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  moodSelectorPillInactive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
+  },
+  moodSelectorPillText: {
+    fontSize: 13,
+    letterSpacing: -0.1,
+  },
+  moodSelectorPillTextActive: {
+    color: '#000000',
+    fontWeight: '800',
+  },
+  moodSelectorPillTextInactive: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '500',
+  },
+  moodLoadingContainer: {
+    height: 180,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  moodPlayIcon: {
-    width: 28,
-    height: 28,
+  playlistShelfContent: {
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  curatedCard: {
+    width: 155,
+  },
+  curatedArtworkWrapper: {
+    width: 155,
+    height: 155,
     borderRadius: 14,
-    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#18181c',
+  },
+  curatedArtwork: {
+    width: 155,
+    height: 155,
+  },
+  curatedGradientOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 70,
+  },
+  curatedTrackBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  curatedTrackBadgeText: {
+    color: '#00ffcc',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  curatedPlayButton: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#00ffcc',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  moodTitle: {
+  curatedTitle: {
     color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 2,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+    letterSpacing: -0.2,
   },
-  moodSubtitle: {
-    color: 'rgba(255, 255, 255, 0.7)',
+  curatedSubtitle: {
+    color: '#888888',
     fontSize: 11,
+    marginTop: 2,
+    letterSpacing: -0.1,
   },
   placeholder: {
     backgroundColor: '#0c0c0c',
