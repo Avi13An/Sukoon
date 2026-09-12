@@ -12,6 +12,7 @@ import { SearchScreen } from '../screens/SearchScreen';
 import { LibraryScreen } from '../screens/LibraryScreen';
 import { PlaylistScreen } from '../screens/PlaylistScreen';
 import { PlayerScreen } from '../screens/PlayerScreen';
+import { ArtistScreen } from '../screens/ArtistScreen';
 import { AuthScreen } from '../screens/AuthScreen';
 import { SetupScreen } from '../screens/SetupScreen';
 import { MiniPlayer } from '../components/MiniPlayer';
@@ -29,6 +30,7 @@ function LibraryStack() {
     <Stack.Navigator screenOptions={{ headerShown: false, presentation: 'card' }}>
       <Stack.Screen name="LibraryHome" component={LibraryScreen} />
       <Stack.Screen name="PlaylistDetail" component={PlaylistScreen} />
+      <Stack.Screen name="ArtistScreen" component={ArtistScreen} />
     </Stack.Navigator>
   );
 }
@@ -115,6 +117,8 @@ export function MainNavigator() {
         <RootStack.Screen name="Setup" component={AuthScreen} />
         <RootStack.Screen name="MainTabs" component={TabNavigator} />
         <RootStack.Screen name="Player" component={PlayerScreen} />
+        <RootStack.Screen name="PlaylistDetail" component={PlaylistScreen} options={{ presentation: 'card' }} />
+        <RootStack.Screen name="ArtistScreen" component={ArtistScreen} options={{ presentation: 'card' }} />
       </RootStack.Navigator>
       {hasSession && <SyncPromptModal />}
     </NavigationContainer>

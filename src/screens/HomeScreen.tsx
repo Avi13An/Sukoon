@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -9,32 +9,47 @@ import {
   ActivityIndicator,
   ScrollView,
   RefreshControl,
-  Dimensions 
+  useWindowDimensions,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { getLastPlayedTrack, getListenHistory, TrackMetadata } from '../utils/storage';
+import { 
+  getLastPlayedTrack, 
+  getListenHistory, 
+  getUserPlaylists, 
+  isLikedSongsPlaylist, 
+  getActiveUser, 
+  TrackMetadata, 
+  Playlist 
+} from '../utils/storage';
 import { getRecommendedTracks, searchTracks } from '../services/musicApi';
-import { playTrack, clearUpNextQueue, addToUpNextQueue } from '../services/TrackPlayerService';
+import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { PartyModal } from '../components/PartyModal';
 import { getPartyState, subscribeToPartyState, PartyState } from '../services/partyService';
-import { getAmbientThemeForTrack, getAmbientColorForTrack } from '../utils/colorExtractor';
-import { useBottomClearance } from '../hooks/useBottomClearance';
+import { getAmbientThemeForTrack } from '../utils/colorExtractor';
+import { showToast } from '../components/ToastNotification';
 
-const { width } = Dimensions.get('window');
-
-const CATEGORIES = [
-  'All', 
-  'Trending', 
-  'Bollywood', 
-  'Punjabi', 
-  'Acoustic', 
-  'Lo-Fi', 
-  'Sufi', 
-  'Workout'
+const VIBE_PILLS = [
+  '✨ All',
+  '☕ Chill & Sukoon',
+  '⚡ Energy',
+  '🎧 Focus',
+  '❤️ Romance',
+  '🌃 Late Night',
+  '📻 Desi Top 50',
 ];
+
+const VIBE_QUERIES: Record<string, string> = {
+  '☕ Chill & Sukoon': 'Chill acoustic sukoon songs hindi',
+  '⚡ Energy': 'High energy workout punjabi songs hits',
+  '🎧 Focus': 'Lo-fi study beats calm instrumental',
+  '❤️ Romance': 'Romantic hindi love songs top',
+  '🌃 Late Night': 'Late night slow lofi chill hindi',
+  '📻 Desi Top 50': 'Trending Indian music hits top 50',
+};
 
 interface MoodMix {
   id: string;
@@ -80,16 +95,78 @@ const MOOD_MIXES: MoodMix[] = [
   },
 ];
 
+interface ArtistItem {
+  id: string;
+  name: string;
+  artwork: string;
+}
+
+const TOP_ARTISTS: ArtistItem[] = [
+  { 
+    id: 'art-1', 
+    name: 'Arijit Singh', 
+    artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&auto=format&fit=crop&q=80' 
+  },
+  { 
+    id: 'art-2', 
+    name: 'Shreya Ghoshal', 
+    artwork: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&auto=format&fit=crop&q=80' 
+  },
+  { 
+    id: 'art-3', 
+    name: 'Diljit Dosanjh', 
+    artwork: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&auto=format&fit=crop&q=80' 
+  },
+  { 
+    id: 'art-4', 
+    name: 'Atif Aslam', 
+    artwork: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&auto=format&fit=crop&q=80' 
+  },
+  { 
+    id: 'art-5', 
+    name: 'A.R. Rahman', 
+    artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&auto=format&fit=crop&q=80' 
+  },
+  { 
+    id: 'art-6', 
+    name: 'Prateek Kuhad', 
+    artwork: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&auto=format&fit=crop&q=80' 
+  },
+  { 
+    id: 'art-7', 
+    name: 'Anuv Jain', 
+    artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80' 
+  },
+];
+
+interface QuickAccessItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  artwork: string;
+  type: 'playlist' | 'track';
+  data?: Playlist;
+  track?: TrackMetadata;
+}
+
 export function HomeScreen() {
-  const { totalBottomPadding } = useBottomClearance(24);
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+
+  // Cross-device responsive layout calculation for 2-column quick grid
+  const quickCardWidth = Math.floor((width - 32 - 10) / 2);
+
+  const [activeVibe, setActiveVibe] = useState('✨ All');
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
   const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
-  const [categoryTracks, setCategoryTracks] = useState<TrackMetadata[]>([]);
+  const [vibeTracks, setVibeTracks] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
+  const [quickItems, setQuickItems] = useState<QuickAccessItem[]>([]);
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
+  
   const [isLoading, setIsLoading] = useState(false);
-  const [isCategoryLoading, setIsCategoryLoading] = useState(false);
+  const [isVibeLoading, setIsVibeLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [playlistModalTrack, setPlaylistModalTrack] = useState<TrackMetadata | null>(null);
@@ -101,19 +178,108 @@ export function HomeScreen() {
     return unsub;
   }, []);
 
+  // Ambient greeting based on current local hour
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) {
+      return { title: 'Good Morning', subtitle: 'Subah Bakhair 🌅' };
+    } else if (hour >= 12 && hour < 17) {
+      return { title: 'Good Afternoon', subtitle: 'Good Afternoon ☀️' };
+    } else if (hour >= 17 && hour < 22) {
+      return { title: 'Evening Sukoon', subtitle: 'Evening Sukoon 🌆' };
+    } else {
+      return { title: 'Late Night Vibes', subtitle: 'Late Night Vibes 🌙' };
+    }
+  }, []);
+
+  const activeUsername = useMemo(() => {
+    return getActiveUser() || 'Listener';
+  }, []);
+
+  const profileInitial = useMemo(() => {
+    return activeUsername.charAt(0).toUpperCase();
+  }, [activeUsername]);
+
+  // Load all home data
   const loadData = useCallback(async () => {
     const history = getListenHistory();
     setRecentTracks(history);
     const lastTrack = getLastPlayedTrack();
     setCurrentAmbientTrack(lastTrack);
 
+    const userPlaylists = getUserPlaylists();
+    const likedPl = userPlaylists.find(isLikedSongsPlaylist);
+
     try {
       const [recs, trending] = await Promise.all([
         getRecommendedTracks(),
         searchTracks('Trending Indian music hits 2024')
       ]);
-      setRecommendations(recs);
-      setTrendingTracks(trending.slice(0, 10));
+
+      const safeRecs = Array.isArray(recs) ? recs : [];
+      const safeTrending = Array.isArray(trending) ? trending.slice(0, 10) : [];
+      setRecommendations(safeRecs);
+      setTrendingTracks(safeTrending);
+
+      // Build 6-item Quick Access items
+      const items: QuickAccessItem[] = [];
+
+      // 1. Liked Songs playlist
+      if (likedPl && likedPl.tracks && likedPl.tracks.length > 0) {
+        items.push({
+          id: 'liked-songs',
+          title: 'Liked Songs',
+          subtitle: `${likedPl.tracks.length} songs`,
+          artwork: likedPl.coverImage || likedPl.tracks[0]?.artwork || 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=200',
+          type: 'playlist',
+          data: likedPl,
+        });
+      }
+
+      // 2. Custom user playlists (if any)
+      userPlaylists
+        .filter(p => !isLikedSongsPlaylist(p) && p.tracks && p.tracks.length > 0)
+        .slice(0, 2)
+        .forEach(p => {
+          items.push({
+            id: `pl-${p.id}`,
+            title: p.name,
+            subtitle: 'Playlist',
+            artwork: p.coverImage || p.tracks[0]?.artwork || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200',
+            type: 'playlist',
+            data: p,
+          });
+        });
+
+      // 3. Recent history tracks
+      history.slice(0, 6 - items.length).forEach(t => {
+        items.push({
+          id: `hist-${t.id}`,
+          title: t.title,
+          subtitle: t.artist,
+          artwork: t.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200',
+          type: 'track',
+          track: t,
+        });
+      });
+
+      // 4. Fill remaining slots with recommendations or trending
+      const pool = safeRecs.length > 0 ? safeRecs : safeTrending;
+      for (const t of pool) {
+        if (items.length >= 6) break;
+        if (!items.some(i => i.track?.id === t.id)) {
+          items.push({
+            id: `quick-${t.id}`,
+            title: t.title,
+            subtitle: t.artist,
+            artwork: t.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200',
+            type: 'track',
+            track: t,
+          });
+        }
+      }
+
+      setQuickItems(items.slice(0, 6));
     } catch (err) {
       console.error('[HomeScreen] Error loading data:', err);
     }
@@ -138,27 +304,27 @@ export function HomeScreen() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await loadData();
-    if (selectedCategory !== 'All') {
-      await handleSelectCategory(selectedCategory);
+    if (activeVibe !== '✨ All') {
+      await handleSelectVibe(activeVibe);
     }
     setIsRefreshing(false);
   };
 
-  const handleSelectCategory = async (cat: string) => {
-    setSelectedCategory(cat);
-    if (cat === 'All') {
-      setCategoryTracks([]);
+  const handleSelectVibe = async (vibe: string) => {
+    setActiveVibe(vibe);
+    if (vibe === '✨ All') {
+      setVibeTracks([]);
       return;
     }
-    setIsCategoryLoading(true);
+    setIsVibeLoading(true);
     try {
-      const query = cat === 'Trending' ? 'Trending chart hits' : `${cat} top songs hits`;
+      const query = VIBE_QUERIES[vibe] || `${vibe} songs`;
       const res = await searchTracks(query);
-      setCategoryTracks(res.slice(0, 12));
+      setVibeTracks(Array.isArray(res) ? res.slice(0, 12) : []);
     } catch (e) {
-      console.error('[HomeScreen] Category fetch error:', e);
+      console.error('[HomeScreen] Vibe fetch error:', e);
     } finally {
-      setIsCategoryLoading(false);
+      setIsVibeLoading(false);
     }
   };
 
@@ -178,7 +344,7 @@ export function HomeScreen() {
       setIsLoading(true);
       const tracks = await searchTracks(mix.query);
       if (tracks && tracks.length > 0) {
-        await playTrack(tracks[0], tracks);
+        await playTrack(tracks[0], tracks.slice(1));
       }
     } catch (err) {
       console.error('[HomeScreen] Error playing mood mix:', err);
@@ -187,7 +353,47 @@ export function HomeScreen() {
     }
   };
 
-  const renderTrackCard = (contextQueue?: TrackMetadata[]) => ({ item }: { item: TrackMetadata }) => {
+  const handleQuickAccessPress = async (item: QuickAccessItem) => {
+    if (item.type === 'playlist' && item.data) {
+      navigation.navigate('PlaylistDetail', { 
+        playlist: item.data, 
+        playlistId: item.data.id 
+      });
+    } else if (item.track) {
+      const trackList = quickItems
+        .filter(i => i.type === 'track' && i.track)
+        .map(i => i.track!);
+      await handlePlayTrack(item.track, trackList);
+    }
+  };
+
+  const handleArtistPress = (artist: ArtistItem) => {
+    navigation.navigate('ArtistScreen', { artist });
+  };
+
+  const getAmbientColors = (): [string, string, string] => {
+    if (activeVibe === '✨ All' && currentAmbientTrack) {
+      return getAmbientThemeForTrack(currentAmbientTrack).gradient;
+    }
+    switch (activeVibe) {
+      case '☕ Chill & Sukoon':
+        return ['rgba(0, 255, 204, 0.22)', 'rgba(0, 40, 35, 0.5)', '#000000'];
+      case '⚡ Energy':
+        return ['rgba(255, 170, 0, 0.22)', 'rgba(51, 39, 15, 0.5)', '#000000'];
+      case '🎧 Focus':
+        return ['rgba(80, 140, 255, 0.22)', 'rgba(20, 35, 60, 0.5)', '#000000'];
+      case '❤️ Romance':
+        return ['rgba(255, 75, 130, 0.22)', 'rgba(50, 15, 25, 0.5)', '#000000'];
+      case '🌃 Late Night':
+        return ['rgba(138, 43, 226, 0.25)', 'rgba(28, 15, 51, 0.5)', '#000000'];
+      case '📻 Desi Top 50':
+        return ['rgba(255, 42, 109, 0.22)', 'rgba(40, 10, 30, 0.5)', '#000000'];
+      default:
+        return ['rgba(0, 255, 204, 0.18)', 'rgba(0, 30, 25, 0.4)', '#000000'];
+    }
+  };
+
+  const renderTrackCard = (contextQueue?: TrackMetadata[], showRank = false) => ({ item, index }: { item: TrackMetadata; index: number }) => {
     const isPlayingThis = loadingTrackId === item.id;
     const artwork = item.artwork || (item as any)?.artworkUrl || (item as any)?.thumbnail || 'https://via.placeholder.com/150';
 
@@ -210,6 +416,12 @@ export function HomeScreen() {
             style={styles.cardGradientOverlay} 
           />
           
+          {showRank && (
+            <View style={styles.rankBadge}>
+              <Text style={styles.rankBadgeText}>#{index + 1}</Text>
+            </View>
+          )}
+
           <TouchableOpacity 
             style={styles.playlistAddOverlay}
             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
@@ -229,33 +441,15 @@ export function HomeScreen() {
             )}
           </View>
         </View>
-        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.cardArtist} numberOfLines={1}>{item.artist}</Text>
+        <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">{item.title}</Text>
+        <Text style={styles.cardArtist} numberOfLines={1} ellipsizeMode="tail">{item.artist}</Text>
       </TouchableOpacity>
     );
   };
 
-  const getAmbientColors = (): [string, string, string] => {
-    if (selectedCategory === 'All' && currentAmbientTrack) {
-      return getAmbientThemeForTrack(currentAmbientTrack).gradient;
-    }
-    switch (selectedCategory) {
-      case 'Lo-Fi':
-        return ['rgba(138, 43, 226, 0.25)', 'rgba(28, 15, 51, 0.5)', '#000000'];
-      case 'Bollywood':
-      case 'Acoustic':
-        return ['rgba(255, 85, 85, 0.22)', 'rgba(51, 19, 15, 0.5)', '#000000'];
-      case 'Punjabi':
-      case 'Workout':
-        return ['rgba(255, 170, 0, 0.22)', 'rgba(51, 39, 15, 0.5)', '#000000'];
-      case 'Sufi':
-        return ['rgba(0, 180, 216, 0.22)', 'rgba(15, 41, 51, 0.5)', '#000000'];
-      case 'Trending':
-        return ['rgba(255, 42, 109, 0.22)', 'rgba(40, 10, 30, 0.5)', '#000000'];
-      default:
-        return ['rgba(0, 255, 204, 0.20)', 'rgba(0, 40, 35, 0.5)', '#000000'];
-    }
-  };
+  // Safe padding configuration
+  const topSafePadding = insets.top + 8;
+  const bottomSafePadding = insets.bottom + 120;
 
   return (
     <View style={styles.screen}>
@@ -266,7 +460,10 @@ export function HomeScreen() {
       />
       <ScrollView 
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: totalBottomPadding + 20 }}
+        contentContainerStyle={{ 
+          paddingTop: topSafePadding,
+          paddingBottom: bottomSafePadding 
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl 
@@ -277,17 +474,28 @@ export function HomeScreen() {
           />
         }
       >
-        {/* Glowing Top Banner & Hero Header */}
-        <LinearGradient 
-          colors={getAmbientColors()} 
-          style={styles.heroHeader}
-        >
-          <View style={styles.heroTopRow}>
-            <View>
-              <Text style={styles.brandTitle}>Sukoon</Text>
-              <Text style={styles.brandTagline}>Your Sanctuary of Pure Sound</Text>
+        {/* Modern Ambient Header & Greeting */}
+        <View style={styles.headerContainer}>
+          <View style={styles.headerTopRow}>
+            <View style={styles.greetingWrapper}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarInitial}>{profileInitial}</Text>
+              </View>
+              <View>
+                <Text style={styles.greetingTitle}>{greeting.title}, {activeUsername}</Text>
+                <Text style={styles.greetingSubtitle}>{greeting.subtitle}</Text>
+              </View>
             </View>
-            <View style={styles.heroRightActions}>
+
+            <View style={styles.headerActions}>
+              <TouchableOpacity 
+                style={styles.iconButton}
+                onPress={() => navigation.navigate('Search')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="search" size={20} color="#ffffff" />
+              </TouchableOpacity>
+
               <TouchableOpacity 
                 style={[styles.partyPill, partyState.isActive && styles.partyPillActive]} 
                 onPress={() => setIsPartyModalVisible(true)}
@@ -298,32 +506,36 @@ export function HomeScreen() {
                   {partyState.isActive ? `Jam: ${partyState.roomCode}` : 'Jam'}
                 </Text>
               </TouchableOpacity>
-              <View style={styles.brandPill}>
-                <View style={styles.greenDot} />
-                <Text style={styles.brandPillText}>LOSSLESS DSP</Text>
-              </View>
             </View>
           </View>
-        </LinearGradient>
 
-        {/* Dynamic Category Chips */}
-        <View style={styles.chipsSection}>
+          <View style={styles.brandRow}>
+            <Text style={styles.brandTitle}>Sukoon</Text>
+            <View style={styles.brandPill}>
+              <View style={styles.greenDot} />
+              <Text style={styles.brandPillText}>LOSSLESS DSP</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Dynamic Vibe & Mood Filter Pills */}
+        <View style={styles.vibeSection}>
           <ScrollView 
             horizontal 
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipsScroll}
+            contentContainerStyle={styles.vibeScroll}
           >
-            {CATEGORIES.map((cat) => {
-              const isActive = selectedCategory === cat;
+            {VIBE_PILLS.map((vibe) => {
+              const isActive = activeVibe === vibe;
               return (
                 <TouchableOpacity
-                  key={cat}
-                  style={[styles.categoryChip, isActive && styles.categoryChipActive]}
-                  onPress={() => handleSelectCategory(cat)}
+                  key={vibe}
+                  style={[styles.vibePill, isActive && styles.vibePillActive]}
+                  onPress={() => handleSelectVibe(vibe)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
-                    {cat}
+                  <Text style={[styles.vibePillText, isActive && styles.vibePillTextActive]}>
+                    {vibe}
                   </Text>
                 </TouchableOpacity>
               );
@@ -331,29 +543,63 @@ export function HomeScreen() {
           </ScrollView>
         </View>
 
-        {/* Filtered Category Carousel (when a specific category is chosen) */}
-        {selectedCategory !== 'All' && (
+        {/* Dynamic Vibe Showcase Shelf (Visible when a vibe filter is chosen) */}
+        {activeVibe !== '✨ All' && (
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>{selectedCategory} Mix</Text>
+              <Text style={styles.sectionTitle}>{activeVibe} Mix</Text>
               <Text style={styles.sectionAccent}>Curated Vibe</Text>
             </View>
-            <Text style={styles.subtitle}>Handpicked {selectedCategory.toLowerCase()} tracks for your mood</Text>
+            <Text style={styles.subtitle}>Handpicked tracks perfectly matched for this mood</Text>
 
-            {isCategoryLoading ? (
+            {isVibeLoading ? (
               <View style={styles.loaderContainer}>
                 <ActivityIndicator size="large" color="#00ffcc" />
               </View>
             ) : (
               <FlatList
                 horizontal
-                data={categoryTracks}
-                keyExtractor={(item, index) => `cat-${item.id}-${index}`}
+                data={vibeTracks}
+                keyExtractor={(item, index) => `vibe-${item.id}-${index}`}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
-                renderItem={renderTrackCard(categoryTracks)}
+                renderItem={renderTrackCard(vibeTracks)}
               />
             )}
+          </View>
+        )}
+
+        {/* Quick-Access 6-Grid (Spotify-Style) */}
+        {quickItems.length > 0 && (
+          <View style={styles.quickSection}>
+            <View style={styles.quickGrid}>
+              {quickItems.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[styles.quickCard, { width: quickCardWidth }]}
+                  onPress={() => handleQuickAccessPress(item)}
+                  activeOpacity={0.7}
+                >
+                  <Image 
+                    source={{ uri: item.artwork }} 
+                    style={styles.quickArtwork} 
+                    resizeMode="cover"
+                  />
+                  <View style={styles.quickTextContainer}>
+                    <Text 
+                      style={styles.quickTitle} 
+                      numberOfLines={2} 
+                      ellipsizeMode="tail"
+                    >
+                      {item.title}
+                    </Text>
+                  </View>
+                  <View style={styles.quickPlayCircle}>
+                    <Ionicons name="play" size={11} color="#000000" style={{ marginLeft: 1 }} />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         )}
 
@@ -376,12 +622,40 @@ export function HomeScreen() {
           </View>
         )}
 
-        {/* Trending & New Releases */}
+        {/* Made For You (Recommendations Shelf) */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Trending & New Releases</Text>
+            <Text style={styles.sectionTitle}>Made For You</Text>
+            <Ionicons name="sparkles-outline" size={18} color="#00ffcc" />
+          </View>
+          <Text style={styles.subtitle}>Crafted specifically for your acoustic taste</Text>
+          
+          {isLoading && !isRefreshing ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color="#00ffcc" />
+            </View>
+          ) : recommendations.length === 0 ? (
+            <View style={styles.placeholder}>
+              <Text style={styles.placeholderText}>Pull down to discover fresh tracks tailored for you.</Text>
+            </View>
+          ) : (
+            <FlatList
+              horizontal
+              data={recommendations}
+              keyExtractor={(item, index) => `rec-${item.id}-${index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.listContent}
+              renderItem={renderTrackCard(recommendations)}
+            />
+          )}
+        </View>
+
+        {/* Trending Charts Shelf (With Rank Badges) */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Trending Charts</Text>
             <View style={styles.hotBadge}>
-              <Text style={styles.hotBadgeText}>🔥 HOT</Text>
+              <Text style={styles.hotBadgeText}>🔥 TOP 10</Text>
             </View>
           </View>
           <Text style={styles.subtitle}>Top charts and viral releases right now</Text>
@@ -393,13 +667,44 @@ export function HomeScreen() {
           ) : (
             <FlatList
               horizontal
-              data={trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 8)}
+              data={trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 10)}
               keyExtractor={(item, index) => `trend-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 8))}
+              renderItem={renderTrackCard(trendingTracks.length > 0 ? trendingTracks : recommendations.slice(0, 10), true)}
             />
           )}
+        </View>
+
+        {/* Top Artists Shelf (Circular Avatars with Glow) */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Top Artists</Text>
+            <Text style={styles.sectionAccent}>Verified</Text>
+          </View>
+          <Text style={styles.subtitle}>Explore songs by leading voices</Text>
+          <FlatList
+            horizontal
+            data={TOP_ARTISTS}
+            keyExtractor={(item) => item.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.artistCard}
+                onPress={() => handleArtistPress(item)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.artistAvatarWrapper}>
+                  <Image source={{ uri: item.artwork }} style={styles.artistAvatar} resizeMode="cover" />
+                </View>
+                <Text style={styles.artistName} numberOfLines={1} ellipsizeMode="tail">
+                  {item.name}
+                </Text>
+                <Text style={styles.artistRole}>Artist</Text>
+              </TouchableOpacity>
+            )}
+          />
         </View>
 
         {/* Mood & Genre Mixes */}
@@ -432,43 +737,13 @@ export function HomeScreen() {
                   </View>
                   <View>
                     <Text style={styles.moodTitle}>{mix.title}</Text>
-                    <Text style={styles.moodSubtitle} numberOfLines={1}>{mix.subtitle}</Text>
+                    <Text style={styles.moodSubtitle} numberOfLines={1} ellipsizeMode="tail">{mix.subtitle}</Text>
                   </View>
                 </LinearGradient>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
-
-        {/* Recommended For You */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Recommended For You</Text>
-            <Ionicons name="sparkles-outline" size={18} color="#00ffcc" />
-          </View>
-          <Text style={styles.subtitle}>Crafted specifically for your acoustic taste</Text>
-          
-          {isLoading && !isRefreshing ? (
-            <View style={styles.loaderContainer}>
-              <ActivityIndicator size="large" color="#00ffcc" />
-            </View>
-          ) : recommendations.length === 0 ? (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderText}>Pull down to discover fresh tracks tailored for you.</Text>
-            </View>
-          ) : (
-            <FlatList
-              horizontal
-              data={recommendations}
-              keyExtractor={(item, index) => `rec-${item.id}-${index}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(recommendations)}
-            />
-          )}
-        </View>
-
-        <View style={styles.bottomSpacer} />
       </ScrollView>
 
       <AddToPlaylistModal 
@@ -495,34 +770,77 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 420,
+    height: 440,
   },
   container: {
     flex: 1,
   },
-  heroHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 20,
+  headerContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
-  heroTopRow: {
+  headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  heroRightActions: {
+  greetingWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    flex: 1,
+  },
+  avatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0, 255, 204, 0.2)',
+    borderWidth: 1.5,
+    borderColor: '#00ffcc',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitial: {
+    color: '#00ffcc',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  greetingTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  greetingSubtitle: {
+    color: '#8e8e98',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#18181c',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#2e2e36',
   },
   partyPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#18181c',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#2e2e36',
   },
@@ -532,31 +850,32 @@ const styles = StyleSheet.create({
   },
   partyPillText: {
     color: '#00ffcc',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   partyPillTextActive: {
     color: '#000000',
   },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 4,
+  },
   brandTitle: {
     color: '#ffffff',
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '900',
     letterSpacing: 0.5,
-  },
-  brandTagline: {
-    color: '#8e8e98',
-    fontSize: 13,
-    marginTop: 2,
   },
   brandPill: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 255, 204, 0.12)',
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 204, 0.3)',
   },
@@ -573,36 +892,85 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  chipsSection: {
-    marginBottom: 20,
+  vibeSection: {
+    marginBottom: 16,
   },
-  chipsScroll: {
+  vibeScroll: {
     paddingHorizontal: 16,
     gap: 8,
   },
-  categoryChip: {
-    backgroundColor: '#0c0c0c',
+  vibePill: {
+    backgroundColor: '#121214',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#1c1c1c',
+    borderColor: '#222226',
   },
-  categoryChipActive: {
+  vibePillActive: {
     backgroundColor: '#00ffcc',
     borderColor: '#00ffcc',
   },
-  categoryChipText: {
+  vibePillText: {
     color: '#8e8e98',
     fontSize: 13,
     fontWeight: '600',
   },
-  categoryChipTextActive: {
+  vibePillTextActive: {
     color: '#000000',
     fontWeight: '800',
   },
+  quickSection: {
+    paddingHorizontal: 16,
+    marginBottom: 26,
+  },
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  quickCard: {
+    height: 54,
+    backgroundColor: '#18181c',
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#24242c',
+  },
+  quickArtwork: {
+    width: 54,
+    height: 54,
+    backgroundColor: '#0c0c0e',
+  },
+  quickTextContainer: {
+    flex: 1,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  quickTitle: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  quickPlayCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#00ffcc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    shadowColor: '#00ffcc',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   section: {
-    marginBottom: 30,
+    marginBottom: 28,
     paddingHorizontal: 16,
   },
   sectionHeaderRow: {
@@ -612,7 +980,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: '#ffffff',
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     letterSpacing: 0.3,
   },
@@ -637,7 +1005,7 @@ const styles = StyleSheet.create({
   subtitle: {
     color: '#8e8e98',
     fontSize: 13,
-    marginTop: 4,
+    marginTop: 3,
     marginBottom: 14,
   },
   loaderContainer: {
@@ -655,7 +1023,7 @@ const styles = StyleSheet.create({
   thumbnailContainer: {
     width: 140,
     height: 140,
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: '#0c0c0c',
     marginBottom: 8,
     position: 'relative',
@@ -670,8 +1038,27 @@ const styles = StyleSheet.create({
   },
   cardGradientOverlay: {
     position: 'absolute',
-    left: 0, right: 0, bottom: 0,
+    left: 0, 
+    right: 0, 
+    bottom: 0,
     height: 60,
+  },
+  rankBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#00ffcc',
+    zIndex: 4,
+  },
+  rankBadgeText: {
+    color: '#00ffcc',
+    fontSize: 11,
+    fontWeight: '800',
   },
   playButtonOverlay: {
     position: 'absolute',
@@ -712,6 +1099,44 @@ const styles = StyleSheet.create({
   cardArtist: {
     color: '#888896',
     fontSize: 12,
+  },
+  artistCard: {
+    width: 96,
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  artistAvatarWrapper: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    padding: 2,
+    backgroundColor: 'rgba(0, 255, 204, 0.25)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 255, 204, 0.4)',
+    shadowColor: '#00ffcc',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 8,
+  },
+  artistAvatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 45,
+    backgroundColor: '#18181c',
+  },
+  artistName: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    width: 96,
+  },
+  artistRole: {
+    color: '#8e8e98',
+    fontSize: 11,
+    marginTop: 1,
   },
   moodScroll: {
     paddingRight: 16,
@@ -764,8 +1189,5 @@ const styles = StyleSheet.create({
     color: '#777785',
     textAlign: 'center',
     fontSize: 13,
-  },
-  bottomSpacer: {
-    height: 100,
   },
 });
