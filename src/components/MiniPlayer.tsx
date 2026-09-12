@@ -1,16 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import TrackPlayer, { useActiveMediaItem, useIsPlaying } from '@rntp/player';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { subscribeToSyncStatus, disconnectSync } from '../services/syncService';
 import { useBottomClearance, MINI_PLAYER_HEIGHT } from '../hooks/useBottomClearance';
 
-export function MiniPlayer() {
+export interface MiniPlayerProps {
+  bottom?: number;
+}
+
+export function MiniPlayer({ bottom }: MiniPlayerProps = {}) {
   const track = useActiveMediaItem();
   const isPlaying = useIsPlaying();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const { totalBarHeight } = useBottomClearance();
+
+  let routeName: string | undefined;
+  try {
+    const route = useRoute();
+    routeName = route?.name;
+  } catch {}
+
+  const isStandaloneScreen = routeName === 'ArtistScreen' || routeName === 'PlaylistDetail';
+  const defaultBottom = isStandaloneScreen ? insets.bottom : totalBarHeight;
+  const activeBottom = typeof bottom === 'number' ? bottom : defaultBottom;
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -47,7 +63,7 @@ export function MiniPlayer() {
 
   return (
     <TouchableOpacity 
-      style={[styles.container, { bottom: totalBarHeight }]} 
+      style={[styles.container, { bottom: activeBottom }]} 
       activeOpacity={0.9} 
       onPress={() => navigation.navigate('Player')}
     >
@@ -83,6 +99,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderColor: '#333333',
+    zIndex: 999,
+    elevation: 10,
   },
   artwork: {
     width: 40,

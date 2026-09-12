@@ -16,6 +16,7 @@ import { TrackMetadata } from '../utils/storage';
 import { searchTracks } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
+import { MiniPlayer } from '../components/MiniPlayer';
 import { useBottomClearance } from '../hooks/useBottomClearance';
 import { showToast } from '../components/ToastNotification';
 
@@ -179,7 +180,7 @@ export function ArtistScreen({ route, navigation }: Props) {
           data={tracks}
           keyExtractor={(item, index) => `${item.id}-${index}`}
           ListHeaderComponent={renderHeader}
-          contentContainerStyle={{ paddingBottom: totalBottomPadding + 20 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
           showsVerticalScrollIndicator={false}
           renderItem={({ item, index }) => {
             const isPlayingThis = loadingTrackId === item.id;
@@ -230,6 +231,9 @@ export function ArtistScreen({ route, navigation }: Props) {
         track={playlistModalTrack}
         onClose={() => setPlaylistModalTrack(null)}
       />
+
+      {/* Floating MiniPlayer */}
+      <MiniPlayer />
     </View>
   );
 }
