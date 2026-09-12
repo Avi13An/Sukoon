@@ -10,7 +10,7 @@ import {
   getListenHistory, 
   TrackMetadata 
 } from '../utils/storage';
-import { getAudioStream, getAlgorithmicRecommendations } from './musicApi';
+import { getAudioStream, getAlgorithmicRecommendations, resolveTrackForPlayback } from './musicApi';
 import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
 import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
 import { fetchYouTubeMusicAutomix } from './youtubeRadioService';
@@ -424,32 +424,36 @@ export function startStallWatchdog(trackId?: string) {
 }
 
 export async function resolveStreamUrl(track: TrackMetadata, bypassCache = false): Promise<string> {
+  let currentTarget = track;
+  if (track.id && (track.id.startsWith('chart_') || track.id.startsWith('new_release_'))) {
+    currentTarget = await resolveTrackForPlayback(track);
+  }
   const downloadedTracks = getDownloadedTracks();
-  const downloadedTrack = downloadedTracks.find(t => t.id === track.id);
+  const downloadedTrack = downloadedTracks.find(t => t.id === currentTarget.id);
   const offlineTracks = getOfflineTracks();
-  const offlineTrack = offlineTracks[track.id];
+  const offlineTrack = offlineTracks[currentTarget.id];
   let playUrl = downloadedTrack?.localUri || offlineTrack?.localUri;
-  if (!playUrl && track.url && !bypassCache) {
+  if (!playUrl && currentTarget.url && !bypassCache) {
     // Avoid reusing stale or expired googlevideo.com CDN URLs that return HTTP 403
-    const isGoogleVideo = track.url.includes('googlevideo.com');
+    const isGoogleVideo = currentTarget.url.includes('googlevideo.com');
     if (!isGoogleVideo) {
-      if (track.url.startsWith('http') || track.url.startsWith('file://')) {
-        playUrl = track.url;
-      } else if (track.url.startsWith('/')) {
-        playUrl = `file://${track.url}`;
+      if (currentTarget.url.startsWith('http') || currentTarget.url.startsWith('file://')) {
+        playUrl = currentTarget.url;
+      } else if (currentTarget.url.startsWith('/')) {
+        playUrl = `file://${currentTarget.url}`;
       }
     }
   }
   if (!playUrl) {
     try {
-      const stream = await getAudioStream(track.id);
+      const stream = await getAudioStream(currentTarget.id);
       const resolved = typeof stream === 'string' ? stream : (stream as any)?.url;
       if (resolved && (resolved.startsWith('http') || resolved.startsWith('file://'))) {
         playUrl = resolved;
       }
     } catch {}
   }
-  return playUrl || `https://invidious.f5.si/latest_version?id=${track.id}&itag=140`;
+  return playUrl || `https://invidious.f5.si/latest_version?id=${currentTarget.id}&itag=140`;
 }
 
 let isMaintainingQueue = false;
@@ -1228,7 +1232,11 @@ export async function playTrack(
   newQueue?: TrackMetadata[],
   options?: { fromQueue?: boolean } | boolean
 ): Promise<void> {
-  const safeTrack = sanitizeTrack(selectedTrack);
+  let initialTrack = selectedTrack;
+  if (selectedTrack?.id && (selectedTrack.id.startsWith('chart_') || selectedTrack.id.startsWith('new_release_'))) {
+    initialTrack = await resolveTrackForPlayback(selectedTrack);
+  }
+  const safeTrack = sanitizeTrack(initialTrack);
   if (!safeTrack || !safeTrack.id) {
     console.warn('[TrackPlayerService] playTrack called without valid track');
     return;
@@ -1295,6 +1303,22 @@ export async function playTrack(
     setLastPlayedTrack(currentTrack);
     saveListenHistory(currentTrack);
     notifyQueueListeners();
+
+    // Lazy-resolve upcoming queue items in the background so audio transitions are continuous
+    if (upNextQueue.length > 0) {
+      (async () => {
+        for (let i = 0; i < Math.min(upNextQueue.length, 5); i++) {
+          const t = upNextQueue[i];
+          if (t && t.id && (t.id.startsWith('chart_') || t.id.startsWith('new_release_'))) {
+            const resolved = await resolveTrackForPlayback(t);
+            if (resolved && resolved.id !== t.id) {
+              upNextQueue[i] = resolved;
+            }
+          }
+        }
+        notifyQueueChange();
+      })().catch(() => {});
+    }
 
     startStallWatchdog(currentTrack.id);
     let playUrl = await resolveStreamUrl(currentTrack);

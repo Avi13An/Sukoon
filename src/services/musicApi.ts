@@ -462,533 +462,6 @@ const CHART_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL
 const NEW_RELEASES_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const newReleasesCache: Record<string, { data: TrackMetadata[]; timestamp: number }> = {};
 
-// =========================================================================
-// VERIFIED CURATED 2026 DATASETS (Top 20 Authentic Releases & Hits)
-// =========================================================================
-
-export const VERIFIED_HINDI_TRENDING: TrackMetadata[] = [
-  {
-    id: "i1o1p_DD6TU",
-    title: "Gehra Hua (From \"Dhurandhar\")",
-    artist: "Shashwat Sachdev, Arijit Singh, Armaan Khan",
-    artwork: "https://yt3.googleusercontent.com/B1p2-JcIuomNuey91o6bvshtrtw2gr0pH1bIviJxDqNZiT9et79lCgY4-pU-6FhVNWbi9FrnOtJ35t8=w500-h500-l90-rj",
-    duration: 222,
-  },
-  {
-    id: "Gayw5AQvWcQ",
-    title: "Shararat (From \"Dhurandhar\")",
-    artist: "Shashwat Sachdev, Madhubanti Bagchi, Jasmine Sandlas",
-    artwork: "https://yt3.googleusercontent.com/7Zsektrtwnf2UlL5CWGtSxi8JDfT8h4me73j31Mk-bDe5qbfUz7dtt1MUy-QlwkaGBWaIXucHF-r2KiCUQ=w500-h500-l90-rj",
-    duration: 208,
-  },
-  {
-    id: "4FYKJPe0dOE",
-    title: "Tu Hi Disda (From \"Bhooth Bangla\")",
-    artist: "Pritam, Nikhita Gandhi, Kumaar",
-    artwork: "https://yt3.googleusercontent.com/SeCzomSMReWy0YAelrxrrJD2-n5wz4B35pMEkKBw_QhLUlzO4-RMFzr_s3ptFeeyjg3Mo_-irIezItlleg=w500-h500-l90-rj",
-    duration: 215,
-  },
-  {
-    id: "hCq43afDwSM",
-    title: "Rubaroo (From \"Dacoit (Hindi)\")",
-    artist: "Faheem Abdullah, Chinmayi, Bheems Ceciroleo",
-    artwork: "https://yt3.googleusercontent.com/9XWzXZJtf3ncz53r6NwzqBm7WN8C4D5V1j7O-qAvTHtwZey7ZfgABhDyThLeLGaWqCCcWXkUyhiDnK0=w500-h500-l90-rj",
-    duration: 225,
-  },
-  {
-    id: "8IaCBgobc8g",
-    title: "Kaho Toh (From \"Prem Keetanu\")",
-    artist: "Armaan Malik, Altamash Faridi",
-    artwork: "https://yt3.googleusercontent.com/hdn09y8yKA7hY-LPLfXD-v21OZzJHnf-WI02tZ8CL_bvPO5qHNQamoxBH9hwAr88jlt7S0pfRs1lbUCJZg=w500-h500-l90-rj",
-    duration: 198,
-  },
-  {
-    id: "uVIhqzSKCLs",
-    title: "Bijuria (From \"Sunny Sanskari Ki Tulsi Kumari\")",
-    artist: "Tanishk Bagchi, Sonu Nigam, Ravi Pawar, Asees Kaur",
-    artwork: "https://yt3.googleusercontent.com/jjD27XfHkUOIEPYcaBtxu__FvcJmPX8bAE1Gf-9tUuciBZXRKyyrhCSEiYgEGOdBRxCyk2RUHGF_OBw=w500-h500-l90-rj",
-    duration: 192,
-  },
-  {
-    id: "pF63NwKeebY",
-    title: "Waqt",
-    artist: "Vishal Mishra, Kaushal Kishore",
-    artwork: "https://yt3.googleusercontent.com/PSayDg-Y17685io5CnBgoCmN5yps49OTIP1nspRBL5dPOhwoA4rCDy4W2mo09kSolqDtWVUtCqORrjs=w500-h500-l90-rj",
-    duration: 230,
-  },
-  {
-    id: "kMyTKHEJ-6c",
-    title: "Pardesiya (From \"Param Sundari\")",
-    artist: "Sachin-Jigar, Sonu Nigam, Krishnakali Saha",
-    artwork: "https://yt3.googleusercontent.com/UBoz_It010HioAY9JYi9PKsMvt4dVTSfev6mM3AQCwNtc4Lhvqn1PV953zVoiPiVDmCEeuXrXP5AfEE=w500-h500-l90-rj",
-    duration: 220,
-  },
-  {
-    id: "COatCg74F70",
-    title: "Thodi Si Daaru",
-    artist: "AP Dhillon, Shreya Ghoshal",
-    artwork: "https://yt3.googleusercontent.com/m8VUib4FJtqusByFo4SwMZn7BW9urZNryDpIjtpz-JNtbdFhUXsbuemlURnaHuuOyeVVCt59uqjzyuMY=w500-h500-l90-rj",
-    duration: 185,
-  },
-  {
-    id: "Ys6iPqfvmI0",
-    title: "Sajni (From \"Laapataa Ladies\")",
-    artist: "Arijit Singh, Ram Sampath",
-    artwork: "https://yt3.googleusercontent.com/ftDdTjYV0ofe0WxH5JqtNg4eS7yF2nKYv3WbCRp_yGj8GRFTHq2eW_MF0NdmECV5IrjTL1VTSV2gTV8=w500-h500-l90-rj",
-    duration: 170,
-  },
-  {
-    id: "qnQCd_nZn_g",
-    title: "O Maahi (From \"Dunki\")",
-    artist: "Arijit Singh, Pritam",
-    artwork: "https://yt3.googleusercontent.com/olTad2rSFdiV02kmWaC_xYlKkZiB6nV7279LAf1r6uar7rcyojJ4WoCc9A6kY9Cf5ecp-yUk0-NGy1c=w500-h500-l90-rj",
-    duration: 233,
-  },
-  {
-    id: "YCwP7X42wfw",
-    title: "Satranga (From \"Animal\")",
-    artist: "Arijit Singh, Shreyas Puranik",
-    artwork: "https://yt3.googleusercontent.com/TAxTz2c1_QXvIO3UlKqJIEjS6BaqWc9Vpc4vSf-cFZVEmeqxqrMu2jJNUx4lqR_nc7prTA4pOO7RkfhA=w500-h500-l90-rj",
-    duration: 271,
-  },
-  {
-    id: "9cHq63r1vHQ",
-    title: "Pehle Bhi Main (From \"Animal\")",
-    artist: "Vishal Mishra, Raj Shekhar",
-    artwork: "https://yt3.googleusercontent.com/TAxTz2c1_QXvIO3UlKqJIEjS6BaqWc9Vpc4vSf-cFZVEmeqxqrMu2jJNUx4lqR_nc7prTA4pOO7RkfhA=w500-h500-l90-rj",
-    duration: 250,
-  },
-  {
-    id: "lLM6pPrrAvQ",
-    title: "Akhiyaan Gulaab (From \"TBMAUJ\")",
-    artist: "Mitraz",
-    artwork: "https://yt3.googleusercontent.com/FMv7FYqkppHAM9Sn43aneV3eql6nCHldW0OO4ZvoimckHHKwM4Io8NWCdLjarWnh-ecC_LrdpYs3PJ_v=w500-h500-l90-rj",
-    duration: 171,
-  },
-  {
-    id: "g3LThx6Rftw",
-    title: "Ve Haaniyaan",
-    artist: "Danny, Avvy Sra, Sagar",
-    artwork: "https://yt3.googleusercontent.com/kyxbSnL8uk_sHtH2TSsVhiMbKm4HThBZkvab30W3v9CyKMB8ZbZ44m4fvnn4BdJdICOlIr_EpAb63zxE=w500-h500-l90-rj",
-    duration: 239,
-  },
-  {
-    id: "_deqdZmKzyg",
-    title: "Husn",
-    artist: "Anuv Jain",
-    artwork: "https://yt3.googleusercontent.com/KyrCGnftqfj4eJ9FnumH8GlNsddPCa8y_LUtsS1dZqX-cQmILOMPKZQp3tEmPWMGN-Ee97I1USn3911GLg=w500-h500-l90-rj",
-    duration: 218,
-  },
-  {
-    id: "z-PUf6k552I",
-    title: "Soulmate",
-    artist: "Badshah, Arijit Singh",
-    artwork: "https://yt3.googleusercontent.com/X9z43RY-8TZE8Vtxq7vuvRIWhp57i02tcFvgEUOUPSALtLloNQNnfwAZLDYPCCebcl2PSf2a6AMxBsnD=w500-h500-l90-rj",
-    duration: 213,
-  },
-  {
-    id: "BlZjTxPAmKc",
-    title: "Naina (From \"Crew\")",
-    artist: "Diljit Dosanjh, Badshah, Raj Ranjodh",
-    artwork: "https://yt3.googleusercontent.com/zBI-yCrhJCObvnSpvN_-X-rwk4NT9z9e5ANJJ-NGxUVUpB0OfsowFIMyNd0gIESxEeFS6DwreCQXeIg=w500-h500-l90-rj",
-    duration: 180,
-  },
-  {
-    id: "XtPK901WkQ0",
-    title: "Taras (From \"Munjya\")",
-    artist: "Sachin-Jigar, Jasmine Sandlas, Amitabh Bhattacharya",
-    artwork: "https://yt3.googleusercontent.com/46BPAi8SiAKVlkJJcpnjRVtRcBYBgW_2KQAY8icREjhkxGw3N1LzLJ8IdS2FXuwN4kXsc0hl-OOOWfo=w500-h500-l90-rj",
-    duration: 155,
-  },
-  {
-    id: "nZiJTYiujUs",
-    title: "Chuttamalle (Hindi Version)",
-    artist: "Shilpa Rao, Anirudh Ravichander",
-    artwork: "https://yt3.googleusercontent.com/IUv04nodzvmgrok70A5QLxPEEl2RClnTqrPCcQtPO2iXzJ1lkL1IFrlhvBxC2AYGb0Qn0VHgiCy109EcSw=w500-h500-l90-rj",
-    duration: 220,
-  },
-];
-
-export const VERIFIED_GLOBAL_TRENDING: TrackMetadata[] = [
-  {
-    id: "DlFXDl_ROAM",
-    title: "Die With A Smile",
-    artist: "Lady Gaga, Bruno Mars",
-    artwork: "https://yt3.googleusercontent.com/RFK4wHeGqwI3DndbARbRJB21IC0TcmqnrlyjxYK7T-nC8wlIVbfxNaCIFKNvSpchDKmYyVLe1RN36w=w500-h500-l90-rj",
-    duration: 251,
-  },
-  {
-    id: "DiTd771WumE",
-    title: "APT.",
-    artist: "ROSÉ, Bruno Mars",
-    artwork: "https://yt3.googleusercontent.com/-MtYkhdYuOvj8YWHA4afh-OUYMYHNpBpkk047QgGAxLJMLE570Pj0-LQjA2PW1ltedqTusKOjzXvuS8=w500-h500-l90-rj",
-    duration: 169,
-  },
-  {
-    id: "kIft-LUHHVA",
-    title: "Espresso",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 175,
-  },
-  {
-    id: "WKZO-CWeOVA",
-    title: "BIRDS OF A FEATHER",
-    artist: "Billie Eilish",
-    artwork: "https://yt3.googleusercontent.com/mXJjWX4E6Gpr03CUYl18PdVXlczmoL2Tm-LEBGafIr_8smlHnl8AHniJu0_7Y80e-aeloJxcryQQx0ZJ=w500-h500-l90-rj",
-    duration: 196,
-  },
-  {
-    id: "-5GI38vWew8",
-    title: "Taste",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 157,
-  },
-  {
-    id: "VZ-oGLluGAc",
-    title: "Good Luck, Babe!",
-    artist: "Chappell Roan",
-    artwork: "https://yt3.googleusercontent.com/vB4Sh2i4BvMg5qn9Jt6sy09IsMfX4whFcI2QxDLvYbDIR5jWLJjqM0oyD4U0CiS2ywIj13JQ-U91BaWA=w500-h500-l90-rj",
-    duration: 218,
-  },
-  {
-    id: "62yox0F5lcA",
-    title: "Please Please Please",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 186,
-  },
-  {
-    id: "eLhSxOAaWmg",
-    title: "Beautiful Things",
-    artist: "Benson Boone",
-    artwork: "https://yt3.googleusercontent.com/-tOODHuXHt7vMCroq0W-mRNHwg75QKEbp99QtaDKGB-u2MimQ0LnGoazZW9ROwUTIo50Yz6DV-Zkjmmy=w500-h500-l90-rj",
-    duration: 180,
-  },
-  {
-    id: "B8VEqSBTjZQ",
-    title: "I Had Some Help (feat. Morgan Wallen)",
-    artist: "Post Malone",
-    artwork: "https://yt3.googleusercontent.com/qnjym3KDc5WwcWGQCtcWQgSwkdC5bR1YzhvMnoPrlXSbU1mDUCgFxk6IGxkYbs3_Iz3trk5X_mLxcgI=w500-h500-l90-rj",
-    duration: 178,
-  },
-  {
-    id: "teKmHz3FkBo",
-    title: "we can't be friends (wait for your love)",
-    artist: "Ariana Grande",
-    artwork: "https://yt3.googleusercontent.com/2JkNTcKLVLvcBiWzHmZqkZvRurTeyuvcViLILicGdDSO9O1T-sB_4j9HVszzXpmVEowpyv7oPrWuddUORQ=w500-h500-l90-rj",
-    duration: 228,
-  },
-  {
-    id: "Fplgu4VVb94",
-    title: "Stargazing",
-    artist: "Myles Smith",
-    artwork: "https://yt3.googleusercontent.com/lkuIgMeVnIiZ_pe_Y-ulmEZIh5dFtLPbd2zbs7WcE7S9AjBsfl26PswOKnzXLTwQwik1JjuikQqoyW0=w500-h500-l90-rj",
-    duration: 172,
-  },
-  {
-    id: "_QtN6qocpKU",
-    title: "greedy",
-    artist: "Tate McRae",
-    artwork: "https://yt3.googleusercontent.com/UeCrCW0K_07-JzPFFkUn333j153pgVVvbK-eWt_qWJNctshLYai1ES-RdhMA7G02Gbg7_ANQv_6RDbc=w500-h500-l90-rj",
-    duration: 131,
-  },
-  {
-    id: "xynO0CdiE6Q",
-    title: "Water",
-    artist: "Tyla",
-    artwork: "https://yt3.googleusercontent.com/BnTUBDniI1rYombXpZFRCdUImI3H7HroMiSU01EiwLnX4PNoaL_7pfJud24p1uouhCF3unGpigN5AlQB=w500-h500-l90-rj",
-    duration: 200,
-  },
-  {
-    id: "aC9HkZW2hZk",
-    title: "Cruel Summer",
-    artist: "Taylor Swift",
-    artwork: "https://yt3.googleusercontent.com/OhxDTHQOQzSrcdgH9hzqzp1v22GYDE-QKnkryvCeq4ddx-3K3_c8oDXN0E6NvHlMn1q4XV59aHr0oL4f=w500-h500-l90-rj",
-    duration: 178,
-  },
-  {
-    id: "TfOsGnWy8qA",
-    title: "Paint The Town Red",
-    artist: "Doja Cat",
-    artwork: "https://yt3.googleusercontent.com/TCk-OaLv5T9MrdqbwxLM2lgu6f2ThUujD8UYgxZCAzZZ-C0WG8ZbHGOrsXaBrgcrce6Ci_X6NOSmX3yM=w500-h500-l90-rj",
-    duration: 231,
-  },
-  {
-    id: "i52e1UnZMQc",
-    title: "Illusion",
-    artist: "Dua Lipa",
-    artwork: "https://yt3.googleusercontent.com/5d51ZlGjNP_Gss3Z3RKP7B98ASQ7pxvp4XI3IAQ3kniFFjgLPDPnR6_K3tYZGoMVvfJYXBtu3awwsTI=w500-h500-l90-rj",
-    duration: 188,
-  },
-  {
-    id: "eXrmLd5mer4",
-    title: "Fortnight (feat. Post Malone)",
-    artist: "Taylor Swift",
-    artwork: "https://yt3.googleusercontent.com/ynkpsIdsYe1fVEOpJeAO_SzQHJF3rsujhQ4EsmuIdVKavbNm5uDvDTBShK6bPj4I7Sj9Yd6Zvpni2Ktu7g=w500-h500-l90-rj",
-    duration: 228,
-  },
-];
-
-export const VERIFIED_HINDI_NEW_RELEASES: TrackMetadata[] = [
-  {
-    id: "i1o1p_DD6TU",
-    title: "Gehra Hua (From \"Dhurandhar\")",
-    artist: "Shashwat Sachdev, Arijit Singh, Armaan Khan",
-    artwork: "https://yt3.googleusercontent.com/B1p2-JcIuomNuey91o6bvshtrtw2gr0pH1bIviJxDqNZiT9et79lCgY4-pU-6FhVNWbi9FrnOtJ35t8=w500-h500-l90-rj",
-    duration: 222,
-  },
-  {
-    id: "Gayw5AQvWcQ",
-    title: "Shararat (From \"Dhurandhar\")",
-    artist: "Shashwat Sachdev, Madhubanti Bagchi, Jasmine Sandlas",
-    artwork: "https://yt3.googleusercontent.com/7Zsektrtwnf2UlL5CWGtSxi8JDfT8h4me73j31Mk-bDe5qbfUz7dtt1MUy-QlwkaGBWaIXucHF-r2KiCUQ=w500-h500-l90-rj",
-    duration: 208,
-  },
-  {
-    id: "4FYKJPe0dOE",
-    title: "Tu Hi Disda (From \"Bhooth Bangla\")",
-    artist: "Pritam, Nikhita Gandhi, Kumaar",
-    artwork: "https://yt3.googleusercontent.com/SeCzomSMReWy0YAelrxrrJD2-n5wz4B35pMEkKBw_QhLUlzO4-RMFzr_s3ptFeeyjg3Mo_-irIezItlleg=w500-h500-l90-rj",
-    duration: 215,
-  },
-  {
-    id: "hCq43afDwSM",
-    title: "Rubaroo (From \"Dacoit (Hindi)\")",
-    artist: "Faheem Abdullah, Chinmayi, Bheems Ceciroleo",
-    artwork: "https://yt3.googleusercontent.com/9XWzXZJtf3ncz53r6NwzqBm7WN8C4D5V1j7O-qAvTHtwZey7ZfgABhDyThLeLGaWqCCcWXkUyhiDnK0=w500-h500-l90-rj",
-    duration: 225,
-  },
-  {
-    id: "8IaCBgobc8g",
-    title: "Kaho Toh (From \"Prem Keetanu\")",
-    artist: "Armaan Malik, Altamash Faridi",
-    artwork: "https://yt3.googleusercontent.com/hdn09y8yKA7hY-LPLfXD-v21OZzJHnf-WI02tZ8CL_bvPO5qHNQamoxBH9hwAr88jlt7S0pfRs1lbUCJZg=w500-h500-l90-rj",
-    duration: 198,
-  },
-  {
-    id: "uVIhqzSKCLs",
-    title: "Bijuria (From \"Sunny Sanskari Ki Tulsi Kumari\")",
-    artist: "Tanishk Bagchi, Sonu Nigam, Ravi Pawar, Asees Kaur",
-    artwork: "https://yt3.googleusercontent.com/jjD27XfHkUOIEPYcaBtxu__FvcJmPX8bAE1Gf-9tUuciBZXRKyyrhCSEiYgEGOdBRxCyk2RUHGF_OBw=w500-h500-l90-rj",
-    duration: 192,
-  },
-  {
-    id: "pF63NwKeebY",
-    title: "Waqt",
-    artist: "Vishal Mishra, Kaushal Kishore",
-    artwork: "https://yt3.googleusercontent.com/PSayDg-Y17685io5CnBgoCmN5yps49OTIP1nspRBL5dPOhwoA4rCDy4W2mo09kSolqDtWVUtCqORrjs=w500-h500-l90-rj",
-    duration: 230,
-  },
-  {
-    id: "kMyTKHEJ-6c",
-    title: "Pardesiya (From \"Param Sundari\")",
-    artist: "Sachin-Jigar, Sonu Nigam, Krishnakali Saha",
-    artwork: "https://yt3.googleusercontent.com/UBoz_It010HioAY9JYi9PKsMvt4dVTSfev6mM3AQCwNtc4Lhvqn1PV953zVoiPiVDmCEeuXrXP5AfEE=w500-h500-l90-rj",
-    duration: 220,
-  },
-  {
-    id: "COatCg74F70",
-    title: "Thodi Si Daaru",
-    artist: "AP Dhillon, Shreya Ghoshal",
-    artwork: "https://yt3.googleusercontent.com/m8VUib4FJtqusByFo4SwMZn7BW9urZNryDpIjtpz-JNtbdFhUXsbuemlURnaHuuOyeVVCt59uqjzyuMY=w500-h500-l90-rj",
-    duration: 185,
-  },
-  {
-    id: "XtPK901WkQ0",
-    title: "Taras (From \"Munjya\")",
-    artist: "Sachin-Jigar, Jasmine Sandlas, Amitabh Bhattacharya",
-    artwork: "https://yt3.googleusercontent.com/46BPAi8SiAKVlkJJcpnjRVtRcBYBgW_2KQAY8icREjhkxGw3N1LzLJ8IdS2FXuwN4kXsc0hl-OOOWfo=w500-h500-l90-rj",
-    duration: 155,
-  },
-  {
-    id: "Ys6iPqfvmI0",
-    title: "Sajni (From \"Laapataa Ladies\")",
-    artist: "Arijit Singh, Ram Sampath",
-    artwork: "https://yt3.googleusercontent.com/ftDdTjYV0ofe0WxH5JqtNg4eS7yF2nKYv3WbCRp_yGj8GRFTHq2eW_MF0NdmECV5IrjTL1VTSV2gTV8=w500-h500-l90-rj",
-    duration: 170,
-  },
-  {
-    id: "g3LThx6Rftw",
-    title: "Ve Haaniyaan",
-    artist: "Danny, Avvy Sra, Sagar",
-    artwork: "https://yt3.googleusercontent.com/kyxbSnL8uk_sHtH2TSsVhiMbKm4HThBZkvab30W3v9CyKMB8ZbZ44m4fvnn4BdJdICOlIr_EpAb63zxE=w500-h500-l90-rj",
-    duration: 239,
-  },
-  {
-    id: "lLM6pPrrAvQ",
-    title: "Akhiyaan Gulaab (From \"TBMAUJ\")",
-    artist: "Mitraz",
-    artwork: "https://yt3.googleusercontent.com/FMv7FYqkppHAM9Sn43aneV3eql6nCHldW0OO4ZvoimckHHKwM4Io8NWCdLjarWnh-ecC_LrdpYs3PJ_v=w500-h500-l90-rj",
-    duration: 171,
-  },
-  {
-    id: "z-PUf6k552I",
-    title: "Soulmate",
-    artist: "Badshah, Arijit Singh",
-    artwork: "https://yt3.googleusercontent.com/X9z43RY-8TZE8Vtxq7vuvRIWhp57i02tcFvgEUOUPSALtLloNQNnfwAZLDYPCCebcl2PSf2a6AMxBsnD=w500-h500-l90-rj",
-    duration: 213,
-  },
-  {
-    id: "BlZjTxPAmKc",
-    title: "Naina (From \"Crew\")",
-    artist: "Diljit Dosanjh, Badshah, Raj Ranjodh",
-    artwork: "https://yt3.googleusercontent.com/zBI-yCrhJCObvnSpvN_-X-rwk4NT9z9e5ANJJ-NGxUVUpB0OfsowFIMyNd0gIESxEeFS6DwreCQXeIg=w500-h500-l90-rj",
-    duration: 180,
-  },
-  {
-    id: "nZiJTYiujUs",
-    title: "Chuttamalle (Hindi Version)",
-    artist: "Shilpa Rao, Anirudh Ravichander",
-    artwork: "https://yt3.googleusercontent.com/IUv04nodzvmgrok70A5QLxPEEl2RClnTqrPCcQtPO2iXzJ1lkL1IFrlhvBxC2AYGb0Qn0VHgiCy109EcSw=w500-h500-l90-rj",
-    duration: 220,
-  },
-];
-
-export const VERIFIED_ENGLISH_NEW_RELEASES: TrackMetadata[] = [
-  {
-    id: "DiTd771WumE",
-    title: "APT.",
-    artist: "ROSÉ, Bruno Mars",
-    artwork: "https://yt3.googleusercontent.com/-MtYkhdYuOvj8YWHA4afh-OUYMYHNpBpkk047QgGAxLJMLE570Pj0-LQjA2PW1ltedqTusKOjzXvuS8=w500-h500-l90-rj",
-    duration: 169,
-  },
-  {
-    id: "DlFXDl_ROAM",
-    title: "Die With A Smile",
-    artist: "Lady Gaga, Bruno Mars",
-    artwork: "https://yt3.googleusercontent.com/RFK4wHeGqwI3DndbARbRJB21IC0TcmqnrlyjxYK7T-nC8wlIVbfxNaCIFKNvSpchDKmYyVLe1RN36w=w500-h500-l90-rj",
-    duration: 251,
-  },
-  {
-    id: "-5GI38vWew8",
-    title: "Taste",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 157,
-  },
-  {
-    id: "UUNF1HM4EsE",
-    title: "Bed Chem",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 171,
-  },
-  {
-    id: "a4O-abCXsfA",
-    title: "Timeless",
-    artist: "The Weeknd, Playboi Carti",
-    artwork: "https://yt3.googleusercontent.com/9ds8ikP1c3pkqRFeztLdUu5w3wUZrhYD2U9pUM5eStacumTocYtHieEGcAKQo5CsBvSB_m4bVCUAs_eXJA=w500-h500-l90-rj",
-    duration: 256,
-  },
-  {
-    id: "UEajTd306bg",
-    title: "Dancing In The Flames",
-    artist: "The Weeknd",
-    artwork: "https://yt3.googleusercontent.com/j392achow6M4Fblpf7QmwGxPbkSoxcY4jl23gJRyHALc1AgVRbrw5uvEGHCpFVNz6qU_lsXfiIWQDpA9=w500-h500-l90-rj",
-    duration: 220,
-  },
-  {
-    id: "AOz9V0NhJe8",
-    title: "That’s So True",
-    artist: "Gracie Abrams",
-    artwork: "https://yt3.googleusercontent.com/-8gK7GVBtjUP88UJO7xqeHZlOyr06lubtB_KOlOqqsqu4sLxEAIb9RIan-HnGdBrStLeLGIZaz-Dmsl4=w500-h500-l90-rj",
-    duration: 166,
-  },
-  {
-    id: "4qv16WcOCYA",
-    title: "Disease",
-    artist: "Lady Gaga",
-    artwork: "https://yt3.googleusercontent.com/RFK4wHeGqwI3DndbARbRJB21IC0TcmqnrlyjxYK7T-nC8wlIVbfxNaCIFKNvSpchDKmYyVLe1RN36w=w500-h500-l90-rj",
-    duration: 229,
-  },
-  {
-    id: "wPY6dOC-MDA",
-    title: "Sailor Song",
-    artist: "Gigi Perez",
-    artwork: "https://yt3.googleusercontent.com/Sav-wXPq2T-dpR_WgUp9r14zD5cVYdOkMPug9YaHonK-6GkwNBili0LqUqDHvto3JCreelpurgZRMC64=w500-h500-l90-rj",
-    duration: 222,
-  },
-  {
-    id: "mMSLdIYW79o",
-    title: "Love Somebody",
-    artist: "Morgan Wallen",
-    artwork: "https://yt3.googleusercontent.com/BVROJWUTP4kX9vzIKwN7NJgLRhxx30yjdg8XNI2UGMjcrMZbcV_UmGRsfJ5Zk0FOqUHPN2MMQpMCMS_0=w500-h500-l90-rj",
-    duration: 185,
-  },
-  {
-    id: "KS3lA6_-I7U",
-    title: "Diet Pepsi",
-    artist: "Addison Rae",
-    artwork: "https://yt3.googleusercontent.com/R_BB-zHdMe_yOCuFYqvEKkVv5LCOUiihXrdfl4E41kM79iJcXxlRSTAFGyEk7RuZTX2ZvCysya8Im_1uTA=w500-h500-l90-rj",
-    duration: 169,
-  },
-  {
-    id: "O1PkZaFy61Y",
-    title: "WILDFLOWER",
-    artist: "Billie Eilish",
-    artwork: "https://yt3.googleusercontent.com/mXJjWX4E6Gpr03CUYl18PdVXlczmoL2Tm-LEBGafIr_8smlHnl8AHniJu0_7Y80e-aeloJxcryQQx0ZJ=w500-h500-l90-rj",
-    duration: 261,
-  },
-  {
-    id: "yHkCD0cOVG4",
-    title: "Sympathy is a knife (feat. Ariana Grande)",
-    artist: "Charli xcx",
-    artwork: "https://yt3.googleusercontent.com/0v7Pba6Nn5PIMKqGv3-DKQdGeIJcKjOh4yfhmq4Uzy63EDi30iLivcxYXQpgf46l7miq2d8k_3SYXJuW=w500-h500-l90-rj",
-    duration: 154,
-  },
-  {
-    id: "FzH8p8hhxLA",
-    title: "Apple",
-    artist: "Charli xcx",
-    artwork: "https://yt3.googleusercontent.com/Kg4TDggl5e6Se3FeybP4rm56H94l1FTV2YvowKP7BAuhhGirbHd8H31eprhRJBOR_-hKcIL3ubOpjttCsA=w500-h500-l90-rj",
-    duration: 151,
-  },
-  {
-    id: "1UnJeFnWxGQ",
-    title: "Guess featuring billie eilish",
-    artist: "Charli xcx, Billie Eilish",
-    artwork: "https://yt3.googleusercontent.com/GM2TJc22ZhCZkidIVqclqDzvMEIlsGs1DM9HIf_YaLUwF1Sf6rPa-GOR3EVJWfmaQrYylXgUeFpU76QNuA=w500-h500-l90-rj",
-    duration: 143,
-  },
-  {
-    id: "VZ-oGLluGAc",
-    title: "Good Luck, Babe!",
-    artist: "Chappell Roan",
-    artwork: "https://yt3.googleusercontent.com/vB4Sh2i4BvMg5qn9Jt6sy09IsMfX4whFcI2QxDLvYbDIR5jWLJjqM0oyD4U0CiS2ywIj13JQ-U91BaWA=w500-h500-l90-rj",
-    duration: 218,
-  },
-  {
-    id: "kIft-LUHHVA",
-    title: "Espresso",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 175,
-  },
-  {
-    id: "WKZO-CWeOVA",
-    title: "BIRDS OF A FEATHER",
-    artist: "Billie Eilish",
-    artwork: "https://yt3.googleusercontent.com/mXJjWX4E6Gpr03CUYl18PdVXlczmoL2Tm-LEBGafIr_8smlHnl8AHniJu0_7Y80e-aeloJxcryQQx0ZJ=w500-h500-l90-rj",
-    duration: 196,
-  },
-  {
-    id: "62yox0F5lcA",
-    title: "Please Please Please",
-    artist: "Sabrina Carpenter",
-    artwork: "https://yt3.googleusercontent.com/bTWlZSenrOAYgH4r6NAzyDraWQR_wLl3OuRexJ_8h3NZUVHEilRSzUmKNa9YMOFSVcF0YtOuzKdXrt2UHg=w500-h500-l90-rj",
-    duration: 186,
-  },
-  {
-    id: "eLhSxOAaWmg",
-    title: "Beautiful Things",
-    artist: "Benson Boone",
-    artwork: "https://yt3.googleusercontent.com/-tOODHuXHt7vMCroq0W-mRNHwg75QKEbp99QtaDKGB-u2MimQ0LnGoazZW9ROwUTIo50Yz6DV-Zkjmmy=w500-h500-l90-rj",
-    duration: 180,
-  },
-];
-
 // Comprehensive keyword blacklists to ensure authentic, clean music
 const UNIVERSAL_EXCLUDED_KEYWORDS = [
   'jukebox', 'non stop', 'non-stop', 'mashup', 'audio only', 'trailer', 'teaser',
@@ -1049,113 +522,10 @@ function parseDurationToSeconds(dur: any): number | undefined {
 }
 
 /**
- * Helper to fetch and parse official YouTube Music Chart playlists
- */
-async function fetchChartPlaylistFromYouTube(playlistId: string): Promise<TrackMetadata[]> {
-  const cleanPlaylistId = playlistId.replace(/^VL/i, '').trim();
-  const browseId = `VL${cleanPlaylistId}`;
-  const endpoints = [
-    'https://music.youtube.com/youtubei/v1/browse?prettyPrint=false',
-    'https://www.youtube.com/youtubei/v1/browse?prettyPrint=false',
-  ];
-
-  for (const url of endpoints) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6500);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'X-YouTube-Client-Name': '67',
-          'X-YouTube-Client-Version': '1.20240101.01.00',
-          'Origin': 'https://music.youtube.com',
-          'Referer': 'https://music.youtube.com/',
-        },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: 'WEB_REMIX',
-              clientVersion: '1.20240101.01.00',
-              hl: 'en',
-              gl: 'IN',
-            },
-          },
-          browseId,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) continue;
-      const data = await res.json();
-      const contents =
-        data.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]?.musicPlaylistShelfRenderer?.contents;
-
-      if (Array.isArray(contents) && contents.length > 0) {
-        const tracks: TrackMetadata[] = [];
-        const seenIds = new Set<string>();
-
-        for (const item of contents) {
-          const r = item.musicResponsiveListItemRenderer;
-          if (!r) continue;
-
-          const rawTitle = r.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
-          const rawArtist = r.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map((x: any) => x.text).join('') || 'Popular Artist';
-          const videoId =
-            r.playlistItemData?.videoId ||
-            r.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.watchEndpoint?.videoId;
-
-          if (!videoId || !rawTitle) continue;
-          const cleanId = String(videoId).replace(/^yt_/i, '').trim();
-          if (!cleanId || seenIds.has(cleanId)) continue;
-          seenIds.add(cleanId);
-
-          const title = cleanTrackTitle(rawTitle);
-          const artist = rawArtist.trim();
-
-          const thumbs = r.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails;
-          let artwork = thumbs?.[thumbs.length - 1]?.url;
-          if (artwork && typeof artwork === 'string') {
-            if (artwork.includes('w120-h120') || artwork.includes('w60-h60')) {
-              artwork = artwork.replace(/w\d+-h\d+/, 'w500-h500');
-            }
-          } else {
-            artwork = `https://i.ytimg.com/vi/${cleanId}/hqdefault.jpg`;
-          }
-
-          const rawDuration = r.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]?.text;
-          const duration = parseDurationToSeconds(rawDuration);
-
-          tracks.push({
-            id: cleanId,
-            url: cleanId,
-            title: title || rawTitle,
-            artist: artist || 'Popular Artist',
-            artwork,
-            duration,
-          });
-
-          if (tracks.length >= 25) break;
-        }
-
-        if (tracks.length > 0) {
-          return tracks;
-        }
-      }
-    } catch {
-      // Continue to next endpoint or candidate
-    }
-  }
-
-  return [];
-}
-
-/**
- * Strategy D: Official YouTube Music India (Hindi) & Global Top 100 Charts
- * Queries official chart playlist IDs and targeted feeds, sanitizes language & metadata,
- * and backfills with verified 2026 hits for guaranteed pristine output.
+ * PART 1: Real-time Trending Charts via Official Apple Music RSS API
+ * Endpoint: https://rss.applemarketingtools.com/api/v2/${countryCode}/music/most-played/50/songs.json
+ * India: 'in', Global: 'us'
+ * Returns top 25 chart entries with clean metadata and 600x600 artwork.
  */
 export async function fetchTrendingCharts(
   region: 'india' | 'global' = 'india',
@@ -1167,131 +537,93 @@ export async function fetchTrendingCharts(
     return cached.data;
   }
 
-  const fallbackList = region === 'india' ? VERIFIED_HINDI_TRENDING : VERIFIED_GLOBAL_TRENDING;
+  const countryCode = region === 'india' ? 'in' : 'us';
+  const endpoint = `https://rss.applemarketingtools.com/api/v2/${countryCode}/music/most-played/50/songs.json`;
 
-  // Official Chart Playlist IDs:
-  // India (Hindi): PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ, PL4fGSI1pDJn5e0Zao6PO7QdCDOo43YY4G
-  // Global: PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc, PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v
-  const chartCandidates =
-    region === 'india'
-      ? ['PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ', 'PL4fGSI1pDJn5e0Zao6PO7QdCDOo43YY4G']
-      : ['PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc', 'PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v'];
+  try {
+    const res = await fetch(endpoint, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+      }
+    });
 
-  const collectedTracks: TrackMetadata[] = [];
-  const seenIds = new Set<string>();
+    if (!res.ok) {
+      throw new Error(`Apple Music RSS returned HTTP ${res.status}`);
+    }
 
-  // 1. Try playlist endpoints
-  for (const playlistId of chartCandidates) {
-    try {
-      const chartTracks = await fetchChartPlaylistFromYouTube(playlistId);
-      if (Array.isArray(chartTracks) && chartTracks.length > 0) {
-        for (const t of chartTracks) {
-          if (!t || !t.id) continue;
-          const cleanId = String(t.id).replace(/^yt_/i, '').trim();
-          if (!cleanId || seenIds.has(cleanId)) continue;
+    const data = await res.json();
+    const items: any[] = data.feed?.results || [];
+    const collected: TrackMetadata[] = [];
+    const seenIds = new Set<string>();
 
-          const text = `${t.title} ${t.artist}`.toLowerCase();
-          if (UNIVERSAL_EXCLUDED_KEYWORDS.some((kw) => text.includes(kw))) continue;
+    for (const item of items) {
+      if (!item || !item.id || !item.name) continue;
+      if (seenIds.has(item.id)) continue;
 
-          if (region === 'india') {
-            const hasHindiTag = text.includes('(hindi)') || text.includes('[hindi]');
-            if (!hasHindiTag && NON_HINDI_REGIONAL_KEYWORDS.some((kw) => text.includes(kw))) {
-              continue;
-            }
-          }
+      const title = cleanTrackTitle(item.name);
+      const artist = item.artistName || 'Unknown Artist';
+      const text = `${title} ${artist}`.toLowerCase();
 
-          seenIds.add(cleanId);
-          collectedTracks.push({
-            ...t,
-            id: cleanId,
-            url: cleanId,
-            title: cleanTrackTitle(t.title),
-          });
-          if (collectedTracks.length >= 20) break;
+      if (UNIVERSAL_EXCLUDED_KEYWORDS.some(kw => text.includes(kw))) continue;
+
+      // For India: filter non-Hindi regional tracks unless they are Hindi releases
+      if (region === 'india') {
+        const isRegionalGenre = Array.isArray(item.genres) && item.genres.some((g: any) => {
+          const gName = (g?.name || '').toLowerCase();
+          return NON_HINDI_REGIONAL_KEYWORDS.some(k => gName.includes(k)) && !gName.includes('bollywood') && !gName.includes('hindi');
+        });
+
+        const hasHindiTag = text.includes('(hindi)') || text.includes('[hindi]');
+        const hasRegionalText = !hasHindiTag && NON_HINDI_REGIONAL_KEYWORDS.some(k => text.includes(k));
+
+        if (isRegionalGenre || hasRegionalText) {
+          continue;
         }
       }
-    } catch (err) {
-      console.warn(`[musicApi] Failed fetching chart playlist ${playlistId}:`, err);
+
+      seenIds.add(item.id);
+      const artwork = item.artworkUrl100
+        ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+        : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80';
+
+      collected.push({
+        id: `chart_${region}_${item.id}`,
+        title,
+        artist,
+        artwork,
+        duration: 210,
+        releaseDate: item.releaseDate,
+        query: `${item.name} ${item.artistName}`,
+      });
+
+      if (collected.length >= 25) break;
     }
-    if (collectedTracks.length >= 15) break;
+
+    if (collected.length > 0) {
+      chartCache[region] = {
+        data: collected,
+        timestamp: now,
+      };
+      return collected;
+    }
+  } catch (err) {
+    console.warn(`[musicApi] Apple Music RSS failed for ${region}:`, err);
   }
 
-  // 2. If playlist query yielded fewer than 12 tracks, try targeted search
-  if (collectedTracks.length < 12) {
-    try {
-      const searchQueries =
-        region === 'india'
-          ? [
-              'Top 50 Hindi Songs Official 2026',
-              'Bollywood Top Hits 2026 Official',
-              'Latest Hindi Songs Arijit Singh Pritam Sachin-Jigar Vishal Mishra',
-            ]
-          : [
-              'Global Top 50 Hits 2026',
-              'Today Top Hits 2026 Pop',
-              'Billboard Hot 100 Official Hits',
-            ];
-
-      for (const sq of searchQueries) {
-        const results = await searchTracks(sq);
-        if (Array.isArray(results)) {
-          for (const t of results) {
-            if (!t || !t.id) continue;
-            const cleanId = String(t.id).replace(/^yt_/i, '').trim();
-            if (!cleanId || seenIds.has(cleanId)) continue;
-
-            const text = `${t.title} ${t.artist}`.toLowerCase();
-            if (UNIVERSAL_EXCLUDED_KEYWORDS.some((kw) => text.includes(kw))) continue;
-
-            if (region === 'india') {
-              const hasHindiTag = text.includes('(hindi)') || text.includes('[hindi]');
-              if (!hasHindiTag && NON_HINDI_REGIONAL_KEYWORDS.some((kw) => text.includes(kw))) {
-                continue;
-              }
-            }
-
-            seenIds.add(cleanId);
-            collectedTracks.push({
-              ...t,
-              id: cleanId,
-              url: cleanId,
-              title: cleanTrackTitle(t.title),
-            });
-            if (collectedTracks.length >= 20) break;
-          }
-        }
-        if (collectedTracks.length >= 15) break;
-      }
-    } catch (err) {
-      console.warn(`[musicApi] Search query for ${region} charts had an error:`, err);
-    }
+  // If cache exists, use stale cache
+  if (cached && cached.data.length > 0) {
+    return cached.data;
   }
 
-  // 3. Fill remaining slots from verified fallback list to guarantee 20 pristine tracks
-  for (const fallback of fallbackList) {
-    if (collectedTracks.length >= 20) break;
-    const cleanId = fallback.id.trim();
-    const fallbackTitleLower = fallback.title.toLowerCase();
-    const isDuplicate = seenIds.has(cleanId) || collectedTracks.some(
-      (c) => c.title.toLowerCase().includes(fallbackTitleLower) || fallbackTitleLower.includes(c.title.toLowerCase())
-    );
-    if (!isDuplicate) {
-      seenIds.add(cleanId);
-      collectedTracks.push(fallback);
-    }
-  }
-
-  const finalTracks = collectedTracks.slice(0, 20);
-  chartCache[region] = {
-    data: finalTracks,
-    timestamp: now,
-  };
-  return finalTracks;
+  return [];
 }
 
 /**
- * Fetch latest releases for Hindi and English with strict ~90 day freshness filter,
- * language purity, and curated 2026 fallbacks.
+ * PART 2: Real-time New Releases (Strict Last 90 Days) via Official Apple Music APIs
+ * Strict 90-day cutoff: Date.now() - (90 * 24 * 60 * 60 * 1000)
+ * Sorted descending (newest first).
+ * Language pure: Hindi (Bollywood & Hindi indie) and English (International pop/hits).
  */
 export async function fetchNewReleases(
   language: 'hindi' | 'english' = 'hindi',
@@ -1303,121 +635,190 @@ export async function fetchNewReleases(
     return cached.data;
   }
 
-  const fallbackList = language === 'hindi' ? VERIFIED_HINDI_NEW_RELEASES : VERIFIED_ENGLISH_NEW_RELEASES;
+  const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
   const collectedTracks: TrackMetadata[] = [];
   const seenIds = new Set<string>();
 
-  // 1. Query YouTube Music playlist if English (New Music Friday)
+  // 1. Ingest freshly released tracks from Apple Music RSS Feed
+  const rssCountry = language === 'hindi' ? 'in' : 'us';
   try {
-    const playlistId = language === 'english' ? 'PLDIS8bg-5Vnk40u-s3d-Rsm-Kz82w_vQ4' : null;
-    if (playlistId) {
-      const plTracks = await fetchChartPlaylistFromYouTube(playlistId);
-      if (Array.isArray(plTracks) && plTracks.length > 0) {
-        for (const t of plTracks) {
-          if (!t || !t.id) continue;
-          const cleanId = String(t.id).replace(/^yt_/i, '').trim();
-          if (!cleanId || seenIds.has(cleanId)) continue;
+    const rssRes = await fetch(`https://rss.applemarketingtools.com/api/v2/${rssCountry}/music/most-played/50/songs.json`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+      }
+    });
+    if (rssRes.ok) {
+      const rssData = await rssRes.json();
+      for (const item of (rssData.feed?.results || [])) {
+        if (!item || !item.id || !item.releaseDate) continue;
+        const relTime = new Date(item.releaseDate).getTime();
+        if (isNaN(relTime) || relTime < ninetyDaysAgo) continue;
 
-          const text = `${t.title} ${t.artist}`.toLowerCase();
-          if (UNIVERSAL_EXCLUDED_KEYWORDS.some((kw) => text.includes(kw))) continue;
-          if (LEGACY_YEAR_KEYWORDS.some((kw) => text.includes(kw))) continue;
-          if (KNOWN_OLD_ENGLISH_HITS.some((old) => text.includes(old))) continue;
+        const title = cleanTrackTitle(item.name);
+        const artist = item.artistName || 'Unknown Artist';
+        const text = `${title} ${artist}`.toLowerCase();
 
-          seenIds.add(cleanId);
-          collectedTracks.push({
-            ...t,
-            id: cleanId,
-            url: cleanId,
-            title: cleanTrackTitle(t.title),
+        if (UNIVERSAL_EXCLUDED_KEYWORDS.some(kw => text.includes(kw))) continue;
+
+        if (language === 'hindi') {
+          const isRegionalGenre = Array.isArray(item.genres) && item.genres.some((g: any) => {
+            const gName = (g?.name || '').toLowerCase();
+            return NON_HINDI_REGIONAL_KEYWORDS.some(k => gName.includes(k)) && !gName.includes('bollywood') && !gName.includes('hindi');
           });
-          if (collectedTracks.length >= 20) break;
+          const hasHindiTag = text.includes('(hindi)') || text.includes('[hindi]');
+          const hasRegionalText = !hasHindiTag && NON_HINDI_REGIONAL_KEYWORDS.some(k => text.includes(k));
+          if (isRegionalGenre || hasRegionalText) continue;
         }
+
+        const trackKey = `${title.toLowerCase()}_${artist.toLowerCase()}`;
+        if (seenIds.has(String(item.id)) || seenIds.has(trackKey)) continue;
+        seenIds.add(String(item.id));
+        seenIds.add(trackKey);
+
+        const artwork = item.artworkUrl100
+          ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+          : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80';
+
+        collectedTracks.push({
+          id: `new_release_${language}_${item.id}`,
+          title,
+          artist,
+          artwork,
+          duration: 210,
+          releaseDate: item.releaseDate,
+          query: `${item.name} ${item.artistName}`,
+        });
       }
     }
   } catch (err) {
-    console.warn('[musicApi] Failed fetching New Releases playlist:', err);
+    console.warn(`[musicApi] RSS new release pass for ${language} failed:`, err);
   }
 
-  // 2. Query targeted fresh releases from official channels & 2026 tags
-  try {
-    const queries =
-      language === 'hindi'
-        ? [
-            'New Hindi Songs 2026 Official',
-            'Latest Bollywood Releases 2026',
-            'Hindi Indie Fresh Drops 2026',
-            'T-Series New Hindi Song 2026',
-            'Zee Music Company New Songs 2026',
-          ]
-        : [
-            'New Music Friday 2026 Official',
-            'Fresh International Singles 2026',
-            'New English Pop Songs 2026',
-            'Billboard Hot 100 New Debuts 2026',
-          ];
+  // 2. Query Apple iTunes Search API endpoints
+  const itunesEndpoints = language === 'hindi'
+    ? [
+        'https://itunes.apple.com/search?term=bollywood+hindi+2026&country=in&media=music&entity=song&limit=100',
+        'https://itunes.apple.com/search?term=hindi+latest+2026&country=in&media=music&entity=song&limit=100',
+        'https://itunes.apple.com/search?term=arijit+singh&country=in&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=pritam&country=in&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=vishal+mishra&country=in&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=sachin-jigar&country=in&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=tanishk+bagchi&country=in&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=shashwat+sachdev&country=in&media=music&entity=song&limit=50'
+      ]
+    : [
+        'https://itunes.apple.com/search?term=pop+hits+2026&country=us&media=music&entity=song&limit=100',
+        'https://itunes.apple.com/search?term=new+music+friday&country=us&media=music&entity=song&limit=100',
+        'https://itunes.apple.com/search?term=sabrina+carpenter&country=us&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=billie+eilish&country=us&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=lady+gaga&country=us&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=the+weeknd&country=us&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=charli+xcx&country=us&media=music&entity=song&limit=50',
+        'https://itunes.apple.com/search?term=chappell+roan&country=us&media=music&entity=song&limit=50'
+      ];
 
-    for (const q of queries) {
-      const results = await searchTracks(q);
-      if (Array.isArray(results)) {
-        for (const t of results) {
-          if (!t || !t.id) continue;
-          const cleanId = String(t.id).replace(/^yt_/i, '').trim();
-          if (!cleanId || seenIds.has(cleanId)) continue;
-
-          const text = `${t.title} ${t.artist}`.toLowerCase();
-          if (UNIVERSAL_EXCLUDED_KEYWORDS.some((kw) => text.includes(kw))) continue;
-          if (LEGACY_YEAR_KEYWORDS.some((kw) => text.includes(kw))) continue;
-
-          if (language === 'hindi') {
-            const hasHindiTag = text.includes('(hindi)') || text.includes('[hindi]');
-            if (!hasHindiTag && NON_HINDI_REGIONAL_KEYWORDS.some((kw) => text.includes(kw))) {
-              continue;
-            }
-            if (KNOWN_OLD_HINDI_HITS.some((old) => text.includes(old))) {
-              continue;
-            }
-          } else {
-            if (KNOWN_OLD_ENGLISH_HITS.some((old) => text.includes(old))) {
-              continue;
-            }
-          }
-
-          seenIds.add(cleanId);
-          collectedTracks.push({
-            ...t,
-            id: cleanId,
-            url: cleanId,
-            title: cleanTrackTitle(t.title),
-          });
-          if (collectedTracks.length >= 20) break;
+  for (const url of itunesEndpoints) {
+    if (collectedTracks.length >= 40) break;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
         }
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const results: any[] = data.results || [];
+
+      for (const item of results) {
+        if (!item || !item.trackId || !item.trackName || !item.releaseDate) continue;
+        const relTime = new Date(item.releaseDate).getTime();
+        // STRICT 90-DAY RULE
+        if (isNaN(relTime) || relTime < ninetyDaysAgo) continue;
+
+        const title = cleanTrackTitle(item.trackName);
+        const artist = item.artistName || 'Unknown Artist';
+        const text = `${title} ${artist}`.toLowerCase();
+
+        if (UNIVERSAL_EXCLUDED_KEYWORDS.some(kw => text.includes(kw))) continue;
+
+        if (language === 'hindi') {
+          const hasHindiTag = text.includes('(hindi)') || text.includes('[hindi]');
+          const isRegional = !hasHindiTag && NON_HINDI_REGIONAL_KEYWORDS.some(k => text.includes(k));
+          if (isRegional) continue;
+        }
+
+        const trackKey = `${title.toLowerCase()}_${artist.toLowerCase()}`;
+        if (seenIds.has(String(item.trackId)) || seenIds.has(trackKey)) continue;
+        seenIds.add(String(item.trackId));
+        seenIds.add(trackKey);
+
+        const artwork = item.artworkUrl100
+          ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+          : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80';
+
+        const durSec = item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 210;
+
+        collectedTracks.push({
+          id: `new_release_${language}_${item.trackId}`,
+          title,
+          artist,
+          artwork,
+          duration: durSec,
+          releaseDate: item.releaseDate,
+          query: `${item.trackName} ${item.artistName}`,
+        });
       }
-      if (collectedTracks.length >= 15) break;
-    }
-  } catch (err) {
-    console.warn(`[musicApi] Failed fetching search new releases for ${language}:`, err);
-  }
-
-  // 3. Fill remaining slots with verified fresh 2026 singles
-  for (const fallback of fallbackList) {
-    if (collectedTracks.length >= 20) break;
-    const cleanId = fallback.id.trim();
-    const fallbackTitleLower = fallback.title.toLowerCase();
-    const isDuplicate = seenIds.has(cleanId) || collectedTracks.some(
-      (c) => c.title.toLowerCase().includes(fallbackTitleLower) || fallbackTitleLower.includes(c.title.toLowerCase())
-    );
-    if (!isDuplicate) {
-      seenIds.add(cleanId);
-      collectedTracks.push(fallback);
+    } catch (err) {
+      console.warn(`[musicApi] iTunes query failed for ${url}:`, err);
     }
   }
 
-  const finalTracks = collectedTracks.slice(0, 20);
-  newReleasesCache[language] = {
-    data: finalTracks,
-    timestamp: now,
-  };
-  return finalTracks;
+  // Sort strictly descending: newest release date first
+  collectedTracks.sort((a, b) => {
+    const timeA = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
+    const timeB = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const finalTracks = collectedTracks.slice(0, 25);
+  if (finalTracks.length > 0) {
+    newReleasesCache[language] = {
+      data: finalTracks,
+      timestamp: now,
+    };
+  }
+
+  return finalTracks.length > 0 ? finalTracks : (cached?.data || []);
+}
+
+/**
+ * PART 3: Seamless on-the-fly audio stream resolution for Apple Music tracks.
+ * Resolves apple chart/new release tracks to playable YouTube audio streams via search.
+ */
+export async function resolveTrackForPlayback(track: TrackMetadata): Promise<TrackMetadata> {
+  if (!track) return track;
+  if (track.id && (track.id.startsWith('chart_') || track.id.startsWith('new_release_'))) {
+    const searchQuery = track.query || `${track.title} ${track.artist}`;
+    try {
+      const searchResults = await searchTracks(searchQuery);
+      if (searchResults && searchResults.length > 0) {
+        const topResult = searchResults[0];
+        const genuineId = (topResult.id || '').replace(/^yt_/i, '').trim();
+        return {
+          ...track,
+          id: genuineId,
+          url: topResult.url || genuineId,
+          duration: topResult.duration || track.duration,
+          streamUrl: (topResult as any).streamUrl,
+        };
+      }
+    } catch (err) {
+      console.warn('[musicApi] resolveTrackForPlayback search error:', err);
+    }
+  }
+  return track;
 }
 
 interface MoodPlaylistDefinition {

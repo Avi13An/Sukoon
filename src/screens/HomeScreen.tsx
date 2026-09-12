@@ -29,7 +29,8 @@ import {
   searchTracks, 
   fetchTrendingCharts, 
   fetchNewReleases,
-  fetchMoodPlaylists 
+  fetchMoodPlaylists,
+  resolveTrackForPlayback 
 } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
@@ -279,7 +280,11 @@ export function HomeScreen() {
   const handlePlayTrack = async (item: TrackMetadata, contextQueue?: TrackMetadata[]) => {
     try {
       setLoadingTrackId(item.id);
-      await playTrack(item, contextQueue);
+      let targetTrack = item;
+      if (item.id && (item.id.startsWith('chart_') || item.id.startsWith('new_release_'))) {
+        targetTrack = await resolveTrackForPlayback(item);
+      }
+      await playTrack(targetTrack, contextQueue);
     } catch (err) {
       console.error('[HomeScreen] Error playing track:', err);
     } finally {

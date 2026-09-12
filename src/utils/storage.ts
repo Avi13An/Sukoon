@@ -10,6 +10,9 @@ export interface TrackMetadata {
   artist: string;
   artwork?: string;
   duration?: number;
+  query?: string;
+  releaseDate?: string;
+  streamUrl?: string;
 }
 
 export interface OfflineTrack extends TrackMetadata {
