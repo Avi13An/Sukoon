@@ -18,8 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { 
   getLastPlayedTrack, 
   getListenHistory, 
-  getUserPlaylists, 
-  isLikedSongsPlaylist, 
   getActiveUser, 
   TrackMetadata, 
   Playlist 
@@ -101,23 +99,11 @@ const TOP_ARTISTS: ArtistItem[] = [
   },
 ];
 
-interface QuickAccessItem {
-  id: string;
-  title: string;
-  subtitle?: string;
-  artwork: string;
-  type: 'playlist' | 'track';
-  data?: Playlist;
-  track?: TrackMetadata;
-}
-
 export function HomeScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  // Cross-device responsive layout calculation for 2-column quick grid and curated shelf
-  const quickCardWidth = Math.floor((width - 32 - 10) / 2);
   const cardSize = Math.min(width * 0.4, 155);
 
   const [selectedMood, setSelectedMood] = useState('chill');
@@ -131,7 +117,6 @@ export function HomeScreen() {
   const [globalCharts, setGlobalCharts] = useState<TrackMetadata[]>([]);
   const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
-  const [quickItems, setQuickItems] = useState<QuickAccessItem[]>([]);
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
 
   const chunkedPills = useMemo(() => {
@@ -188,9 +173,6 @@ export function HomeScreen() {
     setLastPlayedSong(lastTrack);
     setCurrentAmbientTrack(lastTrack);
 
-    const userPlaylists = getUserPlaylists();
-    const likedPl = userPlaylists.find(isLikedSongsPlaylist);
-
     try {
       const [recs, indiaData, globalData] = await Promise.all([
         getRecommendedTracks(lastTrack?.id),
@@ -212,66 +194,6 @@ export function HomeScreen() {
       setIndiaCharts(safeIndia);
       setGlobalCharts(safeGlobal);
       setTrendingTracks(safeIndia);
-
-      // Build 6-item Quick Access items
-      const items: QuickAccessItem[] = [];
-
-      // 1. Liked Songs playlist
-      if (likedPl && likedPl.tracks && likedPl.tracks.length > 0) {
-        items.push({
-          id: 'liked-songs',
-          title: 'Liked Songs',
-          subtitle: `${likedPl.tracks.length} songs`,
-          artwork: likedPl.coverImage || likedPl.tracks[0]?.artwork || 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=200',
-          type: 'playlist',
-          data: likedPl,
-        });
-      }
-
-      // 2. Custom user playlists (if any)
-      userPlaylists
-        .filter(p => !isLikedSongsPlaylist(p) && p.tracks && p.tracks.length > 0)
-        .slice(0, 2)
-        .forEach(p => {
-          items.push({
-            id: `pl-${p.id}`,
-            title: p.name,
-            subtitle: 'Playlist',
-            artwork: p.coverImage || p.tracks[0]?.artwork || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=200',
-            type: 'playlist',
-            data: p,
-          });
-        });
-
-      // 3. Recent history tracks
-      history.slice(0, 6 - items.length).forEach(t => {
-        items.push({
-          id: `hist-${t.id}`,
-          title: t.title,
-          subtitle: t.artist,
-          artwork: t.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200',
-          type: 'track',
-          track: t,
-        });
-      });
-
-      // 4. Fill remaining slots with recommendations or trending
-      const pool = safeRecs.length > 0 ? safeRecs : safeIndia;
-      for (const t of pool) {
-        if (items.length >= 6) break;
-        if (!items.some(i => i.track?.id === t.id)) {
-          items.push({
-            id: `quick-${t.id}`,
-            title: t.title,
-            subtitle: t.artist,
-            artwork: t.artwork || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200',
-            type: 'track',
-            track: t,
-          });
-        }
-      }
-
-      setQuickItems(items.slice(0, 6));
     } catch (err) {
       console.error('[HomeScreen] Error loading data:', err);
     }
@@ -340,20 +262,6 @@ export function HomeScreen() {
       console.error('[HomeScreen] Error playing track:', err);
     } finally {
       setLoadingTrackId(null);
-    }
-  };
-
-  const handleQuickAccessPress = async (item: QuickAccessItem) => {
-    if (item.type === 'playlist' && item.data) {
-      navigation.navigate('PlaylistDetail', { 
-        playlist: item.data, 
-        playlistId: item.data.id 
-      });
-    } else if (item.track) {
-      const trackList = quickItems
-        .filter(i => i.type === 'track' && i.track)
-        .map(i => i.track!);
-      await handlePlayTrack(item.track, trackList);
     }
   };
 
@@ -510,58 +418,16 @@ export function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
-
-          <View style={styles.brandRow}>
-            <Text style={styles.brandTitle}>Sukoon</Text>
-            <View style={styles.brandPill}>
-              <View style={styles.greenDot} />
-              <Text style={styles.brandPillText}>LOSSLESS DSP</Text>
-            </View>
-          </View>
         </View>
-
-        {/* Quick-Access 6-Grid (Spotify-Style) */}
-        {quickItems.length > 0 && (
-          <View style={styles.quickSection}>
-            <View style={styles.quickGrid}>
-              {quickItems.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.quickCard, { width: quickCardWidth }]}
-                  onPress={() => handleQuickAccessPress(item)}
-                  activeOpacity={0.7}
-                >
-                  <Image 
-                    source={{ uri: item.artwork }} 
-                    style={styles.quickArtwork} 
-                    resizeMode="cover"
-                  />
-                  <View style={styles.quickTextContainer}>
-                    <Text 
-                      style={styles.quickTitle} 
-                      numberOfLines={2} 
-                      ellipsizeMode="tail"
-                    >
-                      {item.title}
-                    </Text>
-                  </View>
-                  <View style={styles.quickPlayCircle}>
-                    <Ionicons name="play" size={11} color="#000000" style={{ marginLeft: 1 }} />
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
 
         {/* Quick Picks Carousel (3-Song Pill Columns Based on Last Played Song) */}
         {topSuggestions.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
+          <View style={[styles.section, { marginTop: 14, paddingHorizontal: 0 }]}>
+            <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
               <Text style={styles.sectionTitle}>Quick Picks</Text>
               <Ionicons name="sparkles" size={18} color="#00ffcc" />
             </View>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.subtitle, { paddingHorizontal: 16 }]}>
               {lastPlayedSong ? `Similar to ${lastPlayedSong.title}` : 'Based on your recent listening'}
             </Text>
             <ScrollView
@@ -697,25 +563,6 @@ export function HomeScreen() {
           />
         </View>
 
-        {/* Jump Back In (Listening History) */}
-        {recentTracks.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Jump Back In</Text>
-              <Ionicons name="time-outline" size={18} color="#00ffcc" />
-            </View>
-            <Text style={styles.subtitle}>Pick up right where you left off</Text>
-            <FlatList
-              horizontal
-              data={recentTracks.slice(0, 10)}
-              keyExtractor={(item, index) => `recent-${item.id}-${index}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(recentTracks.slice(0, 10))}
-            />
-          </View>
-        )}
-
         {/* Curated Playlists & Moods Hub (12 Authentic Moods) */}
         <View style={[styles.section, { paddingHorizontal: 0, overflow: 'visible' }]}>
           <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
@@ -825,6 +672,25 @@ export function HomeScreen() {
             />
           )}
         </View>
+
+        {/* Jump Back In (Listening History - Final Section at Bottom) */}
+        {recentTracks.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Jump Back In</Text>
+              <Ionicons name="time-outline" size={18} color="#00ffcc" />
+            </View>
+            <Text style={styles.subtitle}>Pick up right where you left off</Text>
+            <FlatList
+              horizontal
+              data={recentTracks.slice(0, 10)}
+              keyExtractor={(item, index) => `recent-${item.id}-${index}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.listContent}
+              renderItem={renderTrackCard(recentTracks.slice(0, 10))}
+            />
+          </View>
+        )}
       </ScrollView>
 
       <AddToPlaylistModal 
@@ -858,13 +724,12 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingBottom: 0,
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
   greetingWrapper: {
     flexDirection: 'row',
@@ -937,90 +802,6 @@ const styles = StyleSheet.create({
   },
   partyPillTextActive: {
     color: '#000000',
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 4,
-  },
-  brandTitle: {
-    color: '#ffffff',
-    fontSize: 26,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  brandPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 255, 204, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 255, 204, 0.3)',
-  },
-  greenDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#00ffcc',
-    marginRight: 6,
-  },
-  brandPillText: {
-    color: '#00ffcc',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  quickSection: {
-    paddingHorizontal: 16,
-    marginBottom: 26,
-  },
-  quickGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  quickCard: {
-    height: 54,
-    backgroundColor: '#18181c',
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#24242c',
-  },
-  quickArtwork: {
-    width: 54,
-    height: 54,
-    backgroundColor: '#0c0c0e',
-  },
-  quickTextContainer: {
-    flex: 1,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-  },
-  quickTitle: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 16,
-  },
-  quickPlayCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#00ffcc',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-    shadowColor: '#00ffcc',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 2,
   },
   section: {
     marginBottom: 28,
