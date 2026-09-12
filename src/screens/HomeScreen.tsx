@@ -10,6 +10,8 @@ import {
   ScrollView,
   RefreshControl,
   useWindowDimensions,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,7 +35,7 @@ import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { PartyModal } from '../components/PartyModal';
 import { getPartyState, subscribeToPartyState, PartyState } from '../services/partyService';
-import { getAmbientThemeForTrack } from '../utils/colorExtractor';
+import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
 import { showToast } from '../components/ToastNotification';
 
 interface MoodPill {
@@ -153,17 +155,12 @@ export function HomeScreen() {
   }, []);
 
   // Ambient greeting based on current local hour
-  const greeting = useMemo(() => {
+  const greetingPrefix = useMemo(() => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) {
-      return { title: 'Good Morning', subtitle: 'Subah Bakhair 🌅' };
-    } else if (hour >= 12 && hour < 17) {
-      return { title: 'Good Afternoon', subtitle: 'Good Afternoon ☀️' };
-    } else if (hour >= 17 && hour < 22) {
-      return { title: 'Evening Sukoon', subtitle: 'Evening Sukoon 🌆' };
-    } else {
-      return { title: 'Late Night Vibes', subtitle: 'Late Night Vibes 🌙' };
-    }
+    if (hour >= 5 && hour < 12) return 'Morning';
+    if (hour >= 12 && hour < 17) return 'Afternoon';
+    if (hour >= 17 && hour < 22) return 'Evening';
+    return 'Late Night';
   }, []);
 
   const activeUsername = useMemo(() => {
@@ -173,6 +170,14 @@ export function HomeScreen() {
   const profileInitial = useMemo(() => {
     return activeUsername.charAt(0).toUpperCase();
   }, [activeUsername]);
+
+  const ambientColor = useMemo(() => {
+    const rawColor = currentAmbientTrack ? getAmbientThemeForTrack(currentAmbientTrack).primary : undefined;
+    const seed = currentAmbientTrack 
+      ? `${currentAmbientTrack.id}_${currentAmbientTrack.title}_${currentAmbientTrack.artist}`
+      : selectedMood;
+    return boostAmbientColor(rawColor, seed);
+  }, [currentAmbientTrack, selectedMood]);
 
   // Load all home data
   const loadData = useCallback(async () => {
@@ -286,40 +291,6 @@ export function HomeScreen() {
     navigation.navigate('ArtistScreen', { artist });
   };
 
-  const getAmbientColors = (): [string, string, string] => {
-    if (currentAmbientTrack) {
-      return getAmbientThemeForTrack(currentAmbientTrack).gradient;
-    }
-    switch (selectedMood) {
-      case 'chill':
-        return ['rgba(0, 255, 204, 0.22)', 'rgba(0, 40, 35, 0.5)', '#000000'];
-      case 'romance':
-        return ['rgba(255, 75, 130, 0.22)', 'rgba(50, 15, 25, 0.5)', '#000000'];
-      case 'energy':
-        return ['rgba(255, 170, 0, 0.22)', 'rgba(51, 39, 15, 0.5)', '#000000'];
-      case 'heartbreak':
-        return ['rgba(147, 112, 219, 0.25)', 'rgba(30, 15, 45, 0.5)', '#000000'];
-      case 'desi_indie':
-        return ['rgba(255, 140, 0, 0.22)', 'rgba(45, 25, 10, 0.5)', '#000000'];
-      case 'nostalgia':
-        return ['rgba(218, 165, 32, 0.22)', 'rgba(40, 30, 10, 0.5)', '#000000'];
-      case 'late_night':
-        return ['rgba(138, 43, 226, 0.25)', 'rgba(28, 15, 51, 0.5)', '#000000'];
-      case 'party':
-        return ['rgba(255, 42, 109, 0.25)', 'rgba(40, 10, 30, 0.5)', '#000000'];
-      case 'focus':
-        return ['rgba(80, 140, 255, 0.22)', 'rgba(20, 35, 60, 0.5)', '#000000'];
-      case 'sufi':
-        return ['rgba(29, 83, 96, 0.25)', 'rgba(15, 41, 51, 0.5)', '#000000'];
-      case 'global':
-        return ['rgba(0, 200, 255, 0.22)', 'rgba(10, 35, 50, 0.5)', '#000000'];
-      case 'acoustic':
-        return ['rgba(180, 120, 70, 0.22)', 'rgba(40, 25, 15, 0.5)', '#000000'];
-      default:
-        return ['rgba(0, 255, 204, 0.18)', 'rgba(0, 30, 25, 0.4)', '#000000'];
-    }
-  };
-
   const renderTrackCard = (contextQueue?: TrackMetadata[], showRank = false) => ({ item, index }: { item: TrackMetadata; index: number }) => {
     const isPlayingThis = loadingTrackId === item.id;
     const artwork = item.artwork || (item as any)?.artworkUrl || (item as any)?.thumbnail || 'https://via.placeholder.com/150';
@@ -375,20 +346,20 @@ export function HomeScreen() {
   };
 
   // Safe padding configuration
-  const topSafePadding = insets.top + 8;
   const bottomSafePadding = insets.bottom + 130;
 
   return (
     <View style={styles.screen}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <LinearGradient 
-        colors={getAmbientColors()} 
-        style={styles.ambientGlow}
+        colors={[ambientColor, `${ambientColor}cc`, `${ambientColor}33`, '#070709']} 
+        locations={[0, 0.25, 0.55, 0.9]} 
+        style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
       <ScrollView 
         style={styles.container}
         contentContainerStyle={{ 
-          paddingTop: topSafePadding,
           paddingBottom: bottomSafePadding 
         }}
         showsVerticalScrollIndicator={false}
@@ -401,16 +372,27 @@ export function HomeScreen() {
           />
         }
       >
-        {/* Modern Ambient Header & Greeting */}
-        <View style={styles.headerContainer}>
+        {/* Minimalist Luxury Top Bar */}
+        <View 
+          style={[
+            styles.headerContainer, 
+            {
+              paddingTop: insets.top + (Platform.OS === 'android' ? 6 : 10),
+              paddingBottom: 14,
+              paddingHorizontal: 20,
+            }
+          ]}
+        >
           <View style={styles.headerTopRow}>
             <View style={styles.greetingWrapper}>
               <View style={styles.avatarCircle}>
                 <Text style={styles.avatarInitial}>{profileInitial}</Text>
               </View>
-              <View>
-                <Text style={styles.greetingTitle}>{greeting.title}, {activeUsername}</Text>
-                <Text style={styles.greetingSubtitle}>{greeting.subtitle}</Text>
+              <View style={{ gap: 3 }}>
+                <Text style={styles.greetingTitle}>{greetingPrefix}, {activeUsername}</Text>
+                <View style={styles.losslessChip}>
+                  <Text style={styles.losslessText}>LOSSLESS</Text>
+                </View>
               </View>
             </View>
 
@@ -420,7 +402,7 @@ export function HomeScreen() {
                 onPress={() => navigation.navigate('Search')}
                 activeOpacity={0.7}
               >
-                <Ionicons name="search" size={20} color="#ffffff" />
+                <Ionicons name="search" size={18} color="#ffffff" />
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -439,7 +421,7 @@ export function HomeScreen() {
 
         {/* Quick Picks Carousel (3-Song Pill Columns Based on Last Played Song) */}
         {topSuggestions.length > 0 && (
-          <View style={[styles.section, { marginTop: 14, paddingHorizontal: 0 }]}>
+          <View style={[styles.section, { marginTop: 8, paddingHorizontal: 0 }]}>
             <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
               <Text style={styles.sectionTitle}>Quick Picks</Text>
               <Ionicons name="sparkles" size={18} color="#00ffcc" />
@@ -830,21 +812,13 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  ambientGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 440,
+    backgroundColor: '#070709',
   },
   container: {
     flex: 1,
   },
   headerContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 0,
+    // dynamically styled with safe area top inset
   },
   headerTopRow: {
     flexDirection: 'row',
@@ -854,16 +828,16 @@ const styles = StyleSheet.create({
   greetingWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     flex: 1,
   },
   avatarCircle: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: 'rgba(0, 255, 204, 0.2)',
+    backgroundColor: 'rgba(0, 255, 204, 0.15)',
     borderWidth: 1.5,
-    borderColor: '#00ffcc',
+    borderColor: 'rgba(0, 255, 204, 0.45)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -875,14 +849,21 @@ const styles = StyleSheet.create({
   greetingTitle: {
     color: '#ffffff',
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
-  greetingSubtitle: {
-    color: '#8e8e98',
-    fontSize: 12,
-    fontWeight: '500',
-    marginTop: 2,
+  losslessChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  losslessText: {
+    color: '#00ffcc',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   headerActions: {
     flexDirection: 'row',
@@ -890,25 +871,23 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#18181c',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#2e2e36',
   },
   partyPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#18181c',
+    gap: 5,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    borderColor: 'rgba(0, 255, 204, 0.3)',
+    borderWidth: 1,
+    borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#2e2e36',
   },
   partyPillActive: {
     backgroundColor: '#00ffcc',
