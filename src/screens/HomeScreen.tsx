@@ -124,6 +124,8 @@ export function HomeScreen() {
   const [curatedPlaylists, setCuratedPlaylists] = useState<Playlist[]>([]);
   const [isMoodLoading, setIsMoodLoading] = useState(false);
   const [chartRegion, setChartRegion] = useState<'india' | 'global'>('india');
+  const [topSuggestions, setTopSuggestions] = useState<TrackMetadata[]>([]);
+  const [lastPlayedSong, setLastPlayedSong] = useState<TrackMetadata | null>(() => getLastPlayedTrack());
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
   const [indiaCharts, setIndiaCharts] = useState<TrackMetadata[]>([]);
   const [globalCharts, setGlobalCharts] = useState<TrackMetadata[]>([]);
@@ -131,6 +133,14 @@ export function HomeScreen() {
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
   const [quickItems, setQuickItems] = useState<QuickAccessItem[]>([]);
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
+
+  const chunkedPills = useMemo(() => {
+    const chunks: TrackMetadata[][] = [];
+    for (let i = 0; i < topSuggestions.length; i += 3) {
+      chunks.push(topSuggestions.slice(i, i + 3));
+    }
+    return chunks;
+  }, [topSuggestions]);
 
   const currentChartList = useMemo(() => {
     return chartRegion === 'india' ? indiaCharts : globalCharts;
@@ -175,6 +185,7 @@ export function HomeScreen() {
     const history = getListenHistory();
     setRecentTracks(history);
     const lastTrack = getLastPlayedTrack();
+    setLastPlayedSong(lastTrack);
     setCurrentAmbientTrack(lastTrack);
 
     const userPlaylists = getUserPlaylists();
@@ -182,15 +193,21 @@ export function HomeScreen() {
 
     try {
       const [recs, indiaData, globalData] = await Promise.all([
-        getRecommendedTracks(),
+        getRecommendedTracks(lastTrack?.id),
         fetchTrendingCharts('india'),
         fetchTrendingCharts('global')
       ]);
 
-      const safeRecs = Array.isArray(recs) ? recs : [];
       const safeIndia = Array.isArray(indiaData) ? indiaData : [];
       const safeGlobal = Array.isArray(globalData) ? globalData : [];
+      const rawRecs = Array.isArray(recs) ? recs : [];
+      const safeRecs = rawRecs.length > 0 ? rawRecs : (safeIndia.length > 0 ? safeIndia : []);
 
+      const finalSuggestions = safeRecs.length >= 3
+        ? safeRecs.slice(0, Math.min(21, safeRecs.length - (safeRecs.length % 3)))
+        : safeRecs.slice(0, 21);
+
+      setTopSuggestions(finalSuggestions);
       setRecommendations(safeRecs);
       setIndiaCharts(safeIndia);
       setGlobalCharts(safeGlobal);
@@ -537,6 +554,55 @@ export function HomeScreen() {
           </View>
         )}
 
+        {/* Quick Picks Carousel (3-Song Pill Columns Based on Last Played Song) */}
+        {topSuggestions.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Quick Picks</Text>
+              <Ionicons name="sparkles" size={18} color="#00ffcc" />
+            </View>
+            <Text style={styles.subtitle}>
+              {lastPlayedSong ? `Similar to ${lastPlayedSong.title}` : 'Based on your recent listening'}
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+              decelerationRate="normal"
+            >
+              {chunkedPills.map((chunk, chunkIndex) => (
+                <View
+                  key={`chunk-${chunkIndex}`}
+                  style={{ width: width * 0.86, gap: 8 }}
+                >
+                  {chunk.map((track) => (
+                    <TouchableOpacity
+                      key={track.id}
+                      activeOpacity={0.75}
+                      onPress={() => handlePlayTrack(track, topSuggestions)}
+                      style={styles.pillCard}
+                    >
+                      <Image
+                        source={{ uri: track.artwork || (track as any).thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200' }}
+                        style={styles.pillImage}
+                      />
+                      <View style={styles.pillInfo}>
+                        <Text numberOfLines={1} style={styles.pillTitle}>{track.title}</Text>
+                        <Text numberOfLines={1} style={styles.pillArtist}>{track.artist}</Text>
+                      </View>
+                      {loadingTrackId === track.id ? (
+                        <ActivityIndicator size="small" color="#00ffcc" style={styles.pillPlayIcon} />
+                      ) : (
+                        <Ionicons name="play-circle" size={26} color="#00ffcc" style={styles.pillPlayIcon} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Trending Charts Shelf (With Rank Badges & Region Toggles) */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
@@ -649,34 +715,6 @@ export function HomeScreen() {
             />
           </View>
         )}
-
-        {/* Made For You (Recommendations Shelf) */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Made For You</Text>
-            <Ionicons name="sparkles-outline" size={18} color="#00ffcc" />
-          </View>
-          <Text style={styles.subtitle}>Crafted specifically for your acoustic taste</Text>
-          
-          {isLoading && !isRefreshing ? (
-            <View style={styles.loaderContainer}>
-              <ActivityIndicator size="large" color="#00ffcc" />
-            </View>
-          ) : recommendations.length === 0 ? (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderText}>Pull down to discover fresh tracks tailored for you.</Text>
-            </View>
-          ) : (
-            <FlatList
-              horizontal
-              data={recommendations}
-              keyExtractor={(item, index) => `rec-${item.id}-${index}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(recommendations)}
-            />
-          )}
-        </View>
 
         {/* Curated Playlists & Moods Hub (12 Authentic Moods) */}
         <View style={[styles.section, { paddingHorizontal: 0, overflow: 'visible' }]}>
@@ -1310,5 +1348,40 @@ const styles = StyleSheet.create({
     color: '#777785',
     textAlign: 'center',
     fontSize: 13,
+  },
+  pillCard: {
+    height: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 6,
+    paddingRight: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  pillImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: '#18181c',
+  },
+  pillInfo: {
+    flex: 1,
+    marginLeft: 10,
+    justifyContent: 'center',
+  },
+  pillTitle: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pillArtist: {
+    color: '#aaaaaa',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  pillPlayIcon: {
+    marginLeft: 8,
   },
 });

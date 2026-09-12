@@ -202,10 +202,27 @@ export async function getSearchSuggestions(query: string, signal?: AbortSignal):
   return [];
 }
 
-export async function getRecommendedTracks(): Promise<TrackMetadata[]> {
+export async function getRecommendedTracks(seedTrackId?: string): Promise<TrackMetadata[]> {
   try {
+    if (seedTrackId) {
+      const cleanSeedId = String(seedTrackId).replace(/^yt_/i, '').trim();
+      const radioTracks = await fetchYouTubeMusicRadio(cleanSeedId);
+      if (Array.isArray(radioTracks) && radioTracks.length > 0) {
+        return radioTracks;
+      }
+    }
+
     const history = getListenHistory();
     if (history && history.length > 0) {
+      const firstTrack = history[0];
+      if (firstTrack?.id) {
+        const cleanSeedId = String(firstTrack.id).replace(/^yt_/i, '').trim();
+        const radioTracks = await fetchYouTubeMusicRadio(cleanSeedId);
+        if (Array.isArray(radioTracks) && radioTracks.length > 0) {
+          return radioTracks;
+        }
+      }
+
       // Pick up to 2 unique recent artists
       const uniqueArtists: string[] = [];
       for (const track of history) {
@@ -221,7 +238,7 @@ export async function getRecommendedTracks(): Promise<TrackMetadata[]> {
         for (const artist of uniqueArtists) {
           const songs = await searchTracks(`${artist} top songs`);
           if (Array.isArray(songs) && songs.length > 0) {
-            collectedTracks.push(...songs.slice(0, 5));
+            collectedTracks.push(...songs.slice(0, 10));
           }
         }
 
