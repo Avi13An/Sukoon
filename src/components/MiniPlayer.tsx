@@ -24,7 +24,7 @@ export function MiniPlayer({ bottom }: MiniPlayerProps = {}) {
     routeName = route?.name;
   } catch {}
 
-  const isStandaloneScreen = routeName === 'ArtistScreen' || routeName === 'PlaylistDetail';
+  const isStandaloneScreen = routeName === 'ArtistScreen' || routeName === 'PlaylistDetail' || routeName === 'PlaylistScreen';
   const defaultBottom = isStandaloneScreen ? insets.bottom : totalBarHeight;
   const activeBottom = typeof bottom === 'number' ? bottom : defaultBottom;
 

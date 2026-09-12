@@ -441,8 +441,113 @@ const chartCache: Record<'india' | 'global', ChartCacheEntry | null> = {
 const CHART_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache TTL
 
 /**
- * Strategy D: Accurate YouTube Music India & Global Top Charts
- * Pre-fetches, deduplicates, and caches the top 20 ranked tracks.
+ * Helper to fetch and parse official YouTube Music Chart playlists
+ */
+async function fetchChartPlaylistFromYouTube(playlistId: string): Promise<TrackMetadata[]> {
+  const cleanPlaylistId = playlistId.replace(/^VL/i, '').trim();
+  const browseId = `VL${cleanPlaylistId}`;
+  const endpoints = [
+    'https://music.youtube.com/youtubei/v1/browse?prettyPrint=false',
+    'https://www.youtube.com/youtubei/v1/browse?prettyPrint=false',
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6500);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'X-YouTube-Client-Name': '67',
+          'X-YouTube-Client-Version': '1.20240101.01.00',
+          'Origin': 'https://music.youtube.com',
+          'Referer': 'https://music.youtube.com/',
+        },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: 'WEB_REMIX',
+              clientVersion: '1.20240101.01.00',
+              hl: 'en',
+              gl: 'IN',
+            },
+          },
+          browseId,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) continue;
+      const data = await res.json();
+      const contents =
+        data.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]?.musicPlaylistShelfRenderer?.contents;
+
+      if (Array.isArray(contents) && contents.length > 0) {
+        const tracks: TrackMetadata[] = [];
+        const seenIds = new Set<string>();
+
+        for (const item of contents) {
+          const r = item.musicResponsiveListItemRenderer;
+          if (!r) continue;
+
+          const rawTitle = r.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+          const rawArtist = r.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map((x: any) => x.text).join('') || 'Popular Artist';
+          const videoId =
+            r.playlistItemData?.videoId ||
+            r.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.watchEndpoint?.videoId;
+
+          if (!videoId || !rawTitle) continue;
+          const cleanId = String(videoId).replace(/^yt_/i, '').trim();
+          if (!cleanId || seenIds.has(cleanId)) continue;
+          seenIds.add(cleanId);
+
+          const title = rawTitle
+            .replace(/[\(\[\{]?(official\s*(music\s*)?(video|audio|lyric\s*video|track|remix)?)[\)\]\}]?/gi, '')
+            .trim();
+          const artist = rawArtist.trim();
+
+          const thumbs = r.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails;
+          let artwork = thumbs?.[thumbs.length - 1]?.url;
+          if (artwork && typeof artwork === 'string') {
+            if (artwork.includes('w120-h120') || artwork.includes('w60-h60')) {
+              artwork = artwork.replace(/w\d+-h\d+/, 'w500-h500');
+            }
+          } else {
+            artwork = `https://i.ytimg.com/vi/${cleanId}/hqdefault.jpg`;
+          }
+
+          const duration = r.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text?.runs?.[0]?.text;
+
+          tracks.push({
+            id: cleanId,
+            url: cleanId,
+            title: title || rawTitle,
+            artist: artist || 'Popular Artist',
+            artwork,
+            duration,
+          });
+
+          if (tracks.length >= 25) break;
+        }
+
+        if (tracks.length > 0) {
+          return tracks;
+        }
+      }
+    } catch {
+      // Continue to next endpoint or candidate
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Strategy D: Official YouTube Music India & Global Top 100 Charts
+ * Queries official chart playlist IDs, extracts ranked tracks, and caches top 25 results.
  */
 export async function fetchTrendingCharts(
   region: 'india' | 'global' = 'india',
@@ -454,6 +559,31 @@ export async function fetchTrendingCharts(
     return cached.data;
   }
 
+  // Official Chart Playlist IDs
+  // India: PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ (Top 100 India), fallbacks: PL4fGSI1pDJn40WjZ6utkIuj2rNg-7iGsq, PL4fGSI1pDJn5oibdgJt8Hy0-dr2B7kSs2
+  // Global: PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc (Top 100 Global), fallback: PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v
+  const chartCandidates =
+    region === 'india'
+      ? ['PL4fGSI1pDJn6jXS_PEo3hJbhsxeJTrOBZ', 'PL4fGSI1pDJn40WjZ6utkIuj2rNg-7iGsq', 'PL4fGSI1pDJn5oibdgJt8Hy0-dr2B7kSs2']
+      : ['PL4fGSI1pDJn69On1f-8NAvX_CYlx7QyZc', 'PLFgquLnL59alGJcdc0BEZJb2U7Igkzn0v'];
+
+  for (const playlistId of chartCandidates) {
+    try {
+      const chartTracks = await fetchChartPlaylistFromYouTube(playlistId);
+      if (Array.isArray(chartTracks) && chartTracks.length > 0) {
+        const top25 = chartTracks.slice(0, 25);
+        chartCache[region] = {
+          data: top25,
+          timestamp: now,
+        };
+        return top25;
+      }
+    } catch (err) {
+      console.warn(`[musicApi] Failed fetching chart playlist ${playlistId}:`, err);
+    }
+  }
+
+  // Fallback to search query if official chart playlists are unavailable
   try {
     const primaryQuery =
       region === 'india'
@@ -497,14 +627,14 @@ export async function fetchTrendingCharts(
 
       cleanedTracks.push({
         id: cleanId,
-        url: t.url || cleanId,
+        url: cleanId,
         title: title || t.title,
         artist: artist || 'Popular Artist',
         artwork,
         duration: t.duration,
       });
 
-      if (cleanedTracks.length >= 20) break;
+      if (cleanedTracks.length >= 25) break;
     }
 
     if (cleanedTracks.length > 0) {
@@ -515,7 +645,7 @@ export async function fetchTrendingCharts(
       return cleanedTracks;
     }
   } catch (err) {
-    console.error(`[musicApi] Error fetching ${region} trending charts:`, err);
+    console.error(`[musicApi] Error fetching ${region} trending charts fallback:`, err);
   }
 
   if (chartCache[region]?.data?.length) {

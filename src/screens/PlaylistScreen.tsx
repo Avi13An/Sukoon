@@ -37,6 +37,8 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { createPartyRoom } from '../services/partyService';
 import { subscribeToCollabPlaylist, syncCollabTracks } from '../services/collabPlaylistService';
 import { useBottomClearance } from '../hooks/useBottomClearance';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MiniPlayer } from '../components/MiniPlayer';
 
 interface PlaylistScreenProps {
   route: any;
@@ -107,6 +109,7 @@ function applySmartShuffle(tracks: TrackMetadata[], mode: SmartShuffleMode): Tra
 }
 
 export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
+  const insets = useSafeAreaInsets();
   const { totalBottomPadding } = useBottomClearance(32);
   const initialPlaylist: Playlist = route.params?.playlist || {
     id: 'unknown',
@@ -473,7 +476,10 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         data={playlist.tracks}
         keyExtractor={(item, index) => `${item.id}-${index}`}
         renderItem={renderItem}
-        contentContainerStyle={[styles.listContent, { paddingBottom: totalBottomPadding }]}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: insets.bottom + 90 }
+        ]}
         ListHeaderComponent={
           <View style={styles.listHeaderWrapper}>
             {/* Fluid Responsive Header Card */}
@@ -800,6 +806,9 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
         onConfirm={confirmModal.onConfirm}
         onClose={() => setConfirmModal(prev => ({ ...prev, visible: false }))}
       />
+
+      {/* Floating MiniPlayer */}
+      <MiniPlayer />
     </SafeAreaView>
   );
 }

@@ -1,5 +1,6 @@
 import TrackPlayer, { Event, RepeatMode, PlayerCommand, PlaybackState } from '@rntp/player';
 import { Alert, AppState } from 'react-native';
+import { showToast } from '../components/ToastNotification';
 import { 
   getOfflineTracks, 
   getDownloadedTracks, 
@@ -334,6 +335,94 @@ export async function getAudioStreamUrl(trackId: string, forceRefresh = true): P
   return `https://invidious.f5.si/latest_version?id=${trackId}&itag=140`;
 }
 
+let stallWatchdogTimer: NodeJS.Timeout | null = null;
+let stallTargetTrackId: string | null = null;
+let hasAttemptedStallRefresh = false;
+
+export function clearStallWatchdog() {
+  if (stallWatchdogTimer) {
+    clearTimeout(stallWatchdogTimer);
+    stallWatchdogTimer = null;
+  }
+  stallTargetTrackId = null;
+  hasAttemptedStallRefresh = false;
+}
+
+export function startStallWatchdog(trackId?: string) {
+  if (stallWatchdogTimer) {
+    clearTimeout(stallWatchdogTimer);
+    stallWatchdogTimer = null;
+  }
+  const targetId = trackId || currentTrack?.id;
+  if (!targetId) return;
+
+  stallTargetTrackId = targetId;
+  stallWatchdogTimer = setTimeout(async () => {
+    console.warn(`[TrackPlayer] Stall watchdog triggered (>7s in buffering/loading for track: ${targetId})`);
+
+    if (stallTargetTrackId !== targetId) {
+      return;
+    }
+
+    if (!hasAttemptedStallRefresh) {
+      hasAttemptedStallRefresh = true;
+      showToast('Playback stalled, recovering stream...', 'info');
+      try {
+        console.log(`[TrackPlayer] Watchdog attempting fresh stream URL resolution for: ${targetId}`);
+        const freshUrl = await getAudioStreamUrl(targetId, true);
+        if (freshUrl && currentTrack && currentTrack.id === targetId) {
+          const updatedTrack = { ...currentTrack, url: freshUrl };
+          if (typeof (TrackPlayer as any).load === 'function') {
+            await (TrackPlayer as any).load(updatedTrack);
+          } else if (typeof (TrackPlayer as any).setMediaItem === 'function') {
+            await (TrackPlayer as any).setMediaItem(formatForTrackPlayer(updatedTrack, freshUrl));
+          } else {
+            await playTrack(updatedTrack, undefined, { fromQueue: true });
+          }
+          await TrackPlayer.play();
+
+          // Arm a second 7s window for the retry
+          if (stallWatchdogTimer) clearTimeout(stallWatchdogTimer);
+          stallWatchdogTimer = setTimeout(async () => {
+            console.warn('[TrackPlayer] Watchdog: Stream still stalled after fresh URL reload. Auto-skipping...');
+            showToast('Track unplayable, skipping to next...', 'info');
+            clearStallWatchdog();
+            try {
+              if (typeof (TrackPlayer as any).skipToNext === 'function') {
+                await (TrackPlayer as any).skipToNext();
+              } else {
+                await playNextTrack();
+              }
+            } catch {
+              await playNextTrack();
+            }
+          }, 7000);
+          return;
+        }
+      } catch (err) {
+        console.warn('[TrackPlayer] Watchdog stream recovery failed:', err);
+      }
+    }
+
+    console.warn('[TrackPlayer] Watchdog auto-skipping stalled track to next in queue');
+    showToast('Track unplayable, skipping to next...', 'info');
+    clearStallWatchdog();
+    try {
+      if (typeof (TrackPlayer as any).skipToNext === 'function') {
+        try {
+          await (TrackPlayer as any).skipToNext();
+        } catch {
+          await playNextTrack();
+        }
+      } else {
+        await playNextTrack();
+      }
+    } catch {
+      await playNextTrack();
+    }
+  }, 7000);
+}
+
 export async function resolveStreamUrl(track: TrackMetadata, bypassCache = false): Promise<string> {
   const downloadedTracks = getDownloadedTracks();
   const downloadedTrack = downloadedTracks.find(t => t.id === track.id);
@@ -341,10 +430,14 @@ export async function resolveStreamUrl(track: TrackMetadata, bypassCache = false
   const offlineTrack = offlineTracks[track.id];
   let playUrl = downloadedTrack?.localUri || offlineTrack?.localUri;
   if (!playUrl && track.url && !bypassCache) {
-    if (track.url.startsWith('http') || track.url.startsWith('file://')) {
-      playUrl = track.url;
-    } else if (track.url.startsWith('/')) {
-      playUrl = `file://${track.url}`;
+    // Avoid reusing stale or expired googlevideo.com CDN URLs that return HTTP 403
+    const isGoogleVideo = track.url.includes('googlevideo.com');
+    if (!isGoogleVideo) {
+      if (track.url.startsWith('http') || track.url.startsWith('file://')) {
+        playUrl = track.url;
+      } else if (track.url.startsWith('/')) {
+        playUrl = `file://${track.url}`;
+      }
     }
   }
   if (!playUrl) {
@@ -942,74 +1035,40 @@ export async function setupPlayer(): Promise<boolean> {
         }
       });
 
-      // 4. Catch source errors (expired 403 URLs) and retry with a fresh stream before giving up
+      // 4. Playback error recovery: toast and auto-skip to prevent hanging or freezing
       TrackPlayer.addEventListener(Event.PlaybackError, async (error: any) => {
         console.warn('[TrackPlayer] Playback error encountered:', error);
-
+        clearStallWatchdog();
+        showToast('Track unplayable, skipping to next...', 'info');
         try {
-          const activeTrack: any =
-            (typeof (TrackPlayer as any).getActiveTrack === 'function'
-              ? await (TrackPlayer as any).getActiveTrack()
-              : typeof (TrackPlayer as any).getActiveMediaItem === 'function'
-              ? (TrackPlayer as any).getActiveMediaItem()
-              : null) || getCurrentTrack();
-
-          const trackId = activeTrack?.id || activeTrack?.mediaId;
-          if (!trackId) return;
-
-          const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error || ''));
-          const errorCode = error?.code;
-
-          const isSourceError =
-            errorCode === 'source' ||
-            errorMsg.includes('Source error') ||
-            errorMsg.includes('403') ||
-            errorMsg.includes('BehindLiveWindow') ||
-            errorMsg.includes('Response code: 403');
-
-          if (isSourceError && lastFailedTrackId !== trackId && retryCount < 2) {
-            lastFailedTrackId = trackId;
-            retryCount++;
-            console.log(`[TrackPlayer] Refreshing stream URL for ${activeTrack.title || trackId}...`);
-
-            // Use the project's existing audio stream resolver with cache-bypass/force-refresh:
-            const freshUrl = await getAudioStreamUrl(trackId, true);
-
-            if (freshUrl) {
-              const updatedTrack = {
-                ...activeTrack,
-                id: trackId,
-                url: freshUrl,
-              };
-
-              if (typeof (TrackPlayer as any).load === 'function') {
-                await (TrackPlayer as any).load(updatedTrack);
-              } else if (typeof (TrackPlayer as any).setMediaItem === 'function') {
-                await (TrackPlayer as any).setMediaItem(formatForTrackPlayer(updatedTrack, freshUrl));
-              } else {
-                await playTrack(updatedTrack, undefined, { fromQueue: true });
-              }
-              await TrackPlayer.play();
-              return;
-            }
-          }
-
-          // If unrecoverable, skip forward so playback never freezes
-          console.warn('[TrackPlayer] Skipping unplayable track...');
-          lastFailedTrackId = null;
-          retryCount = 0;
           if (typeof (TrackPlayer as any).skipToNext === 'function') {
-            try {
-              await (TrackPlayer as any).skipToNext();
-            } catch {
-              await playNextTrack();
-            }
+            await (TrackPlayer as any).skipToNext();
           } else {
             await playNextTrack();
           }
-          await TrackPlayer.play();
         } catch (e) {
-          console.error('[TrackPlayer] Error recovery failed:', e);
+          console.warn('[TrackPlayer] skipToNext failed after error:', e);
+          try {
+            await playNextTrack();
+          } catch {}
+        }
+      });
+
+      // 5. Playback state monitoring for 7-second stall watchdog
+      TrackPlayer.addEventListener(Event.PlaybackStateChanged, async (event: any) => {
+        const state = event?.state;
+        if (state === PlaybackState.Buffering || state === 'buffering' || state === 'loading') {
+          startStallWatchdog();
+        } else if (state === PlaybackState.Ready || state === 'ready' || state === 'playing') {
+          clearStallWatchdog();
+        } else if (state === PlaybackState.Ended || state === PlaybackState.Error) {
+          clearStallWatchdog();
+        }
+      });
+
+      TrackPlayer.addEventListener(Event.IsPlayingChanged, async (event: any) => {
+        if (event?.playing) {
+          clearStallWatchdog();
         }
       });
 
@@ -1237,6 +1296,7 @@ export async function playTrack(
     saveListenHistory(currentTrack);
     notifyQueueListeners();
 
+    startStallWatchdog(currentTrack.id);
     let playUrl = await resolveStreamUrl(currentTrack);
     if (!playUrl || (!playUrl.startsWith('http') && !playUrl.startsWith('file://'))) {
       playUrl = `https://invidious.f5.si/latest_version?id=${currentTrack.id}&itag=140`;
