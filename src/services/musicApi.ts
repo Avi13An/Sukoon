@@ -737,8 +737,18 @@ export async function fetchNewReleases(
   try {
     const queries =
       language === 'hindi'
-        ? ['Latest Hindi Songs 2026 New Releases', 'New Hindi Music YouTube Music', 'Latest Hindi Songs 2025']
-        : ['New Music Friday Global YouTube Music', 'Latest English Pop Hits 2026', 'New English Songs Pop'];
+        ? [
+            'Latest Hindi Hits 2026 YouTube Music',
+            'New Hindi Songs 2026 Latest Releases',
+            'Bollywood Latest Singles 2026',
+            'Indian Indie New Music 2026'
+          ]
+        : [
+            'New Music Friday YouTube Music',
+            'Billboard Hot 100 New Debuts 2026',
+            'Latest English Pop Hits 2026',
+            'Global Top New Releases 2026'
+          ];
 
     const rawTracks: TrackMetadata[] = [];
     for (const q of queries) {
@@ -746,11 +756,18 @@ export async function fetchNewReleases(
       if (Array.isArray(results) && results.length > 0) {
         rawTracks.push(...results);
       }
-      if (rawTracks.length >= 25) break;
+      if (rawTracks.length >= 35) break;
     }
 
     const seenIds = new Set<string>();
     const cleanedTracks: TrackMetadata[] = [];
+
+    // Filter list of legacy years and retro terms to ensure tracks are fresh within ~90 days
+    const legacyPatterns = [
+      '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2017', '2016', '2015',
+      '90s', '80s', '70s', '2000s', 'retro', 'evergreen', 'classic', 'purane gaane',
+      'non-stop', 'non stop', 'megamix', 'mashup', 'mixtape', 'dj remix', 'jukebox'
+    ];
 
     for (const t of rawTracks) {
       if (!t || !t.id) continue;
@@ -763,15 +780,9 @@ export async function fetchNewReleases(
       const lowerT = rawTitle.toLowerCase();
       const lowerA = rawArtist.toLowerCase();
 
-      // Filter out long mixes, DJ non-stops, mixtapes
-      if (
-        lowerT.includes('non-stop') ||
-        lowerT.includes('non stop') ||
-        lowerT.includes('megamix') ||
-        lowerT.includes('mashup') ||
-        lowerT.includes('mixtape') ||
-        lowerT.includes('dj remix')
-      ) {
+      // Exclude legacy songs, compilations, and remixes
+      const isLegacy = legacyPatterns.some((pattern) => lowerT.includes(pattern) || lowerA.includes(pattern));
+      if (isLegacy) {
         continue;
       }
 

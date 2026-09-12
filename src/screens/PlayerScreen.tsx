@@ -1,5 +1,21 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, useWindowDimensions, ActivityIndicator, Alert, TextInput, PanResponder, FlatList } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Image, 
+  TouchableOpacity, 
+  ScrollView, 
+  useWindowDimensions, 
+  ActivityIndicator, 
+  Alert, 
+  TextInput, 
+  PanResponder, 
+  FlatList,
+  StatusBar,
+  Platform,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TrackPlayer, { useActiveMediaItem, useIsPlaying, useProgress, RepeatMode } from '@rntp/player';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchLyrics, LrcLibResponse, sanitizeLyricText } from '../services/lyricsService';
@@ -39,8 +55,9 @@ import {
 import { getAmbientThemeForTrack } from '../utils/colorExtractor';
 
 export function PlayerScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const maxArtHeight = Math.min(width - 64, height * 0.35);
+  const artSize = Math.min(width * 0.82, height * 0.38);
 
   const [isShuffleActive, setIsShuffleActive] = useState(getIsShuffleActive());
 
@@ -435,9 +452,12 @@ export function PlayerScreen({ navigation }: any) {
   if (!track) {
     return (
       <View style={styles.container}>
-        <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-down" size={32} color="#ffffff" />
-        </TouchableOpacity>
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+        <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+          <TouchableOpacity style={styles.frostedCircleBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-down" size={22} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.noTrackText}>No track playing</Text>
       </View>
     );
@@ -459,287 +479,330 @@ export function PlayerScreen({ navigation }: any) {
   return (
     <SafeErrorBoundary fallbackName="PlayerScreen">
       <View style={styles.container}>
-      <LinearGradient
-        colors={ambientTheme.gradient}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 0.7 }}
-        pointerEvents="none"
-      />
-      <View style={styles.header}>
-        <View pointerEvents="none" style={styles.centeredTitleWrapper}>
-          <Text style={styles.headerTitle}>Now Playing</Text>
-        </View>
-        <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-down" size={32} color="#ffffff" />
-        </TouchableOpacity>
-        <View style={styles.headerRight}>
+        <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+        <LinearGradient
+          colors={ambientTheme.gradient}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 0.7 }}
+          pointerEvents="none"
+        />
+
+        {/* TOP HEADER */}
+        <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
           <TouchableOpacity 
-            style={styles.headerIcon} 
-            onPress={handleToggleShuffle}
+            style={styles.frostedCircleBtn} 
+            onPress={() => navigation.goBack()}
             activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons 
-              name={isShuffleActive ? "shuffle" : "shuffle-outline"} 
-              size={22} 
-              color={isShuffleActive ? "#00ffcc" : "#ffffff"} 
-            />
+            <Ionicons name="chevron-down" size={22} color="#ffffff" />
           </TouchableOpacity>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.playingFromLabel}>PLAYING FROM</Text>
+            <Text style={styles.playingFromTitle} numberOfLines={1}>
+              {track?.artist ? `${track.artist} Radio` : 'Sukoon Lossless'}
+            </Text>
+          </View>
+
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={[styles.frostedCircleBtn, sleepState.isActive && styles.frostedCircleBtnActive]} 
+              onPress={() => setIsSleepTimerVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons 
+                name={sleepState.isActive ? "moon" : "moon-outline"} 
+                size={18} 
+                color={sleepState.isActive ? "#00ffcc" : "#ffffff"} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.frostedCircleBtn, partyState.isActive && styles.frostedCircleBtnActive]} 
+              onPress={() => setIsPartyModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons 
+                name={partyState.isActive ? "sparkles" : "sparkles-outline"} 
+                size={18} 
+                color={partyState.isActive ? "#00ffcc" : "#ffffff"} 
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {partyState.isActive && (
           <TouchableOpacity 
-            style={styles.headerIcon} 
+            style={styles.partyBanner} 
             onPress={() => setIsPartyModalVisible(true)}
-            activeOpacity={0.7}
+            activeOpacity={0.8}
           >
-            <Ionicons 
-              name={partyState.isActive ? "sparkles" : "sparkles-outline"} 
-              size={22} 
-              color={partyState.isActive ? "#00ffcc" : "#ffffff"} 
-            />
+            <View style={styles.partyBannerPulse} />
+            <Text style={styles.partyBannerText}>
+              🎉 Party Sync Active • Code: {partyState.roomCode}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color="#00ffcc" />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.headerIcon} 
-            onPress={() => setIsSleepTimerVisible(true)}
-            activeOpacity={0.7}
+        )}
+
+        {showLyrics ? (
+          <View 
+            style={[styles.lyricsContainer, { flex: 1, width: '100%', overflow: 'hidden' }]}
+            onLayout={(e) => {
+              const { height: h } = e.nativeEvent.layout;
+              if (h > 50) {
+                setContainerHeight(h);
+              }
+            }}
           >
-            <Ionicons 
-              name={sleepState.isActive ? "moon" : "moon-outline"} 
-              size={22} 
-              color={sleepState.isActive ? "#00ffcc" : "#ffffff"} 
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {partyState.isActive && (
-        <TouchableOpacity 
-          style={styles.partyBanner} 
-          onPress={() => setIsPartyModalVisible(true)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.partyBannerPulse} />
-          <Text style={styles.partyBannerText}>
-            🎉 Party Sync Active • Code: {partyState.roomCode}
-          </Text>
-          <Ionicons name="chevron-forward" size={14} color="#00ffcc" />
-        </TouchableOpacity>
-      )}
-
-      {showLyrics ? (
-        <View 
-          style={[styles.lyricsContainer, { flex: 1, width: '100%', overflow: 'hidden' }]}
-          onLayout={(e) => {
-            const { height: h } = e.nativeEvent.layout;
-            if (h > 50) {
-              setContainerHeight(h);
-            }
-          }}
-        >
-          {lyricsLoading ? (
-            <ActivityIndicator size="large" color="#ffffff" style={styles.loader} />
-          ) : syncedLines.length > 0 ? (
-            <FlatList
-              ref={lyricsFlatListRef}
-              data={syncedLines}
-              keyExtractor={(item, index) => `${index}-${item.time}`}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{
-                paddingTop: verticalPadding,
-                paddingBottom: verticalPadding,
-                paddingHorizontal: 20,
-              }}
-              getItemLayout={(_, index) => ({
-                length: LINE_HEIGHT,
-                offset: LINE_HEIGHT * index,
-                index,
-              })}
-              renderItem={({ item, index }) => {
-                const isActive = index === currentLyricIndex;
-                const isPassed = index < currentLyricIndex;
-                return (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => handleSeek(item.time)}
-                    style={{
-                      height: LINE_HEIGHT,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      paddingHorizontal: 16,
-                      overflow: 'visible',
-                    }}
-                  >
-                    <Text 
-                      numberOfLines={2}
-                      style={[
-                        styles.syncedLyricLine, 
-                        {
-                          marginBottom: 0,
-                          fontSize: isActive ? 21 : 16,
-                          lineHeight: isActive ? 26 : 22,
-                          textAlign: 'center',
-                          includeFontPadding: false,
-                        },
-                        isActive && styles.activeLyricLine,
-                        isPassed && styles.passedLyricLine
-                      ]}
+            {lyricsLoading ? (
+              <ActivityIndicator size="large" color="#ffffff" style={styles.loader} />
+            ) : syncedLines.length > 0 ? (
+              <FlatList
+                ref={lyricsFlatListRef}
+                data={syncedLines}
+                keyExtractor={(item, index) => `${index}-${item.time}`}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingTop: verticalPadding,
+                  paddingBottom: verticalPadding,
+                  paddingHorizontal: 20,
+                }}
+                getItemLayout={(_, index) => ({
+                  length: LINE_HEIGHT,
+                  offset: LINE_HEIGHT * index,
+                  index,
+                })}
+                renderItem={({ item, index }) => {
+                  const isActive = index === currentLyricIndex;
+                  const isPassed = index < currentLyricIndex;
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => handleSeek(item.time)}
+                      style={{
+                        height: LINE_HEIGHT,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        paddingHorizontal: 16,
+                        overflow: 'visible',
+                      }}
                     >
-                      {sanitizeLyricText(item.text)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          ) : lyricsData?.plainLyrics ? (
-            <ScrollView contentContainerStyle={styles.lyricsScroll}>
-              <Text style={styles.plainLyricsText}>{lyricsData.plainLyrics}</Text>
-            </ScrollView>
-          ) : (
-            <Text style={styles.noLyricsText}>No lyrics available for this track.</Text>
-          )}
-        </View>
-      ) : (
-        <View style={styles.mainPlayer}>
-          <View style={[styles.artworkContainer, { width: maxArtHeight, height: maxArtHeight, marginVertical: height < 700 ? 8 : 16 }]}>
-            <Image 
-              source={{ uri: artworkUri }} 
-              style={{ width: '100%', height: '100%', borderRadius: 16 }} 
-              resizeMode="cover" 
-            />
-          </View>
-          <View style={[styles.trackInfoContainer, { marginBottom: height < 700 ? 6 : 14 }]}>
-            <Text style={[styles.titleLg, { fontSize: height < 700 ? 20 : 24, marginBottom: 4 }]} numberOfLines={2}>{track.title}</Text>
-            <Text style={[styles.artistLg, { fontSize: height < 700 ? 14 : 16 }]} numberOfLines={1}>{track.artist}</Text>
-          </View>
-        </View>
-      )}
-
-      <View style={[styles.controlsContainer, { paddingBottom: height < 700 ? 20 : 36 }]}>
-        {/* Scrubber Container */}
-        <View
-          collapsable={false}
-          style={[styles.sliderContainer, { marginTop: 4, marginBottom: height < 700 ? 4 : 12 }]}
-        >
-          <View
-            style={styles.sliderInteractiveArea}
-            onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
-            {...panResponder.panHandlers}
-          >
-            <View style={styles.sliderTrackBackground}>
-              <View style={[styles.sliderTrackActive, { width: `${progressPercent}%` }]} />
-            </View>
-            <View style={[styles.sliderThumb, { left: `${progressPercent}%` }]} />
-          </View>
-        </View>
-        <View style={[styles.timeRow, { marginBottom: height < 700 ? 10 : 16 }]}>
-          <Text style={styles.timeText}>{formatTime(currentPos)}</Text>
-          <Text style={styles.timeText}>{formatTime(duration)}</Text>
-        </View>
-
-        <View style={styles.buttonsRow}>
-          <TouchableOpacity 
-            onPress={handleLoopToggle} 
-            style={[styles.controlSideBtn, { width: height < 700 ? 42 : 48, height: height < 700 ? 42 : 48 }]} 
-            activeOpacity={0.7}
-          >
-            <Ionicons 
-              name={repeatMode === RepeatMode.One ? "repeat-outline" : "repeat"} 
-              size={height < 700 ? 20 : 24} 
-              color={repeatMode === RepeatMode.Off ? "#888888" : "#00ffcc"} 
-            />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={skipPrev} 
-            style={[styles.controlSkipBtn, { width: height < 700 ? 44 : 52, height: height < 700 ? 44 : 52 }]} 
-            activeOpacity={0.7}
-          >
-            <Ionicons name="play-skip-back" size={height < 700 ? 28 : 34} color="#ffffff" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={togglePlayback} 
-            style={[styles.playPauseBtn, { width: height < 700 ? 64 : 76, height: height < 700 ? 64 : 76, borderRadius: height < 700 ? 32 : 38 }]} 
-            activeOpacity={0.85}
-          >
-            <Ionicons name={isPlaying ? "pause" : "play"} size={height < 700 ? 36 : 44} color="#000000" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={skipNext} 
-            style={[styles.controlSkipBtn, { width: height < 700 ? 44 : 52, height: height < 700 ? 44 : 52 }]} 
-            activeOpacity={0.7}
-          >
-            <Ionicons name="play-skip-forward" size={height < 700 ? 28 : 34} color="#ffffff" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={handleToggleLike} 
-            style={[styles.controlSideBtn, { width: height < 700 ? 42 : 48, height: height < 700 ? 42 : 48 }]} 
-            activeOpacity={0.7}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons 
-              name={isLiked ? "heart" : "heart-outline"} 
-              size={height < 700 ? 22 : 26} 
-              color={isLiked ? "#FF3B30" : "#A0AAB8"} 
-            />
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.secondaryActionsRow, { marginTop: height < 700 ? 14 : 24 }]}>
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsKaraokeStudioVisible(true)}
-          >
-            <Ionicons name="mic" size={height < 700 ? 18 : 22} color="#ff3b30" />
-            <Text style={[styles.secondaryActionText, { color: '#ff3b30', fontSize: height < 700 ? 10 : 11 }]}>Studio</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsLyricsModalVisible(true)}
-          >
-            <Ionicons name="document-text-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
-            <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Lyrics</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsQueueModalVisible(true)}
-          >
-            <Ionicons name="list-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
-            <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Queue</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={() => setIsPlaylistModalVisible(true)}
-          >
-            <Ionicons name="add-circle-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
-            <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Playlist</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.secondaryActionBtn} 
-            onPress={handleToggleDownload}
-          >
-            {isDownloading ? (
-              <View style={styles.downloadingWrapper}>
-                <ActivityIndicator size="small" color="#00ffcc" />
-                <Text style={styles.downloadPercentText}>
-                  {Math.round(downloadProgress * 100)}%
-                </Text>
-              </View>
-            ) : isDownloaded ? (
-              <>
-                <Ionicons name="checkmark-circle" size={height < 700 ? 18 : 22} color="#00ffcc" />
-                <Text style={[styles.secondaryActionText, { color: '#00ffcc', fontSize: height < 700 ? 10 : 11 }]}>Saved</Text>
-              </>
+                      <Text 
+                        numberOfLines={2}
+                        style={[
+                          styles.syncedLyricLine, 
+                          {
+                            marginBottom: 0,
+                            fontSize: isActive ? 21 : 16,
+                            lineHeight: isActive ? 26 : 22,
+                            textAlign: 'center',
+                            includeFontPadding: false,
+                          },
+                          isActive && styles.activeLyricLine,
+                          isPassed && styles.passedLyricLine
+                        ]}
+                      >
+                        {sanitizeLyricText(item.text)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            ) : lyricsData?.plainLyrics ? (
+              <ScrollView contentContainerStyle={styles.lyricsScroll}>
+                <Text style={styles.plainLyricsText}>{lyricsData.plainLyrics}</Text>
+              </ScrollView>
             ) : (
-              <>
-                <Ionicons name="arrow-down-circle-outline" size={height < 700 ? 18 : 22} color="#aaaaaa" />
-                <Text style={[styles.secondaryActionText, { fontSize: height < 700 ? 10 : 11 }]}>Download</Text>
-              </>
+              <Text style={styles.noLyricsText}>No lyrics available for this track.</Text>
             )}
-          </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.mainPlayer}>
+            <View 
+              style={[
+                styles.artworkContainer, 
+                { 
+                  width: artSize, 
+                  height: artSize,
+                  shadowColor: ambientTheme.accent || '#00ffcc',
+                }
+              ]}
+            >
+              <Image 
+                source={{ uri: artworkUri }} 
+                style={styles.artworkImage} 
+                resizeMode="cover" 
+              />
+            </View>
+
+            {/* TRACK INFO ROW (APPLE/SPOTIFY HYBRID) */}
+            <View style={styles.trackInfoRow}>
+              <View style={styles.trackMetaLeft}>
+                <Text style={styles.trackTitleText} numberOfLines={1}>{track.title}</Text>
+                <Text style={styles.trackArtistText} numberOfLines={1}>{track.artist}</Text>
+                <View style={styles.hiResPill}>
+                  <Text style={styles.hiResPillText}>LOSSLESS • 24-BIT</Text>
+                </View>
+              </View>
+              <TouchableOpacity 
+                onPress={handleToggleLike} 
+                style={styles.likeButton}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons 
+                  name={isLiked ? "heart" : "heart-outline"} 
+                  size={26} 
+                  color={isLiked ? "#ff3366" : "rgba(255, 255, 255, 0.6)"} 
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.controlsContainer}>
+          {/* Scrubber Container */}
+          <View
+            collapsable={false}
+            style={styles.sliderContainer}
+          >
+            <View
+              style={styles.sliderInteractiveArea}
+              onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
+              {...panResponder.panHandlers}
+            >
+              <View style={styles.sliderTrackBackground}>
+                <View style={[styles.sliderTrackActive, { width: `${progressPercent}%` }]} />
+              </View>
+              <View style={[styles.sliderThumb, { left: `${progressPercent}%` }]} />
+            </View>
+          </View>
+          <View style={styles.timeRow}>
+            <Text style={styles.timeText}>{formatTime(currentPos)}</Text>
+            <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          </View>
+
+          {/* 5-item horizontal playback controls */}
+          <View style={styles.buttonsRow}>
+            {/* 1. Shuffle */}
+            <TouchableOpacity 
+              onPress={handleToggleShuffle} 
+              style={styles.controlSmallBtn} 
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons 
+                name="shuffle" 
+                size={22} 
+                color={isShuffleActive ? "#00ffcc" : "rgba(255, 255, 255, 0.4)"} 
+              />
+              {isShuffleActive && <View style={styles.activeDot} />}
+            </TouchableOpacity>
+
+            {/* 2. Previous */}
+            <TouchableOpacity 
+              onPress={skipPrev} 
+              style={styles.controlSkipBtn} 
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-skip-back" size={28} color="#ffffff" />
+            </TouchableOpacity>
+
+            {/* 3. Play / Pause */}
+            <TouchableOpacity 
+              onPress={togglePlayback} 
+              style={styles.playPauseBtn} 
+              activeOpacity={0.85}
+            >
+              <Ionicons 
+                name={isPlaying ? "pause" : "play"} 
+                size={32} 
+                color="#000000" 
+                style={isPlaying ? {} : { marginLeft: 3 }} 
+              />
+            </TouchableOpacity>
+
+            {/* 4. Next */}
+            <TouchableOpacity 
+              onPress={skipNext} 
+              style={styles.controlSkipBtn} 
+              activeOpacity={0.7}
+            >
+              <Ionicons name="play-skip-forward" size={28} color="#ffffff" />
+            </TouchableOpacity>
+
+            {/* 5. Repeat */}
+            <TouchableOpacity 
+              onPress={handleLoopToggle} 
+              style={styles.controlSmallBtn} 
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons 
+                name={repeatMode === RepeatMode.One ? "repeat-outline" : "repeat"} 
+                size={22} 
+                color={repeatMode === RepeatMode.Off ? "rgba(255, 255, 255, 0.4)" : "#00ffcc"} 
+              />
+              {repeatMode !== RepeatMode.Off && <View style={styles.activeDot} />}
+            </TouchableOpacity>
+          </View>
+
+          {/* Floating Action Dock */}
+          <View style={[styles.floatingDock, { marginBottom: insets.bottom + 8 }]}>
+            <TouchableOpacity 
+              style={styles.dockItem} 
+              onPress={() => setIsKaraokeStudioVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="mic" size={20} color="#ff4d4d" />
+              <Text style={[styles.dockLabel, { color: '#ff4d4d' }]}>Studio</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.dockItem} 
+              onPress={() => setIsLyricsModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="document-text-outline" size={20} color="#bbbbbb" />
+              <Text style={styles.dockLabel}>Lyrics</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.dockItem} 
+              onPress={() => setIsQueueModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="list-outline" size={20} color="#bbbbbb" />
+              <Text style={styles.dockLabel}>Queue</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.dockItem} 
+              onPress={handleToggleDownload}
+              activeOpacity={0.7}
+            >
+              {isDownloading ? (
+                <View style={{ alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#00ffcc" />
+                  <Text style={[styles.dockLabel, { color: '#00ffcc' }]}>
+                    {Math.round(downloadProgress * 100)}%
+                  </Text>
+                </View>
+              ) : isDownloaded ? (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#00ffcc" />
+                  <Text style={[styles.dockLabel, { color: '#00ffcc' }]}>Saved</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="arrow-down-circle-outline" size={20} color="#bbbbbb" />
+                  <Text style={styles.dockLabel}>Download</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
 
       <PartyModal
         visible={isPartyModalVisible}
@@ -809,41 +872,49 @@ export function PlayerScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#070709',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 50,
-    paddingBottom: 16,
-    position: 'relative',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
   },
-  centeredTitleWrapper: {
-    position: 'absolute',
-    top: 50,
-    bottom: 16,
-    left: 0,
-    right: 0,
-    justifyContent: 'center',
+  frostedCircleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  closeBtn: {
-    padding: 4,
+  frostedCircleBtnActive: {
+    backgroundColor: 'rgba(0, 255, 204, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.4)',
   },
-  headerTitle: {
+  headerCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '55%',
+  },
+  playingFromLabel: {
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: '#888888',
+    fontWeight: '700',
+  },
+  playingFromTitle: {
+    fontSize: 12,
+    fontWeight: '700',
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
+    marginTop: 2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  headerIcon: {
-    marginLeft: 16,
-    padding: 4,
+    gap: 10,
   },
   partyBanner: {
     flexDirection: 'row',
@@ -853,7 +924,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     marginHorizontal: 20,
-    marginBottom: 10,
+    marginBottom: 8,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 204, 0.4)',
@@ -876,9 +947,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  lyricsToggle: {
-    padding: 4,
-  },
   noTrackText: {
     color: '#ffffff',
     textAlign: 'center',
@@ -889,41 +957,71 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
   },
   artworkContainer: {
-    borderRadius: 16,
+    borderRadius: 22,
     backgroundColor: '#121212',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowRadius: 28,
+    elevation: 18,
     alignSelf: 'center',
+    marginBottom: 16,
   },
-  trackInfoContainer: {
+  artworkImage: {
     width: '100%',
-    paddingHorizontal: 24,
-    alignItems: 'flex-start',
+    height: '100%',
+    borderRadius: 22,
   },
-  titleLg: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    marginBottom: 4,
+  trackInfoRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
   },
-  artistLg: {
-    color: 'rgba(255, 255, 255, 0.65)',
+  trackMetaLeft: {
+    flex: 1,
+    marginRight: 14,
+  },
+  trackTitleText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.3,
+  },
+  trackArtistText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#aaaaaa',
+    marginTop: 3,
+  },
+  hiResPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 255, 204, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 6,
+  },
+  hiResPillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#00ffcc',
+    letterSpacing: 0.5,
+  },
+  likeButton: {
+    padding: 6,
   },
   controlsContainer: {
     width: '100%',
-    paddingHorizontal: 20,
-    paddingBottom: 36,
+    paddingHorizontal: 16,
     flexShrink: 0,
   },
   sliderContainer: {
     width: '100%',
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     height: 32,
     justifyContent: 'center',
   },
@@ -935,23 +1033,23 @@ const styles = StyleSheet.create({
   },
   sliderTrackBackground: {
     height: 4,
-    backgroundColor: '#333333',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderRadius: 2,
     overflow: 'hidden',
   },
   sliderTrackActive: {
     height: '100%',
-    backgroundColor: '#00ffcc',
+    backgroundColor: '#ffffff',
     borderRadius: 2,
   },
   sliderThumb: {
     position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: '#ffffff',
-    marginLeft: -7,
-    top: 9,
+    marginLeft: -6,
+    top: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.5,
@@ -962,77 +1060,80 @@ const styles = StyleSheet.create({
     width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     marginTop: -4,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   timeText: {
-    color: '#aaaaaa',
+    color: '#777777',
     fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   buttonsRow: {
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
+    paddingHorizontal: 16,
+    marginBottom: 16,
     flexShrink: 0,
   },
-  controlSideBtn: {
+  controlSmallBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  activeDot: {
+    position: 'absolute',
+    bottom: 4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#00ffcc',
+  },
+  controlSkipBtn: {
     width: 48,
     height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  controlSkipBtn: {
-    width: 52,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  controlBtn: {
-    padding: 16,
-  },
-  downloadingWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  downloadPercentText: {
-    color: '#00ffcc',
-    fontSize: 9,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  secondaryActionsRow: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    alignItems: 'center',
-    marginTop: 26,
-    paddingHorizontal: 0,
-    flexShrink: 0,
-  },
-  secondaryActionBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 0,
-  },
-  secondaryActionText: {
-    color: '#888896',
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 4,
-    textAlign: 'center',
-  },
   playPauseBtn: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  floatingDock: {
+    marginHorizontal: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  dockItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  dockLabel: {
+    fontSize: 10,
+    color: '#bbbbbb',
+    marginTop: 3,
+    fontWeight: '500',
   },
   lyricsContainer: {
     flex: 1,

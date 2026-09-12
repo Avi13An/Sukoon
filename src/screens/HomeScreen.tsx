@@ -567,7 +567,7 @@ export function HomeScreen() {
                     newReleaseLang === 'english' ? styles.regionPillTextActive : styles.regionPillTextInactive,
                   ]}
                 >
-                  🌍 English
+                  🌐 English
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1265,12 +1265,12 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   newReleaseCard: {
-    width: 135,
+    width: 140,
     marginRight: 14,
   },
   newReleaseArtworkWrapper: {
-    width: 135,
-    height: 135,
+    width: 140,
+    height: 140,
     borderRadius: 12,
     backgroundColor: '#18181c',
     overflow: 'hidden',
@@ -1279,8 +1279,8 @@ const styles = StyleSheet.create({
     borderColor: '#24242c',
   },
   newReleaseArtwork: {
-    width: 135,
-    height: 135,
+    width: 140,
+    height: 140,
     borderRadius: 12,
   },
   newReleaseBadge: {

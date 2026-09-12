@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -9,8 +9,13 @@ import {
   Modal, 
   TextInput, 
   Alert,
-  RefreshControl
+  RefreshControl,
+  StatusBar,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
@@ -41,10 +46,11 @@ import {
   importPlaylistByCode as importCloudPlaylist 
 } from '../services/cloudPlaylistService';
 import { createCollaborativePlaylist } from '../services/collabPlaylistService';
-import { useBottomClearance } from '../hooks/useBottomClearance';
 
 export function LibraryScreen({ navigation }: any) {
-  const { totalBottomPadding } = useBottomClearance(24);
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const cardWidth = (width - 48) / 2;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [collabPlaylists, setCollabPlaylists] = useState<CollaborativePlaylist[]>([]);
@@ -60,6 +66,9 @@ export function LibraryScreen({ navigation }: any) {
   const [importShareCode, setImportShareCode] = useState('');
   const [foundPreviewPlaylist, setFoundPreviewPlaylist] = useState<Playlist | null>(null);
   const [activeUsername, setActiveUsername] = useState<string | null>(getActiveUser());
+  const profileInitial = useMemo(() => {
+    return (activeUsername || 'User').charAt(0).toUpperCase();
+  }, [activeUsername]);
 
   // Collab Playlist Creation State
   const [isCreateCollabModalVisible, setIsCreateCollabModalVisible] = useState(false);
@@ -323,13 +332,13 @@ export function LibraryScreen({ navigation }: any) {
 
   const renderHeader = () => (
     <View style={styles.headerContainer}>
-      {/* User Profile Bar */}
-      <View style={styles.topProfileRow}>
-        <View style={styles.userProfileInfo}>
-          <View style={styles.avatarIconBadge}>
-            <Ionicons name="person" size={14} color="#00ffcc" />
+      {/* Top Profile & Header Bar */}
+      <View style={[styles.topProfileBar, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.topProfileLeft}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarInitial}>{profileInitial}</Text>
           </View>
-          <Text style={styles.profileUsernameText}>{activeUsername || 'User'}</Text>
+          <Text style={styles.headerTitle}>Your Library</Text>
         </View>
         <TouchableOpacity 
           style={styles.logoutBtn} 
@@ -341,72 +350,76 @@ export function LibraryScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.headerTitle}>Your Library</Text>
-
-      <TouchableOpacity style={styles.downloadCard} onPress={navigateToDownloads} activeOpacity={0.7}>
-        <View style={styles.downloadIconPlaceholder}>
-          <Ionicons name="arrow-down-circle" size={24} color="#00ffcc" />
-        </View>
-        <View style={styles.downloadInfo}>
-          <Text style={styles.downloadTitle}>Downloaded Tracks</Text>
-          <Text style={styles.downloadCount}>
-            {downloadedTracks.length} offline tracks {downloadedTracks.length > 0 ? `• ${storageUsage}` : ''}
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      <TouchableOpacity 
-        style={[styles.downloadCard, { marginTop: -12, borderColor: 'rgba(255, 59, 48, 0.25)' }]} 
-        onPress={() => setIsStudioModalVisible(true)} 
-        activeOpacity={0.7}
-      >
-        <View style={[styles.downloadIconPlaceholder, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}>
-          <Ionicons name="mic" size={24} color="#ff3b30" />
-        </View>
-        <View style={styles.downloadInfo}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.downloadTitle}>Studio Recordings</Text>
-            <View style={styles.recDot} />
-          </View>
-          <Text style={styles.downloadCount}>
-            {recordingCount} vocal {recordingCount === 1 ? 'take' : 'takes'} & covers
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Segmented Section Tab Switcher */}
-      <View style={styles.tabSwitcher}>
+      {/* Quick Access Cards (50/50: Downloads & Studio) */}
+      <View style={styles.quickAccessRow}>
         <TouchableOpacity 
-          style={[styles.tabButton, activeTab === 'my_playlists' && styles.tabButtonActive]}
+          style={styles.quickAccessCardDownloads} 
+          onPress={navigateToDownloads} 
+          activeOpacity={0.75}
+        >
+          <View style={styles.quickAccessIconWrapCyan}>
+            <Ionicons name="arrow-down-circle" size={24} color="#00ffcc" />
+          </View>
+          <View style={styles.quickAccessTextCol}>
+            <Text style={styles.quickAccessTitle}>Downloads</Text>
+            <Text style={styles.quickAccessSubtitle} numberOfLines={1}>
+              {downloadedTracks.length} offline tracks
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.quickAccessCardStudio} 
+          onPress={() => setIsStudioModalVisible(true)} 
+          activeOpacity={0.75}
+        >
+          <View style={styles.quickAccessIconWrapRed}>
+            <Ionicons name="mic" size={24} color="#ff4d4d" />
+            <View style={styles.livePulseDot} />
+          </View>
+          <View style={styles.quickAccessTextCol}>
+            <Text style={styles.quickAccessTitle}>Studio</Text>
+            <Text style={styles.quickAccessSubtitle} numberOfLines={1}>
+              {recordingCount} vocal takes
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Segmented Playlist Toggle Pill */}
+      <View style={styles.segmentedToggleContainer}>
+        <TouchableOpacity 
+          style={[styles.segmentedTab, activeTab === 'my_playlists' && styles.segmentedTabActive]}
           onPress={() => setActiveTab('my_playlists')}
           activeOpacity={0.8}
         >
           <Ionicons 
-            name="albums" 
-            size={15} 
+            name="folder" 
+            size={14} 
             color={activeTab === 'my_playlists' ? '#000000' : '#888896'} 
           />
-          <Text style={[styles.tabButtonText, activeTab === 'my_playlists' && styles.tabButtonTextActive]}>
+          <Text style={[styles.segmentedTabText, activeTab === 'my_playlists' && styles.segmentedTabTextActive]}>
             My Playlists ({playlists.length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.tabButton, activeTab === 'shared_playlists' && styles.tabButtonActive]}
+          style={[styles.segmentedTab, activeTab === 'shared_playlists' && styles.segmentedTabActive]}
           onPress={() => setActiveTab('shared_playlists')}
           activeOpacity={0.8}
         >
           <Ionicons 
             name="people" 
-            size={15} 
+            size={14} 
             color={activeTab === 'shared_playlists' ? '#000000' : '#888896'} 
           />
-          <Text style={[styles.tabButtonText, activeTab === 'shared_playlists' && styles.tabButtonTextActive]}>
+          <Text style={[styles.segmentedTabText, activeTab === 'shared_playlists' && styles.segmentedTabTextActive]}>
             Shared Playlists ({collabPlaylists.length})
           </Text>
         </TouchableOpacity>
       </View>
 
+      {/* Playlists Header & Action Buttons */}
       {activeTab === 'my_playlists' ? (
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Your Playlists</Text>
@@ -416,7 +429,7 @@ export function LibraryScreen({ navigation }: any) {
               onPress={() => setIsImportModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="download-outline" size={16} color="#00ffcc" />
+              <Ionicons name="download-outline" size={15} color="#00ffcc" />
               <Text style={styles.importPlaylistBtnText}>Import</Text>
             </TouchableOpacity>
             <TouchableOpacity 
@@ -424,8 +437,8 @@ export function LibraryScreen({ navigation }: any) {
               onPress={() => setIsCreateModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="add" size={18} color="#000000" />
-              <Text style={styles.newPlaylistBtnText}>New</Text>
+              <Ionicons name="add" size={17} color="#000000" />
+              <Text style={styles.newPlaylistBtnText}>+ New</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -440,63 +453,87 @@ export function LibraryScreen({ navigation }: any) {
             onPress={() => setIsCreateCollabModalVisible(true)}
             activeOpacity={0.7}
           >
-            <Ionicons name="people" size={16} color="#000000" />
-            <Text style={styles.newCollabBtnText}>+ New Shared</Text>
+            <Ionicons name="people" size={15} color="#000000" />
+            <Text style={styles.newCollabBtnText}>+ New</Text>
           </TouchableOpacity>
         </View>
       )}
     </View>
   );
 
-  const renderMyPlaylistItem = (item: Playlist) => (
-    <TouchableOpacity 
-      style={styles.playlistCard} 
-      onPress={() => navigateToPlaylist(item)}
-      onLongPress={() => !item.isImported && !isLikedSongsPlaylist(item) && handleDeletePlaylist(item)}
-      activeOpacity={0.8}
-    >
-      <View style={styles.playlistImageContainer}>
-        {item.coverImage ? (
-          <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
-        ) : (
-          <View style={styles.playlistPlaceholder}>
-            <Ionicons 
-              name={isLikedSongsPlaylist(item) ? "heart" : "musical-notes"} 
-              size={36} 
-              color={isLikedSongsPlaylist(item) ? "#FF3B30" : "#555555"} 
+  const renderMyPlaylistItem = (item: Playlist) => {
+    const isLiked = isLikedSongsPlaylist(item);
+
+    if (isLiked) {
+      return (
+        <TouchableOpacity 
+          style={[styles.playlistCard, { width: cardWidth }]} 
+          onPress={() => navigateToPlaylist(item)}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.playlistImageContainer, styles.likedSongsCardBackdrop]}>
+            <LinearGradient
+              colors={['#4a0a18', '#1e0836']}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
             />
+            <View style={styles.likedHeartHalo}>
+              <Ionicons name="heart" size={42} color="#ff3366" />
+            </View>
+            <View style={styles.likedProtectedBadge}>
+              <Text style={styles.likedProtectedBadgeText}>♥ Protected</Text>
+            </View>
           </View>
-        )}
-        {item.isImported ? (
-          <View style={styles.sharedBadge}>
-            <Ionicons name="lock-closed" size={10} color="#000000" />
-            <Text style={styles.sharedBadgeText}>Shared / Read-Only</Text>
-          </View>
-        ) : isLikedSongsPlaylist(item) ? (
-          <View style={[styles.sharedBadge, { backgroundColor: 'rgba(255, 59, 48, 0.2)', borderColor: '#FF3B30', borderWidth: 1 }]}>
-            <Ionicons name="heart" size={10} color="#FF3B30" />
-            <Text style={[styles.sharedBadgeText, { color: '#FF3B30' }]}>Protected</Text>
-          </View>
-        ) : (
-          <TouchableOpacity 
-            style={styles.deleteIconBtn}
-            onPress={() => handleDeletePlaylist(item)}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          >
-            <Ionicons name="trash-outline" size={16} color="#ff5252" />
-          </TouchableOpacity>
-        )}
-      </View>
-      <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
-      <Text style={styles.playlistCount}>
-        {item.tracks.length} {item.tracks.length === 1 ? 'track' : 'tracks'}
-      </Text>
-    </TouchableOpacity>
-  );
+          <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.playlistCount}>
+            {item.tracks.length} {item.tracks.length === 1 ? 'track' : 'tracks'}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+
+    return (
+      <TouchableOpacity 
+        style={[styles.playlistCard, { width: cardWidth }]} 
+        onPress={() => navigateToPlaylist(item)}
+        onLongPress={() => !item.isImported && handleDeletePlaylist(item)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.playlistImageContainer}>
+          {item.coverImage ? (
+            <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
+          ) : (
+            <View style={styles.playlistPlaceholder}>
+              <Ionicons name="musical-notes" size={32} color="#555555" />
+            </View>
+          )}
+          {item.isImported ? (
+            <View style={styles.sharedBadge}>
+              <Ionicons name="lock-closed" size={10} color="#000000" />
+              <Text style={styles.sharedBadgeText}>Shared</Text>
+            </View>
+          ) : (
+            <TouchableOpacity 
+              style={styles.deleteIconBtn}
+              onPress={() => handleDeletePlaylist(item)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="trash-outline" size={15} color="#ff5252" />
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.playlistCount}>
+          {item.tracks.length} {item.tracks.length === 1 ? 'track' : 'tracks'}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   const renderCollabPlaylistItem = (item: CollaborativePlaylist) => (
     <TouchableOpacity 
-      style={styles.playlistCard} 
+      style={[styles.playlistCard, { width: cardWidth }]} 
       onPress={() => navigateToCollabPlaylist(item)}
       onLongPress={() => handleDeleteCollabPlaylist(item)}
       activeOpacity={0.8}
@@ -514,7 +551,7 @@ export function LibraryScreen({ navigation }: any) {
           onPress={() => handleDeleteCollabPlaylist(item)}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
-          <Ionicons name="trash-outline" size={16} color="#ff5252" />
+          <Ionicons name="trash-outline" size={15} color="#ff5252" />
         </TouchableOpacity>
       </View>
       <Text style={styles.playlistName} numberOfLines={1}>{item.title}</Text>
@@ -529,13 +566,14 @@ export function LibraryScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <FlatList
         key={activeTab}
         data={activeTab === 'my_playlists' ? (playlists as any[]) : (collabPlaylists as any[])}
         keyExtractor={(item) => item.id}
         numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={[styles.listContent, { paddingBottom: totalBottomPadding + 20 }]}
+        columnWrapperStyle={styles.columnWrapper}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 110 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -818,52 +856,54 @@ export function LibraryScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    backgroundColor: '#070709',
   },
   headerContainer: {
     width: '100%',
     paddingBottom: 4,
   },
-  topProfileRow: {
+  topProfileBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    marginBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
   },
-  userProfileInfo: {
+  topProfileLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
-  avatarIconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0, 255, 204, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 255, 204, 0.25)',
+  avatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0, 255, 204, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 255, 204, 0.45)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileUsernameText: {
+  avatarInitial: {
+    color: '#00ffcc',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  headerTitle: {
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 82, 82, 0.1)',
+    backgroundColor: 'rgba(255, 60, 60, 0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 82, 82, 0.25)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
+    borderColor: 'rgba(255, 60, 60, 0.3)',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     gap: 5,
   },
   logoutBtnText: {
@@ -871,60 +911,116 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  headerTitle: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  downloadCard: {
+  quickAccessRow: {
     flexDirection: 'row',
-    backgroundColor: '#141416',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#222224',
+    paddingHorizontal: 20,
+    gap: 12,
+    marginBottom: 14,
   },
-  downloadIconPlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#202024',
-    alignItems: 'center',
+  quickAccessCardDownloads: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 204, 0.2)',
+    borderRadius: 16,
+    padding: 14,
     justifyContent: 'center',
   },
-  downloadInfo: {
-    marginLeft: 16,
+  quickAccessCardStudio: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 80, 80, 0.25)',
+    borderRadius: 16,
+    padding: 14,
+    justifyContent: 'center',
   },
-  downloadTitle: {
+  quickAccessIconWrapCyan: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  quickAccessIconWrapRed: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 77, 77, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    position: 'relative',
+  },
+  livePulseDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#ff3b30',
+  },
+  quickAccessTextCol: {
+    gap: 2,
+  },
+  quickAccessTitle: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  quickAccessSubtitle: {
+    color: '#8e8e98',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  segmentedToggleContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 24,
+    padding: 4,
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  segmentedTab: {
+    flex: 1,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 20,
+  },
+  segmentedTabActive: {
+    backgroundColor: '#00ffcc',
+  },
+  segmentedTabText: {
+    color: '#888896',
+    fontSize: 12,
     fontWeight: '600',
   },
-  downloadCount: {
-    color: '#888888',
-    fontSize: 13,
-    marginTop: 3,
-  },
-  recDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#ff3b30',
+  segmentedTabTextActive: {
+    color: '#000000',
+    fontWeight: '800',
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    paddingHorizontal: 20,
+    marginBottom: 14,
   },
   sectionTitle: {
     color: '#ffffff',
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  sectionSubtitle: {
+    color: '#888896',
+    fontSize: 11,
+    marginTop: 2,
   },
   headerButtonsRow: {
     flexDirection: 'row',
@@ -934,89 +1030,175 @@ const styles = StyleSheet.create({
   importPlaylistBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#18181c',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#00ffcc',
+    borderRadius: 18,
     gap: 4,
   },
   importPlaylistBtnText: {
     color: '#00ffcc',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   newPlaylistBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#00ffcc',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 18,
     gap: 4,
   },
   newPlaylistBtnText: {
     color: '#000000',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '800',
   },
-  row: {
+  newCollabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#00ffcc',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 18,
+    gap: 4,
+  },
+  newCollabBtnText: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  columnWrapper: {
     justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   listContent: {
     paddingBottom: 24,
   },
   playlistCard: {
-    width: '48%',
-    backgroundColor: '#121214',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#1e1e20',
+    borderRadius: 16,
   },
   playlistImageContainer: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 8,
-    backgroundColor: '#1c1c20',
+    borderRadius: 16,
+    backgroundColor: '#18181c',
     marginBottom: 8,
     position: 'relative',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  likedSongsCardBackdrop: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  likedHeartHalo: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 51, 102, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  likedProtectedBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(255, 51, 102, 0.25)',
+    borderColor: '#ff3366',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  likedProtectedBadgeText: {
+    color: '#ff3366',
+    fontSize: 9,
+    fontWeight: '800',
   },
   playlistImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 8,
+    borderRadius: 16,
   },
   playlistPlaceholder: {
     width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1e1e22',
+    backgroundColor: '#18181c',
   },
   deleteIconBtn: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   playlistName: {
     color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
     marginBottom: 2,
   },
   playlistCount: {
-    color: '#888888',
+    color: '#8e8e98',
     fontSize: 12,
+  },
+  sharedBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#00ffcc',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    gap: 3,
+  },
+  sharedBadgeText: {
+    color: '#000000',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  collabLiveBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 255, 204, 0.2)',
+    borderWidth: 1,
+    borderColor: '#00ffcc',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    gap: 4,
+  },
+  greenDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#00ffcc',
+  },
+  collabLiveBadgeText: {
+    color: '#00ffcc',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  collabSharedWithText: {
+    color: '#06B6D4',
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -1049,23 +1231,6 @@ const styles = StyleSheet.create({
     padding: 22,
     borderWidth: 1,
     borderColor: '#2c2c30',
-  },
-  sharedBadge: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#00ffcc',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-    gap: 3,
-  },
-  sharedBadgeText: {
-    color: '#000000',
-    fontSize: 9,
-    fontWeight: '800',
   },
   modalTitle: {
     color: '#ffffff',
@@ -1266,56 +1431,6 @@ const styles = StyleSheet.create({
   tabButtonTextActive: {
     color: '#000000',
     fontWeight: 'bold',
-  },
-  sectionSubtitle: {
-    color: '#888896',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  newCollabBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#06B6D4',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 5,
-  },
-  newCollabBtnText: {
-    color: '#000000',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  collabLiveBadge: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(6, 182, 212, 0.2)',
-    borderColor: '#06B6D4',
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-    gap: 4,
-  },
-  greenDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  collabLiveBadgeText: {
-    color: '#06B6D4',
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  collabSharedWithText: {
-    color: '#06B6D4',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 2,
   },
   collabModalHeaderRow: {
     flexDirection: 'row',
