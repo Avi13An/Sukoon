@@ -28,7 +28,6 @@ import {
   getRecommendedTracks, 
   searchTracks, 
   fetchTrendingCharts, 
-  fetchNewReleases,
   fetchMoodPlaylists,
   resolveTrackForPlayback 
 } from '../services/musicApi';
@@ -119,7 +118,6 @@ export function HomeScreen() {
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
   const [indiaCharts, setIndiaCharts] = useState<TrackMetadata[]>([]);
   const [globalCharts, setGlobalCharts] = useState<TrackMetadata[]>([]);
-  const [trendingTracks, setTrendingTracks] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
   const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
 
@@ -135,13 +133,17 @@ export function HomeScreen() {
     return chartRegion === 'india' ? indiaCharts : globalCharts;
   }, [chartRegion, indiaCharts, globalCharts]);
 
-  const [newReleaseLang, setNewReleaseLang] = useState<'hindi' | 'english'>('hindi');
-  const [hindiNewReleases, setHindiNewReleases] = useState<TrackMetadata[]>([]);
-  const [englishNewReleases, setEnglishNewReleases] = useState<TrackMetadata[]>([]);
+  const trendingTracks = useMemo(() => {
+    return currentChartList.length > 0 ? currentChartList : recommendations.slice(0, 21);
+  }, [currentChartList, recommendations]);
 
-  const activeNewReleases = useMemo(() => {
-    return newReleaseLang === 'hindi' ? hindiNewReleases : englishNewReleases;
-  }, [newReleaseLang, hindiNewReleases, englishNewReleases]);
+  const trendingColumns = useMemo(() => {
+    const chunks: TrackMetadata[][] = [];
+    for (let i = 0; i < trendingTracks.length; i += 3) {
+      chunks.push(trendingTracks.slice(i, i + 3));
+    }
+    return chunks;
+  }, [trendingTracks]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -189,18 +191,14 @@ export function HomeScreen() {
     setCurrentAmbientTrack(lastTrack);
 
     try {
-      const [recs, indiaData, globalData, hindiReleases, englishReleases] = await Promise.all([
+      const [recs, indiaData, globalData] = await Promise.all([
         getRecommendedTracks(lastTrack?.id),
         fetchTrendingCharts('india'),
         fetchTrendingCharts('global'),
-        fetchNewReleases('hindi'),
-        fetchNewReleases('english'),
       ]);
 
       const safeIndia = Array.isArray(indiaData) ? indiaData : [];
       const safeGlobal = Array.isArray(globalData) ? globalData : [];
-      const safeHindiNew = Array.isArray(hindiReleases) ? hindiReleases : [];
-      const safeEnglishNew = Array.isArray(englishReleases) ? englishReleases : [];
       const rawRecs = Array.isArray(recs) ? recs : [];
       const safeRecs = rawRecs.length > 0 ? rawRecs : (safeIndia.length > 0 ? safeIndia : []);
 
@@ -212,9 +210,6 @@ export function HomeScreen() {
       setRecommendations(safeRecs);
       setIndiaCharts(safeIndia);
       setGlobalCharts(safeGlobal);
-      setTrendingTracks(safeIndia);
-      setHindiNewReleases(safeHindiNew);
-      setEnglishNewReleases(safeEnglishNew);
     } catch (err) {
       console.error('[HomeScreen] Error loading data:', err);
     }
@@ -270,8 +265,6 @@ export function HomeScreen() {
       loadData(),
       fetchTrendingCharts('india', true).then(d => setIndiaCharts(d)),
       fetchTrendingCharts('global', true).then(d => setGlobalCharts(d)),
-      fetchNewReleases('hindi', true).then(d => setHindiNewReleases(d)),
-      fetchNewReleases('english', true).then(d => setEnglishNewReleases(d)),
       loadCuratedPlaylists(selectedMood, true),
     ]);
     setIsRefreshing(false);
@@ -426,30 +419,34 @@ export function HomeScreen() {
 
         {/* Quick Picks Carousel (3-Song Pill Columns Based on Last Played Song) */}
         {topSuggestions.length > 0 && (
-          <View style={[styles.section, { marginTop: 8, paddingHorizontal: 0 }]}>
-            <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
-              <Text style={styles.sectionTitle}>Quick Picks</Text>
-              <Ionicons name="sparkles" size={18} color="#00ffcc" />
+          <View style={[styles.section, { marginTop: 4 }]}>
+            <View style={styles.sectionHeaderContainer}>
+              <View style={styles.sectionHeaderTextWrapper}>
+                <Text style={styles.sectionTitle}>Quick Picks</Text>
+                <Text style={styles.sectionSubtitle}>
+                  {lastPlayedSong ? `Similar to ${lastPlayedSong.title}` : 'Based on your recent listening'}
+                </Text>
+              </View>
             </View>
-            <Text style={[styles.subtitle, { paddingHorizontal: 16 }]}>
-              {lastPlayedSong ? `Similar to ${lastPlayedSong.title}` : 'Based on your recent listening'}
-            </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-              decelerationRate="normal"
+              contentContainerStyle={styles.horizontalScrollContent}
+              decelerationRate="fast"
+              snapToInterval={width * 0.84 + 14}
+              snapToAlignment="start"
             >
               {chunkedPills.map((chunk, chunkIndex) => (
                 <View
-                  key={`chunk-${chunkIndex}`}
-                  style={{ width: width * 0.86, gap: 8 }}
+                  key={`quick-chunk-${chunkIndex}`}
+                  style={[styles.pillColumn, { width: width * 0.84 }]}
                 >
                   {chunk.map((track) => (
                     <TouchableOpacity
                       key={track.id}
                       activeOpacity={0.75}
                       onPress={() => handlePlayTrack(track, topSuggestions)}
+                      onLongPress={() => setPlaylistModalTrack(track)}
                       style={styles.pillCard}
                     >
                       <Image
@@ -463,7 +460,7 @@ export function HomeScreen() {
                       {loadingTrackId === track.id ? (
                         <ActivityIndicator size="small" color="#00ffcc" style={styles.pillPlayIcon} />
                       ) : (
-                        <Ionicons name="play-circle" size={26} color="#00ffcc" style={styles.pillPlayIcon} />
+                        <Ionicons name="play-circle" size={24} color="#00ffcc" style={styles.pillPlayIcon} />
                       )}
                     </TouchableOpacity>
                   ))}
@@ -473,10 +470,17 @@ export function HomeScreen() {
           </View>
         )}
 
-        {/* Trending Charts Shelf (With Rank Badges & Region Toggles) */}
+        {/* Trending Charts Shelf (3-Row Horizontal Pill Carousel) */}
         <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>📈 Trending Charts</Text>
+          <View style={styles.sectionHeaderContainer}>
+            <View style={styles.sectionHeaderTextWrapper}>
+              <Text style={styles.sectionTitle}>Trending Charts</Text>
+              <Text style={styles.sectionSubtitle}>
+                {chartRegion === 'india'
+                  ? 'Top trending Hindi & Bollywood hits'
+                  : 'Top global chart-toppers around the world'}
+              </Text>
+            </View>
             <View style={styles.chartRegionToggleRow}>
               <TouchableOpacity
                 style={[
@@ -492,7 +496,7 @@ export function HomeScreen() {
                     chartRegion === 'india' ? styles.regionPillTextActive : styles.regionPillTextInactive,
                   ]}
                 >
-                  🇮🇳 Hindi
+                  🇮🇳 India
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -509,149 +513,82 @@ export function HomeScreen() {
                     chartRegion === 'global' ? styles.regionPillTextActive : styles.regionPillTextInactive,
                   ]}
                 >
-                  🌍 Global
+                  🌐 Global
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
-          <Text style={styles.subtitle}>
-            {chartRegion === 'india'
-              ? 'Top 20 trending Hindi & Bollywood hits'
-              : 'Global top 20 chart-toppers around the world'}
-          </Text>
-          
-          {isLoading && !isRefreshing && currentChartList.length === 0 ? (
+
+          {isLoading && !isRefreshing && trendingTracks.length === 0 ? (
             <View style={styles.loaderContainer}>
               <ActivityIndicator size="large" color="#00ffcc" />
             </View>
           ) : (
-            <FlatList
+            <ScrollView
               horizontal
-              data={currentChartList.length > 0 ? currentChartList : recommendations.slice(0, 10)}
-              keyExtractor={(item, index) => `${chartRegion}-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={renderTrackCard(currentChartList, true)}
-            />
-          )}
-        </View>
-
-        {/* ✨ New Releases Shelf (Hindi / English Toggles) */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>✨ New Releases</Text>
-            <View style={styles.chartRegionToggleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.regionPill,
-                  newReleaseLang === 'hindi' ? styles.regionPillActive : styles.regionPillInactive,
-                ]}
-                onPress={() => setNewReleaseLang('hindi')}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.regionPillText,
-                    newReleaseLang === 'hindi' ? styles.regionPillTextActive : styles.regionPillTextInactive,
-                  ]}
+              contentContainerStyle={styles.horizontalScrollContent}
+              decelerationRate="fast"
+              snapToInterval={width * 0.84 + 14}
+              snapToAlignment="start"
+            >
+              {trendingColumns.map((chunk, chunkIndex) => (
+                <View
+                  key={`trending-chunk-${chartRegion}-${chunkIndex}`}
+                  style={[styles.pillColumn, { width: width * 0.84 }]}
                 >
-                  🇮🇳 Hindi
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.regionPill,
-                  newReleaseLang === 'english' ? styles.regionPillActive : styles.regionPillInactive,
-                ]}
-                onPress={() => setNewReleaseLang('english')}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.regionPillText,
-                    newReleaseLang === 'english' ? styles.regionPillTextActive : styles.regionPillTextInactive,
-                  ]}
-                >
-                  🌐 English
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <Text style={styles.subtitle}>
-            {newReleaseLang === 'hindi'
-              ? 'Fresh Bollywood & Hindi drops'
-              : 'Global Friday releases & chart arrivals'}
-          </Text>
-
-          {isLoading && !isRefreshing && activeNewReleases.length === 0 ? (
-            <View style={styles.loaderContainer}>
-              <ActivityIndicator size="large" color="#00ffcc" />
-            </View>
-          ) : (
-            <FlatList
-              horizontal
-              data={activeNewReleases}
-              keyExtractor={(item, index) => `new-${newReleaseLang}-${item.id}-${index}`}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.newReleaseCard}
-                  activeOpacity={0.8}
-                  onPress={() => handlePlayTrack(item, activeNewReleases)}
-                  onLongPress={() => setPlaylistModalTrack(item)}
-                >
-                  <View style={styles.newReleaseArtworkWrapper}>
-                    <Image
-                      source={{
-                        uri:
-                          item.artwork ||
-                          (item as any)?.thumbnail ||
-                          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300',
-                      }}
-                      style={styles.newReleaseArtwork}
-                      resizeMode="cover"
-                    />
-                    <LinearGradient
-                      colors={['transparent', 'rgba(0,0,0,0.75)']}
-                      style={styles.cardGradientOverlay}
-                    />
-                    <View style={styles.newReleaseBadge}>
-                      <Text style={styles.newReleaseBadgeText}>NEW</Text>
-                    </View>
-                    <View style={styles.playButtonOverlay}>
-                      {loadingTrackId === item.id ? (
-                        <ActivityIndicator size="small" color="#000000" />
-                      ) : (
-                        <Ionicons name="play" size={14} color="#000000" style={{ marginLeft: 2 }} />
-                      )}
-                    </View>
-                  </View>
-                  <Text style={styles.newReleaseTitle} numberOfLines={1} ellipsizeMode="tail">
-                    {item.title}
-                  </Text>
-                  <Text style={styles.newReleaseArtist} numberOfLines={1} ellipsizeMode="tail">
-                    {item.artist}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
+                  {chunk.map((track, trackIndex) => {
+                    const rank = chunkIndex * 3 + trackIndex + 1;
+                    const isPlayingThis = loadingTrackId === track.id;
+                    return (
+                      <TouchableOpacity
+                        key={`${track.id}-${rank}`}
+                        activeOpacity={0.75}
+                        onPress={() => handlePlayTrack(track, trendingTracks)}
+                        onLongPress={() => setPlaylistModalTrack(track)}
+                        style={styles.pillCard}
+                      >
+                        <View style={styles.pillImageWrapper}>
+                          <Image
+                            source={{ uri: track.artwork || (track as any).thumbnail || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=200' }}
+                            style={styles.pillImage}
+                          />
+                          <View style={styles.pillRankBadge}>
+                            <Text style={styles.pillRankText}>#{rank}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.pillInfo}>
+                          <Text numberOfLines={1} style={styles.pillTitle}>{track.title}</Text>
+                          <Text numberOfLines={1} style={styles.pillArtist}>{track.artist}</Text>
+                        </View>
+                        {isPlayingThis ? (
+                          <ActivityIndicator size="small" color="#00ffcc" style={styles.pillPlayIcon} />
+                        ) : (
+                          <Ionicons name="play-circle" size={24} color="#00ffcc" style={styles.pillPlayIcon} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
           )}
         </View>
 
         {/* Top Artists Shelf (Circular Avatars with Glow) */}
         <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Top Artists</Text>
-            <Text style={styles.sectionAccent}>Verified</Text>
+          <View style={styles.sectionHeaderContainer}>
+            <View style={styles.sectionHeaderTextWrapper}>
+              <Text style={styles.sectionTitle}>Top Artists</Text>
+              <Text style={styles.sectionSubtitle}>Leading voices & creators</Text>
+            </View>
           </View>
-          <Text style={styles.subtitle}>Explore songs by leading voices</Text>
           <FlatList
             horizontal
             data={TOP_ARTISTS}
             keyExtractor={(item) => item.id}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={styles.horizontalScrollContent}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.artistCard}
@@ -671,14 +608,15 @@ export function HomeScreen() {
         </View>
 
         {/* Curated Playlists & Moods Hub (12 Authentic Moods) */}
-        <View style={[styles.section, { paddingHorizontal: 0, overflow: 'visible' }]}>
-          <View style={[styles.sectionHeaderRow, { paddingHorizontal: 16 }]}>
-            <Text style={styles.sectionTitle}>🎧 Curated Playlists & Moods</Text>
-            <Text style={styles.sectionAccent}>Curated</Text>
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderContainer}>
+            <View style={styles.sectionHeaderTextWrapper}>
+              <Text style={styles.sectionTitle}>Curated Playlists & Moods</Text>
+              <Text style={styles.sectionSubtitle}>
+                Handpicked stations and thematic collections
+              </Text>
+            </View>
           </View>
-          <Text style={[styles.subtitle, { paddingHorizontal: 16 }]}>
-            Handpicked stations and thematic collections
-          </Text>
 
           {/* 12-Mood Selector Pills */}
           <ScrollView 
@@ -722,7 +660,7 @@ export function HomeScreen() {
               data={curatedPlaylists}
               keyExtractor={(item) => item.id}
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.playlistShelfContent}
+              contentContainerStyle={styles.horizontalScrollContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.curatedCard, { width: cardSize }]}
@@ -783,17 +721,18 @@ export function HomeScreen() {
         {/* Jump Back In (Listening History - Final Section at Bottom) */}
         {recentTracks.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Jump Back In</Text>
-              <Ionicons name="time-outline" size={18} color="#00ffcc" />
+            <View style={styles.sectionHeaderContainer}>
+              <View style={styles.sectionHeaderTextWrapper}>
+                <Text style={styles.sectionTitle}>Jump Back In</Text>
+                <Text style={styles.sectionSubtitle}>Pick up right where you left off</Text>
+              </View>
             </View>
-            <Text style={styles.subtitle}>Pick up right where you left off</Text>
             <FlatList
               horizontal
               data={recentTracks.slice(0, 10)}
               keyExtractor={(item, index) => `recent-${item.id}-${index}`}
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.listContent}
+              contentContainerStyle={styles.horizontalScrollContent}
               renderItem={renderTrackCard(recentTracks.slice(0, 10))}
             />
           </View>
@@ -908,81 +847,123 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   section: {
-    marginBottom: 28,
-    paddingHorizontal: 16,
+    marginBottom: 24,
+    paddingHorizontal: 0,
   },
-  sectionHeaderRow: {
+  sectionHeaderContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    marginTop: 24,
+  },
+  sectionHeaderTextWrapper: {
+    flex: 1,
   },
   sectionTitle: {
     color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  sectionAccent: {
-    color: '#00ffcc',
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: '700',
+    letterSpacing: 0.2,
   },
-  hotBadge: {
-    backgroundColor: 'rgba(255, 85, 85, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 85, 85, 0.3)',
-  },
-  hotBadgeText: {
-    color: '#ff5555',
-    fontSize: 10,
-    fontWeight: '800',
+  sectionSubtitle: {
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontSize: 12,
+    fontWeight: '400',
+    marginTop: 2,
+    letterSpacing: 0.1,
   },
   chartRegionToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   regionPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
-    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
   },
   regionPillActive: {
     backgroundColor: '#00ffcc',
-    borderColor: '#00ffcc',
   },
   regionPillInactive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   regionPillText: {
     fontSize: 12,
   },
   regionPillTextActive: {
     color: '#000000',
-    fontWeight: '800',
+    fontWeight: '700',
   },
   regionPillTextInactive: {
-    color: '#b0b0bc',
-    fontWeight: '600',
+    color: '#aaaaaa',
   },
-  subtitle: {
-    color: '#8e8e98',
-    fontSize: 13,
-    marginTop: 3,
-    marginBottom: 14,
+  horizontalScrollContent: {
+    paddingHorizontal: 20,
+  },
+  pillColumn: {
+    marginRight: 14,
+  },
+  pillCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    marginBottom: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  pillImageWrapper: {
+    position: 'relative',
+    width: 48,
+    height: 48,
+  },
+  pillImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#18181c',
+  },
+  pillRankBadge: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  pillRankText: {
+    color: '#00ffcc',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  pillInfo: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  pillTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+  },
+  pillArtist: {
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  pillPlayIcon: {
+    marginLeft: 8,
   },
   loaderContainer: {
     paddingVertical: 30,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  listContent: {
-    paddingRight: 16,
   },
   card: {
     width: 140,
@@ -1008,7 +989,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0, 
     right: 0, 
-    bottom: 0,
+    bottom: 0, 
     height: 60,
   },
   rankBadge: {
@@ -1107,7 +1088,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   moodPillsScroll: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 4,
     paddingBottom: 16,
     gap: 8,
@@ -1148,14 +1129,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  playlistShelfContent: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 16,
-    gap: 14,
-  },
   curatedCard: {
     width: 155,
+    marginRight: 14,
   },
   curatedArtworkWrapper: {
     width: 155,
@@ -1233,88 +1209,5 @@ const styles = StyleSheet.create({
     color: '#777785',
     textAlign: 'center',
     fontSize: 13,
-  },
-  pillCard: {
-    height: 54,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 6,
-    paddingRight: 14,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  pillImage: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
-    backgroundColor: '#18181c',
-  },
-  pillInfo: {
-    flex: 1,
-    marginLeft: 10,
-    justifyContent: 'center',
-  },
-  pillTitle: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  pillArtist: {
-    color: '#aaaaaa',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  pillPlayIcon: {
-    marginLeft: 8,
-  },
-  newReleaseCard: {
-    width: 140,
-    marginRight: 14,
-  },
-  newReleaseArtworkWrapper: {
-    width: 140,
-    height: 140,
-    borderRadius: 12,
-    backgroundColor: '#18181c',
-    overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: '#24242c',
-  },
-  newReleaseArtwork: {
-    width: 140,
-    height: 140,
-    borderRadius: 12,
-  },
-  newReleaseBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: '#00ffcc',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    zIndex: 2,
-  },
-  newReleaseBadgeText: {
-    color: '#000000',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  newReleaseTitle: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 8,
-    letterSpacing: -0.2,
-  },
-  newReleaseArtist: {
-    color: '#8e8e98',
-    fontSize: 11,
-    marginTop: 2,
-    letterSpacing: -0.1,
   },
 });
