@@ -35,7 +35,7 @@ import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { PartyModal } from '../components/PartyModal';
 import { getPartyState, subscribeToPartyState, PartyState } from '../services/partyService';
-import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
+import { useAmbientColor } from '../hooks/useAmbientColor';
 import { showToast } from '../components/ToastNotification';
 
 interface MoodPill {
@@ -119,7 +119,7 @@ export function HomeScreen() {
   const [indiaCharts, setIndiaCharts] = useState<TrackMetadata[]>([]);
   const [globalCharts, setGlobalCharts] = useState<TrackMetadata[]>([]);
   const [recentTracks, setRecentTracks] = useState<TrackMetadata[]>([]);
-  const [currentAmbientTrack, setCurrentAmbientTrack] = useState<TrackMetadata | null>(null);
+  const ambientColor = useAmbientColor();
 
   const chunkedPills = useMemo(() => {
     const chunks: TrackMetadata[][] = [];
@@ -174,21 +174,12 @@ export function HomeScreen() {
     return activeUsername.charAt(0).toUpperCase();
   }, [activeUsername]);
 
-  const ambientColor = useMemo(() => {
-    const rawColor = currentAmbientTrack ? getAmbientThemeForTrack(currentAmbientTrack).primary : undefined;
-    const seed = currentAmbientTrack 
-      ? `${currentAmbientTrack.id}_${currentAmbientTrack.title}_${currentAmbientTrack.artist}`
-      : selectedMood;
-    return boostAmbientColor(rawColor, seed);
-  }, [currentAmbientTrack, selectedMood]);
-
   // Load all home data
   const loadData = useCallback(async () => {
     const history = getListenHistory();
     setRecentTracks(history);
     const lastTrack = getLastPlayedTrack();
     setLastPlayedSong(lastTrack);
-    setCurrentAmbientTrack(lastTrack);
 
     try {
       const [recs, indiaData, globalData] = await Promise.all([
@@ -350,8 +341,8 @@ export function HomeScreen() {
     <View style={styles.screen}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <LinearGradient 
-        colors={[ambientColor, `${ambientColor}cc`, `${ambientColor}33`, '#070709']} 
-        locations={[0, 0.25, 0.55, 0.9]} 
+        colors={[ambientColor, 'rgba(7, 7, 9, 0.75)', '#070709']} 
+        locations={[0, 0.35, 0.85]} 
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />

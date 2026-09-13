@@ -18,30 +18,23 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { searchTracks, getSearchSuggestions, getAudioStream } from '../services/musicApi';
-import { TrackMetadata, getRecentSearches, saveRecentSearch, clearRecentSearches, getLastPlayedTrack } from '../utils/storage';
+import { TrackMetadata, getRecentSearches, saveRecentSearch, clearRecentSearches } from '../utils/storage';
 import { playTrack, setupPlayer } from '../services/TrackPlayerService';
-import TrackPlayer, { Event, PlaybackState, useActiveMediaItem } from '@rntp/player';
+import TrackPlayer, { Event, PlaybackState } from '@rntp/player';
 import { hostSyncSession, inviteToSync } from '../services/syncService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { TrackOptionsModal } from '../components/TrackOptionsModal';
 import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
-import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
+import { useAmbientColor } from '../hooks/useAmbientColor';
 import { Ionicons } from '@expo/vector-icons';
 import { useBottomClearance } from '../hooks/useBottomClearance';
 
 export function SearchScreen() {
   const insets = useSafeAreaInsets();
   const { totalBottomPadding } = useBottomClearance(24);
-  const activeMediaItem = useActiveMediaItem();
+  const ambientColor = useAmbientColor();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TrackMetadata[]>([]);
-
-  const ambientColor = useMemo(() => {
-    const lastTrack = activeMediaItem ? (activeMediaItem as any) : getLastPlayedTrack();
-    const rawColor = lastTrack ? getAmbientThemeForTrack(lastTrack).primary : undefined;
-    const seed = lastTrack ? `${lastTrack.id}_${lastTrack.title}` : 'search_ambient';
-    return boostAmbientColor(rawColor, seed);
-  }, [activeMediaItem]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -287,14 +280,14 @@ export function SearchScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      <StatusBar backgroundColor="transparent" barStyle="light-content" translucent />
       <LinearGradient
-        colors={[ambientColor ? `${ambientColor}bb` : 'rgba(15, 43, 92, 0.85)', 'rgba(7, 7, 9, 0.75)', '#070709']}
-        locations={[0, 0.35, 0.7]}
+        colors={[ambientColor, 'rgba(7, 7, 9, 0.75)', '#070709']}
+        locations={[0, 0.35, 0.85]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <View style={[styles.searchContainer, { paddingTop: insets.top + (Platform.OS === 'android' ? 8 : 10) }]}>
+      <View style={[styles.searchContainer, { paddingTop: insets.top + (Platform.OS === 'android' ? 10 : 6) }]}>
         <View style={styles.searchBarContainer}>
           <Ionicons name="search" size={20} color="#888888" style={styles.searchIcon} />
           <TextInput
@@ -327,7 +320,7 @@ export function SearchScreen() {
       </View>
       
       {query.trim().length >= 2 && showSuggestions && suggestions.length > 0 && (
-        <View style={[styles.suggestionsContainer, { top: insets.top + (Platform.OS === 'android' ? 64 : 68) }]}>
+        <View style={[styles.suggestionsContainer, { top: insets.top + (Platform.OS === 'android' ? 66 : 62) }]}>
           {suggestions.slice(0, 8).map((suggestion, index) => (
             <TouchableOpacity 
               key={index} 

@@ -37,11 +37,9 @@ import {
   deleteCollaborativePlaylist,
   CollaborativePlaylist,
   Playlist, 
-  DownloadedTrack,
-  getLastPlayedTrack
+  DownloadedTrack
 } from '../utils/storage';
-import { useActiveMediaItem } from '@rntp/player';
-import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
+import { useAmbientColor } from '../hooks/useAmbientColor';
 import { getOfflineStorageUsage, logoutUser } from '../services/downloadService';
 import { StudioRecordingsModal } from '../components/StudioRecordingsModal';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -59,14 +57,7 @@ export function LibraryScreen({ navigation }: any) {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 56) / 2;
   const artHeight = cardWidth * 0.78;
-  const activeMediaItem = useActiveMediaItem();
-
-  const ambientColor = useMemo(() => {
-    const lastTrack = activeMediaItem ? (activeMediaItem as any) : getLastPlayedTrack();
-    const rawColor = lastTrack ? getAmbientThemeForTrack(lastTrack).primary : undefined;
-    const seed = lastTrack ? `${lastTrack.id}_${lastTrack.title}` : 'library_ambient';
-    return boostAmbientColor(rawColor, seed);
-  }, [activeMediaItem]);
+  const ambientColor = useAmbientColor();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -651,10 +642,10 @@ export function LibraryScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      <StatusBar backgroundColor="transparent" barStyle="light-content" translucent />
       <LinearGradient
-        colors={[ambientColor ? `${ambientColor}bb` : 'rgba(15, 43, 92, 0.85)', 'rgba(7, 7, 9, 0.75)', '#070709']}
-        locations={[0, 0.35, 0.7]}
+        colors={[ambientColor, 'rgba(7, 7, 9, 0.75)', '#070709']}
+        locations={[0, 0.35, 0.85]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />

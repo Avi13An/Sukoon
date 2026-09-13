@@ -68,7 +68,7 @@ function TabNavigator() {
         })}
       >
         <Tab.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-        <Tab.Screen name="Search" component={SearchScreen} />
+        <Tab.Screen name="Search" component={SearchScreen} options={{ headerShown: false }} />
         <Tab.Screen name="Library" component={LibraryStack} options={{ headerShown: false }} />
       </Tab.Navigator>
       <MiniPlayer />

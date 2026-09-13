@@ -14,6 +14,7 @@ import { getAudioStream, getAlgorithmicRecommendations, resolveTrackForPlayback 
 import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
 import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
 import { fetchYouTubeMusicAutomix } from './youtubeRadioService';
+import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
 
 export const Capability = {
   Play: PlayerCommand.PlayPause,
@@ -26,6 +27,68 @@ export const Capability = {
 export const AppKilledPlaybackBehavior = {
   StopPlaybackAndRemoveNotification: 'stop',
 };
+
+export const DEFAULT_AMBIENT_COLOR = '#0f2b5c';
+
+function extractDominantAmbientColor(track?: TrackMetadata | null): string {
+  if (!track || (!track.id && !track.title)) {
+    const lastTrack = getLastPlayedTrack();
+    if (lastTrack && (lastTrack.id || lastTrack.title)) {
+      const theme = getAmbientThemeForTrack(lastTrack);
+      const seed = `${lastTrack.id}_${lastTrack.title}_${lastTrack.artist || ''}`;
+      return boostAmbientColor(theme.primary, seed);
+    }
+    return DEFAULT_AMBIENT_COLOR;
+  }
+  const theme = getAmbientThemeForTrack(track);
+  const seed = `${track.id}_${track.title}_${track.artist || ''}`;
+  return boostAmbientColor(theme.primary, seed);
+}
+
+let activeAmbientColor: string = extractDominantAmbientColor(getLastPlayedTrack());
+const ambientColorListeners: Array<(color: string) => void> = [];
+
+export function getActiveAmbientColor(): string {
+  return activeAmbientColor || DEFAULT_AMBIENT_COLOR;
+}
+
+export function updateAmbientColorForTrack(track?: TrackMetadata | null): string {
+  const newColor = extractDominantAmbientColor(track);
+  if (newColor && newColor !== activeAmbientColor) {
+    activeAmbientColor = newColor;
+    notifyAmbientColorListeners();
+  }
+  return activeAmbientColor;
+}
+
+export function setActiveAmbientColor(color: string) {
+  if (color && color !== activeAmbientColor) {
+    activeAmbientColor = color;
+    notifyAmbientColorListeners();
+  }
+}
+
+export function notifyAmbientColorListeners() {
+  const color = getActiveAmbientColor();
+  ambientColorListeners.forEach(cb => {
+    try {
+      cb(color);
+    } catch (e) {
+      console.error('[TrackPlayerService] Ambient color listener error:', e);
+    }
+  });
+}
+
+export function subscribeToAmbientColor(callback: (color: string) => void): () => void {
+  ambientColorListeners.push(callback);
+  callback(getActiveAmbientColor());
+  return () => {
+    const idx = ambientColorListeners.indexOf(callback);
+    if (idx !== -1) {
+      ambientColorListeners.splice(idx, 1);
+    }
+  };
+}
 
 let isPlayerSetup = false;
 let isListenersAttached = false;
@@ -748,6 +811,7 @@ export async function handleActiveTrackChanged(event: any) {
       playedTrackIds.add(currentTrack.id);
       setLastPlayedTrack(currentTrack);
       saveListenHistory(currentTrack);
+      updateAmbientColorForTrack(currentTrack);
     }
 
     if (isPlaylistQueueActive && upNextQueue.length <= 1) {
@@ -1166,6 +1230,7 @@ export async function executeSeamlessTransition(
   playUrl: string,
   matchedUA?: string
 ): Promise<void> {
+  updateAmbientColorForTrack(track);
   const formatted = formatForTrackPlayer(track, playUrl, matchedUA);
   try {
     if (typeof (TrackPlayer as any).add === 'function') {
@@ -1302,6 +1367,7 @@ export async function playTrack(
     }
     setLastPlayedTrack(currentTrack);
     saveListenHistory(currentTrack);
+    updateAmbientColorForTrack(currentTrack);
     notifyQueueListeners();
 
     // Lazy-resolve upcoming queue items in the background so audio transitions are continuous
