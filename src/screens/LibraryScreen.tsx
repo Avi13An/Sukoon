@@ -37,8 +37,11 @@ import {
   deleteCollaborativePlaylist,
   CollaborativePlaylist,
   Playlist, 
-  DownloadedTrack 
+  DownloadedTrack,
+  getLastPlayedTrack
 } from '../utils/storage';
+import { useActiveMediaItem } from '@rntp/player';
+import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
 import { getOfflineStorageUsage, logoutUser } from '../services/downloadService';
 import { StudioRecordingsModal } from '../components/StudioRecordingsModal';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -54,7 +57,17 @@ import { createCollaborativePlaylist } from '../services/collabPlaylistService';
 export function LibraryScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const cardWidth = (width - 48) / 2;
+  const cardWidth = (width - 56) / 2;
+  const artHeight = cardWidth * 0.78;
+  const activeMediaItem = useActiveMediaItem();
+
+  const ambientColor = useMemo(() => {
+    const lastTrack = activeMediaItem ? (activeMediaItem as any) : getLastPlayedTrack();
+    const rawColor = lastTrack ? getAmbientThemeForTrack(lastTrack).primary : undefined;
+    const seed = lastTrack ? `${lastTrack.id}_${lastTrack.title}` : 'library_ambient';
+    return boostAmbientColor(rawColor, seed);
+  }, [activeMediaItem]);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [collabPlaylists, setCollabPlaylists] = useState<CollaborativePlaylist[]>([]);
@@ -544,7 +557,7 @@ export function LibraryScreen({ navigation }: any) {
           onPress={() => navigateToPlaylist(item)}
           activeOpacity={0.8}
         >
-          <View style={[styles.playlistImageContainer, styles.likedSongsCardBackdrop]}>
+          <View style={[styles.playlistImageContainer, styles.likedSongsCardBackdrop, { height: artHeight }]}>
             <LinearGradient
               colors={['#4a0a18', '#1e0836']}
               style={StyleSheet.absoluteFill}
@@ -552,7 +565,7 @@ export function LibraryScreen({ navigation }: any) {
               end={{ x: 1, y: 1 }}
             />
             <View style={styles.likedHeartHalo}>
-              <Ionicons name="heart" size={42} color="#ff3366" />
+              <Ionicons name="heart" size={28} color="#ff3366" />
             </View>
             <View style={styles.likedProtectedBadge}>
               <Text style={styles.likedProtectedBadgeText}>Favorites</Text>
@@ -573,12 +586,12 @@ export function LibraryScreen({ navigation }: any) {
         onLongPress={() => handleOpenOptions(item, 'personal')}
         activeOpacity={0.8}
       >
-        <View style={styles.playlistImageContainer}>
+        <View style={[styles.playlistImageContainer, { height: artHeight }]}>
           {item.coverImage ? (
             <Image source={{ uri: item.coverImage }} style={styles.playlistImage} />
           ) : (
             <View style={styles.playlistPlaceholder}>
-              <Ionicons name="musical-notes" size={32} color="#555555" />
+              <Ionicons name="musical-notes" size={26} color="#555555" />
             </View>
           )}
           {item.isImported && (
@@ -592,7 +605,7 @@ export function LibraryScreen({ navigation }: any) {
             onPress={() => handleOpenOptions(item, 'personal')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="ellipsis-vertical" size={15} color="#ffffff" />
+            <Ionicons name="ellipsis-vertical" size={14} color="#ffffff" />
           </TouchableOpacity>
         </View>
         <Text style={styles.playlistName} numberOfLines={1}>{item.name}</Text>
@@ -610,9 +623,9 @@ export function LibraryScreen({ navigation }: any) {
       onLongPress={() => handleOpenOptions(item, 'collab')}
       activeOpacity={0.8}
     >
-      <View style={styles.playlistImageContainer}>
+      <View style={[styles.playlistImageContainer, { height: artHeight }]}>
         <View style={[styles.playlistPlaceholder, { backgroundColor: '#131826', borderColor: '#1F293D', borderWidth: 1 }]}>
-          <Ionicons name="people" size={36} color="#06B6D4" />
+          <Ionicons name="people" size={28} color="#06B6D4" />
         </View>
         <View style={styles.collabLiveBadge}>
           <View style={styles.greenDot} />
@@ -623,7 +636,7 @@ export function LibraryScreen({ navigation }: any) {
           onPress={() => handleOpenOptions(item, 'collab')}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="ellipsis-vertical" size={15} color="#ffffff" />
+          <Ionicons name="ellipsis-vertical" size={14} color="#ffffff" />
         </TouchableOpacity>
       </View>
       <Text style={styles.playlistName} numberOfLines={1}>{item.title}</Text>
@@ -639,6 +652,12 @@ export function LibraryScreen({ navigation }: any) {
   return (
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      <LinearGradient
+        colors={[ambientColor ? `${ambientColor}bb` : 'rgba(15, 43, 92, 0.85)', 'rgba(7, 7, 9, 0.75)', '#070709']}
+        locations={[0, 0.35, 0.7]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
       <FlatList
         key={activeTab}
         data={activeTab === 'my_playlists' ? (playlists as any[]) : (collabPlaylists as any[])}
@@ -1238,19 +1257,23 @@ const styles = StyleSheet.create({
   columnWrapper: {
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    marginBottom: 16,
   },
   listContent: {
     paddingBottom: 24,
   },
   playlistCard: {
-    borderRadius: 16,
+    marginBottom: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    overflow: 'hidden',
+    padding: 8,
   },
   playlistImageContainer: {
     width: '100%',
-    aspectRatio: 1,
-    borderRadius: 16,
-    backgroundColor: '#18181c',
+    borderRadius: 10,
+    backgroundColor: '#121216',
     marginBottom: 8,
     position: 'relative',
     overflow: 'hidden',
@@ -1260,19 +1283,22 @@ const styles = StyleSheet.create({
   likedSongsCardBackdrop: {
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    marginBottom: 8,
   },
   likedHeartHalo: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: 'rgba(255, 51, 102, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   likedProtectedBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: 'rgba(255, 51, 102, 0.25)',
     borderColor: '#ff3366',
     borderWidth: 1,
@@ -1284,39 +1310,42 @@ const styles = StyleSheet.create({
     color: '#ff3366',
     fontSize: 9,
     fontWeight: '800',
+    letterSpacing: 0.5,
   },
   playlistImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 16,
+    borderRadius: 10,
   },
   playlistPlaceholder: {
     width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#18181c',
+    backgroundColor: '#121216',
   },
   deleteIconBtn: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   playlistName: {
+    fontSize: 13,
+    fontWeight: '600',
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
+    letterSpacing: 0.1,
     marginBottom: 2,
   },
   playlistCount: {
-    color: '#8e8e98',
-    fontSize: 12,
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 2,
   },
   sharedBadge: {
     position: 'absolute',
@@ -1611,12 +1640,12 @@ const styles = StyleSheet.create({
   },
   cardMenuBtn: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

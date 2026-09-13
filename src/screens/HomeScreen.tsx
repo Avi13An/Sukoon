@@ -429,9 +429,10 @@ export function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.horizontalScrollContent}
-              decelerationRate="fast"
-              snapToInterval={width * 0.84 + 14}
-              snapToAlignment="start"
+              decelerationRate="normal"
+              bounces={true}
+              overScrollMode="always"
+              scrollEventThrottle={16}
             >
               {chunkedPills.map((chunk, chunkIndex) => (
                 <View
@@ -520,9 +521,10 @@ export function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.horizontalScrollContent}
-              decelerationRate="fast"
-              snapToInterval={width * 0.84 + 14}
-              snapToAlignment="start"
+              decelerationRate="normal"
+              bounces={true}
+              overScrollMode="always"
+              scrollEventThrottle={16}
             >
               {trendingColumns.map((chunk, chunkIndex) => (
                 <View
@@ -891,7 +893,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   pillColumn: {
-    marginRight: 14,
+    marginRight: 12,
   },
   pillCard: {
     flexDirection: 'row',
