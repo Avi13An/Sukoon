@@ -11,7 +11,7 @@ import {
   TrackMetadata 
 } from '../utils/storage';
 import { getAudioStream, getAlgorithmicRecommendations, resolveTrackForPlayback } from './musicApi';
-import { handleTrackEndedForSleepTimer, resetSleepPaused } from './sleepTimerService';
+import { handleTrackEndedForSleepTimer, resetSleepPaused, checkSleepTimerExpiration } from './sleepTimerService';
 import { sanitizeTrack, sanitizeTrackList } from '../utils/trackSanitizer';
 import { fetchYouTubeMusicAutomix } from './youtubeRadioService';
 import { getAmbientThemeForTrack, boostAmbientColor } from '../utils/colorExtractor';
@@ -1140,6 +1140,11 @@ export async function setupPlayer(): Promise<boolean> {
         }
       });
 
+      // 6. Sleep timer background & progress check
+      TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, async () => {
+        await checkSleepTimerExpiration();
+      });
+
       isListenersAttached = true;
     }
 
@@ -1491,4 +1496,19 @@ export async function playTrack(
 export async function PlaybackService() {
   // Headless background playback service handler stub
 }
+
+export {
+  initSleepTimer,
+  setSleepTimer,
+  setCustomSleepTimer,
+  clearSleepTimer,
+  cancelSleepTimer,
+  getSleepTimerRemaining,
+  getSleepTimerState,
+  isSleepTimerActive,
+  subscribeToSleepTimer,
+  checkSleepTimerExpiration,
+  handleTrackEndedForSleepTimer,
+  resetSleepPaused,
+} from './sleepTimerService';
 

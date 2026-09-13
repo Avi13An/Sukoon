@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, StatusBar } from 'react-native';
 import { MainNavigator } from './src/navigation/MainNavigator';
-import { setupPlayer } from './src/services/TrackPlayerService';
+import { setupPlayer, initSleepTimer } from './src/services/TrackPlayerService';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { subscribeToSharedPlaylists } from './src/services/cloudPlaylistService';
@@ -21,6 +21,7 @@ export default function App() {
     async function init() {
       const isSetup = await setupPlayer();
       setIsPlayerReady(isSetup);
+      await initSleepTimer();
 
       if (getMyUsername()) {
         subscribeToSharedPlaylists();

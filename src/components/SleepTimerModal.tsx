@@ -6,7 +6,8 @@ import {
   Modal, 
   TouchableOpacity, 
   TouchableWithoutFeedback,
-  TextInput 
+  TextInput,
+  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
@@ -15,8 +16,10 @@ import {
   setSleepTimer, 
   setCustomSleepTimer,
   subscribeToSleepTimer, 
-  cancelSleepTimer,
-  getSleepTimerState
+  clearSleepTimer,
+  getSleepTimerState,
+  getSleepTimerRemaining,
+  checkSleepTimerExpiration,
 } from '../services/sleepTimerService';
 import { showToast } from './ToastNotification';
 
@@ -32,6 +35,7 @@ interface TimerOption {
 }
 
 const TIMER_OPTIONS: TimerOption[] = [
+  { label: '5 Minutes', mode: '5m', icon: 'timer-outline' },
   { label: '15 Minutes', mode: '15m', icon: 'timer-outline' },
   { label: '30 Minutes', mode: '30m', icon: 'timer-outline' },
   { label: '45 Minutes', mode: '45m', icon: 'timer-outline' },
@@ -42,6 +46,10 @@ const TIMER_OPTIONS: TimerOption[] = [
 
 export function SleepTimerModal({ visible, onClose }: Props) {
   const [timerState, setTimerState] = useState<SleepTimerState>(getSleepTimerState());
+  const [remainingTime, setRemainingTime] = useState<number | null>(() => {
+    const rem = getSleepTimerRemaining();
+    return rem ? Math.ceil(rem / 1000) : null;
+  });
   const [customMinutes, setCustomMinutes] = useState<number>(25);
 
   const adjustMinutes = (delta: number) => {
@@ -49,15 +57,40 @@ export function SleepTimerModal({ visible, onClose }: Props) {
   };
 
   useEffect(() => {
-    const unsubscribe = subscribeToSleepTimer((state) => {
-      setTimerState(state);
+    const unsubscribe = subscribeToSleepTimer((remaining, state) => {
+      setRemainingTime(remaining ? Math.ceil(remaining / 1000) : null);
+      if (state) {
+        setTimerState(state);
+      }
     });
-    return unsubscribe;
+
+    const timerInterval = setInterval(() => {
+      const rem = getSleepTimerRemaining();
+      setRemainingTime(rem ? Math.ceil(rem / 1000) : null);
+      if (rem && rem <= 0) {
+        checkSleepTimerExpiration();
+      }
+    }, 1000);
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        checkSleepTimerExpiration();
+        const rem = getSleepTimerRemaining();
+        setRemainingTime(rem ? Math.ceil(rem / 1000) : null);
+        setTimerState(getSleepTimerState());
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      clearInterval(timerInterval);
+      appStateSub.remove();
+    };
   }, []);
 
   const handleSelectOption = (option: TimerOption) => {
     if (option.mode === 'off') {
-      cancelSleepTimer();
+      clearSleepTimer();
       showToast('Sleep timer turned off', 'moon-outline');
     } else {
       setSleepTimer(option.mode);
@@ -104,7 +137,7 @@ export function SleepTimerModal({ visible, onClose }: Props) {
                   <Text style={styles.activeBannerText}>
                     {timerState.mode === 'end_of_track' 
                       ? 'Stopping playback at the end of this song' 
-                      : `Playback stops in ${formatCountdown(timerState.timeRemainingSeconds)}`}
+                      : `Playback stops in ${formatCountdown(remainingTime ?? timerState.timeRemainingSeconds)}`}
                   </Text>
                 </View>
               ) : null}
@@ -284,9 +317,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#121212',
   },
   optionItemSelected: {
-    backgroundColor: 'rgba(0, 255, 204, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 255, 204, 0.3)',
+    backgroundColor: 'rgba(0, 255, 204, 0.14)',
+    borderWidth: 1.5,
+    borderColor: '#00ffcc',
+    shadowColor: '#00ffcc',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
   },
   optionLeft: {
     flexDirection: 'row',

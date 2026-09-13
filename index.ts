@@ -10,13 +10,16 @@ import {
   PlaybackService,
   getCurrentTrack,
   getUpNextQueue,
+  checkSleepTimerExpiration,
 } from './src/services/TrackPlayerService';
 import * as syncService from './src/services/syncService';
 
 try {
   TrackPlayer.registerBackgroundEventHandler(() => async (event: BackgroundEvent) => {
     console.log('[TrackPlayer BackgroundEvent]:', event.type);
-    if (event.type === Event.RemoteNext) {
+    if (event.type === Event.PlaybackProgressUpdated) {
+      await checkSleepTimerExpiration();
+    } else if (event.type === Event.RemoteNext) {
       await playNextTrack();
       if (syncService.isSyncActive()) {
         syncService.broadcastTrackChange(getCurrentTrack(), getUpNextQueue());
@@ -84,6 +87,10 @@ try {
   const activeTrackChangedEvent = (Event as any).PlaybackActiveTrackChanged || 'playback-active-track-changed';
   TrackPlayer.addEventListener(activeTrackChangedEvent as any, async (event: any) => {
     await handleActiveTrackChanged(event);
+  });
+
+  TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, async () => {
+    await checkSleepTimerExpiration();
   });
 } catch (err) {
   console.log('[index.ts] addEventListener warning:', err);

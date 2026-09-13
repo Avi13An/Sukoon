@@ -230,8 +230,8 @@ export function PlayerScreen({ navigation }: any) {
   const [sleepState, setSleepState] = useState<SleepTimerState>(getSleepTimerState());
 
   useEffect(() => {
-    const unsubscribe = subscribeToSleepTimer((s) => {
-      setSleepState(s);
+    const unsubscribe = subscribeToSleepTimer((_rem, s) => {
+      setSleepState(s || getSleepTimerState());
     });
     return unsubscribe;
   }, []);
