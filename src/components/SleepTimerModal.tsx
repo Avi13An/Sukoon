@@ -150,25 +150,25 @@ export function SleepTimerModal({ visible, onClose }: Props) {
                     <TouchableOpacity
                       key={opt.mode}
                       style={[
-                        styles.optionItem,
-                        isSelected && styles.optionItemSelected,
+                        styles.presetOption,
+                        isSelected && styles.presetOptionActive,
                       ]}
                       onPress={() => handleSelectOption(opt)}
                       activeOpacity={0.7}
                     >
-                      <View style={styles.optionLeft}>
+                      <View style={styles.presetLeft}>
                         <Ionicons 
                           name={opt.icon} 
                           size={18} 
-                          color={isSelected ? '#00ffcc' : '#888888'} 
+                          color={isSelected ? '#00ffcc' : 'rgba(255, 255, 255, 0.6)'} 
                         />
-                        <Text style={[styles.optionLabel, isSelected && styles.optionLabelSelected]}>
+                        <Text style={[styles.presetText, isSelected && styles.presetTextActive]}>
                           {opt.label}
                         </Text>
                       </View>
-                      {isSelected ? (
+                      {isSelected && (
                         <Ionicons name="checkmark-circle" size={18} color="#00ffcc" />
-                      ) : null}
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -305,40 +305,38 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionsList: {
-    gap: 6,
+    marginBottom: 6,
   },
-  optionItem: {
+  presetOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: '#121212',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 8,
   },
-  optionItemSelected: {
-    backgroundColor: 'rgba(0, 255, 204, 0.14)',
-    borderWidth: 1.5,
+  presetOptionActive: {
+    backgroundColor: 'rgba(0, 255, 204, 0.08)',
     borderColor: '#00ffcc',
-    shadowColor: '#00ffcc',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 4,
+    borderWidth: 1.5,
   },
-  optionLeft: {
+  presetLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  optionLabel: {
-    color: '#cccccc',
-    fontSize: 15,
+  presetText: {
+    fontSize: 14,
     fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.75)',
   },
-  optionLabelSelected: {
+  presetTextActive: {
     color: '#ffffff',
-    fontWeight: '700',
+    fontWeight: '600',
   },
   customSection: {
     marginTop: 14,
