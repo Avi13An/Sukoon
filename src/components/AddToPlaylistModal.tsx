@@ -20,7 +20,8 @@ import {
   getCollaborativePlaylists,
   createPlaylist, 
   addTrackToPlaylist,
-  onPlaylistsChanged 
+  onPlaylistsChanged,
+  isLikedSongsPlaylist
 } from '../utils/storage';
 import { addTrackToCollaborativePlaylist } from '../services/collabPlaylistService';
 import { showToast } from './ToastNotification';
@@ -51,22 +52,26 @@ export function AddToPlaylistModal({ visible, track, onClose }: AddToPlaylistMod
   useEffect(() => {
     if (visible) {
       const loadAll = () => {
-        const personal: PlaylistItem[] = getCustomPlaylists().map((p) => ({
-          id: p.id,
-          name: p.name,
-          tracks: p.tracks || [],
-          coverImage: p.coverImage,
-          isCollaborative: false,
-        }));
+        const personal: PlaylistItem[] = getCustomPlaylists()
+          .filter((p) => !isLikedSongsPlaylist(p) && !p.isProtected && p.name?.toLowerCase() !== 'liked songs')
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            tracks: p.tracks || [],
+            coverImage: p.coverImage,
+            isCollaborative: false,
+          }));
 
-        const collabs: PlaylistItem[] = getCollaborativePlaylists().map((c) => ({
-          id: c.id,
-          name: c.title,
-          tracks: c.tracks || [],
-          coverImage: undefined,
-          isCollaborative: true,
-          collaborators: c.collaborators || [],
-        }));
+        const collabs: PlaylistItem[] = getCollaborativePlaylists()
+          .filter((c) => c.title?.toLowerCase() !== 'liked songs')
+          .map((c) => ({
+            id: c.id,
+            name: c.title,
+            tracks: c.tracks || [],
+            coverImage: undefined,
+            isCollaborative: true,
+            collaborators: c.collaborators || [],
+          }));
 
         setPlaylists([...personal, ...collabs]);
       };

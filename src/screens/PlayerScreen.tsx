@@ -27,8 +27,10 @@ import {
   getCurrentTrack,
   toggleSmartShuffle,
   getIsShuffleActive,
-  subscribeToShuffle
+  subscribeToShuffle,
+  updateAmbientColorForTrack
 } from '../services/TrackPlayerService';
+import { useAmbientColor } from '../hooks/useAmbientColor';
 import { downloadTrack, isTrackDownloaded, deleteDownloadedTrack } from '../services/downloadService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
@@ -75,6 +77,13 @@ export function PlayerScreen({ navigation }: any) {
   };
 
   const track = useActiveMediaItem();
+  const ambientColor = useAmbientColor();
+
+  useEffect(() => {
+    if (track) {
+      updateAmbientColorForTrack(track as any);
+    }
+  }, [track]);
   const isPlaying = useIsPlaying();
   const progress = useProgress(200);
   const [pollingPosition, setPollingPosition] = useState(0);
@@ -481,10 +490,9 @@ export function PlayerScreen({ navigation }: any) {
       <View style={styles.container}>
         <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
         <LinearGradient
-          colors={ambientTheme.gradient}
+          colors={[ambientColor, 'rgba(7, 7, 9, 0.75)', '#070709']}
+          locations={[0, 0.35, 0.85]}
           style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 0.7 }}
           pointerEvents="none"
         />
 

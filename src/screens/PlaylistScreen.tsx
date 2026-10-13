@@ -240,7 +240,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       return;
     }
 
-    await playTrack(playlist.tracks[0], playlist.tracks.slice(1));
+    await playTrack(playlist.tracks[0], playlist.tracks);
   };
 
   const handleShuffle = async () => {
@@ -259,7 +259,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     setShuffleMode('balanced');
     showToast('Playlist shuffled', 'shuffle');
 
-    await playTrack(shuffled[0], shuffled.slice(1));
+    await playTrack(shuffled[0], shuffled);
   };
 
   const handleSelectShuffleMode = async (mode: SmartShuffleMode) => {
@@ -288,7 +288,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
     };
     showToast(`Smart Shuffle: ${modeNames[mode]}`, 'shuffle');
 
-    await playTrack(sorted[0], sorted.slice(1));
+    await playTrack(sorted[0], sorted);
   };
 
   const handleResetShuffle = async () => {
@@ -340,7 +340,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
       await Clipboard.setStringAsync(code);
       showToast(`Sukoon Jam started! Code ${code} copied!`, 'radio');
       if (playlist.tracks && playlist.tracks.length > 0) {
-        await playTrack(playlist.tracks[0], playlist.tracks.slice(1));
+        await playTrack(playlist.tracks[0], playlist.tracks);
       }
     } catch (err: any) {
       showToast('Failed to start Sukoon Jam', 'alert-circle');
@@ -423,9 +423,7 @@ export function PlaylistScreen({ route, navigation }: PlaylistScreenProps) {
   };
 
   const handlePlayTrack = (track: TrackMetadata) => {
-    const idx = playlist.tracks.findIndex(t => t.id === track.id);
-    const remaining = idx !== -1 ? playlist.tracks.slice(idx + 1) : playlist.tracks;
-    playTrack(track, remaining);
+    playTrack(track, playlist.tracks);
   };
 
   const handleRemoveTrack = (track: TrackMetadata) => {

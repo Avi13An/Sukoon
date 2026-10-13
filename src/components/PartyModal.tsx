@@ -9,6 +9,8 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   Share,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -130,15 +132,20 @@ export function PartyModal({ visible, onClose }: Props) {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            justifyContent: 'space-between',
-            paddingHorizontal: 20,
-            paddingBottom: Math.max(insets.bottom, 24) + 60,
-          }}
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
         >
+          <ScrollView
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: 'space-between',
+              paddingHorizontal: 20,
+              paddingBottom: Math.max(insets.bottom, 24) + 60,
+            }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           {partyState.isActive ? (
             /* ================= CONNECTED / ACTIVE STATE ================= */
             <View style={styles.activeContainer}>
@@ -277,6 +284,7 @@ export function PartyModal({ visible, onClose }: Props) {
             </View>
           )}
         </ScrollView>
+        </KeyboardAvoidingView>
       </Animated.View>
     </View>
   );

@@ -7,7 +7,6 @@ import {
   setLastPlayedTrack, 
   getLastPlayedTrack, 
   saveListenHistory, 
-  getListenHistory, 
   TrackMetadata 
 } from '../utils/storage';
 import { getAudioStream, getAlgorithmicRecommendations, resolveTrackForPlayback } from './musicApi';
@@ -924,14 +923,6 @@ export async function playPreviousTrack() {
       return;
     }
 
-    const activeIndex = await getNativeActiveIndex();
-    if (typeof activeIndex === 'number' && activeIndex > 0) {
-      if (typeof (TrackPlayer as any).skipToPrevious === 'function') {
-        await (TrackPlayer as any).skipToPrevious();
-        return;
-      }
-    }
-
     if (playbackHistory.length > 0) {
       const prevTrack = playbackHistory.pop();
       if (prevTrack) {
@@ -939,25 +930,12 @@ export async function playPreviousTrack() {
           upNextQueue.unshift(currentTrack);
           notifyQueueChange();
         }
-        await playTrack(prevTrack, undefined, true);
+        await playTrack(prevTrack, undefined, { fromQueue: true, isPrevious: true });
         return;
       }
     }
 
-    const history = getListenHistory();
-    const active = currentTrack || getLastPlayedTrack();
-    if (history.length > 1) {
-      const prevTrack = history[1];
-      if (prevTrack && prevTrack.id !== active?.id) {
-        if (active) {
-          upNextQueue.unshift(active);
-          notifyQueueChange();
-        }
-        await playTrack(prevTrack, undefined, true);
-        return;
-      }
-    }
-
+    // Edge case: first track in queue/session, seek to beginning
     await TrackPlayer.seekTo(0);
   } catch (err) {
     console.warn('Error in playPreviousTrack:', err);
@@ -1287,11 +1265,20 @@ export async function playFromQueue(index: number): Promise<void> {
     const targetTrack = upNextQueue[index];
     if (!targetTrack || !targetTrack.id) return;
 
-    // 2. Slice the queue to keep everything AFTER this track
-    const remainingQueue = upNextQueue.slice(index + 1);
+    // 2. Push currentTrack and all bypassed items [0...index-1] into playbackHistory
+    if (currentTrack && currentTrack.id) {
+      playbackHistory.push(currentTrack);
+    }
+    const bypassed = upNextQueue.slice(0, index);
+    if (bypassed.length > 0) {
+      playbackHistory.push(...bypassed);
+    }
+    if (playbackHistory.length > 30) {
+      playbackHistory = playbackHistory.slice(playbackHistory.length - 30);
+    }
 
-    // 3. Play the target track with the remaining sliced queue
-    await playTrack(targetTrack, remainingQueue);
+    // 3. Play the target track from queue
+    await playTrack(targetTrack, undefined, { fromQueue: true });
   } catch (err) {
     console.warn('[Queue] Error playing track from queue:', err);
   }
@@ -1300,7 +1287,7 @@ export async function playFromQueue(index: number): Promise<void> {
 export async function playTrack(
   selectedTrack: TrackMetadata, 
   newQueue?: TrackMetadata[],
-  options?: { fromQueue?: boolean } | boolean
+  options?: { fromQueue?: boolean; isPrevious?: boolean } | boolean
 ): Promise<void> {
   let initialTrack = selectedTrack;
   if (selectedTrack?.id && (selectedTrack.id.startsWith('chart_') || selectedTrack.id.startsWith('new_release_'))) {
@@ -1313,6 +1300,7 @@ export async function playTrack(
   }
 
   const isFromQueue = typeof options === 'boolean' ? options : options?.fromQueue === true;
+  const isPrevious = typeof options === 'object' && options?.isPrevious === true;
   isLoadingTrack = true;
 
   try {
@@ -1326,6 +1314,7 @@ export async function playTrack(
     activeQueueSessionId++;
     const currentSession = activeQueueSessionId;
 
+    const previousTrack = currentTrack;
     currentTrack = safeTrack;
 
     const cleanTargetId = cleanTrackId(safeTrack.id);
@@ -1337,21 +1326,44 @@ export async function playTrack(
         if (!t?.id) return false;
         return t.id === safeTrack.id || (cleanTargetId && cleanTrackId(t.id) === cleanTargetId);
       });
-      upNextQueue = idx !== -1 ? sanitizedQueue.slice(idx + 1) : [...sanitizedQueue];
+      if (idx !== -1) {
+        playbackHistory = sanitizedQueue.slice(0, idx);
+        upNextQueue = sanitizedQueue.slice(idx + 1);
+      } else {
+        playbackHistory = [];
+        upNextQueue = [...sanitizedQueue];
+      }
+    } else if (isPrevious) {
+      // Backwards navigation:
+      // playPreviousTrack already unshifted the track to upNextQueue.
+      // Do not slice upNextQueue, preserve isPlaylistQueueActive.
+      upNextQueue = upNextQueue.filter(t => {
+        if (!t?.id) return false;
+        return t.id !== safeTrack.id && (cleanTargetId ? cleanTrackId(t.id) !== cleanTargetId : true);
+      });
     } else if (
       isFromQueue || 
       upNextQueue.some(t => t?.id === safeTrack.id || (cleanTargetId && cleanTrackId(t?.id) === cleanTargetId))
     ) {
+      if (previousTrack && previousTrack.id && previousTrack.id !== safeTrack.id) {
+        const alreadyInRecentHistory = playbackHistory.slice(-5).some(t => t.id === previousTrack.id);
+        if (!alreadyInRecentHistory) {
+          playbackHistory.push(previousTrack);
+          if (playbackHistory.length > 30) playbackHistory.shift();
+        }
+      }
+
       const queueIndex = upNextQueue.findIndex(t => {
         if (!t?.id) return false;
         return t.id === safeTrack.id || (cleanTargetId && cleanTrackId(t.id) === cleanTargetId);
       });
       upNextQueue = queueIndex !== -1 ? upNextQueue.slice(queueIndex + 1) : [];
-      if (upNextQueue.length <= 1) {
+      if (upNextQueue.length === 0) {
         isPlaylistQueueActive = false;
       }
     } else {
       isPlaylistQueueActive = false;
+      playbackHistory = [];
       upNextQueue = [];
     }
 
@@ -1361,9 +1373,11 @@ export async function playTrack(
       return t.id !== safeTrack.id && (cleanTargetId ? cleanTrackId(t.id) !== cleanTargetId : true);
     });
 
-    isShuffleActive = false;
-    preShuffleUpNextQueue = [];
-    notifyShuffleListeners();
+    if (!isFromQueue && !isPrevious) {
+      isShuffleActive = false;
+      preShuffleUpNextQueue = [];
+      notifyShuffleListeners();
+    }
 
     playedTrackIds.add(currentTrack.id);
     if (cleanTargetId) {
@@ -1445,12 +1459,14 @@ export async function playTrack(
 
     // Replenish recommendations:
     // If single track or playlist is finishing, fetch infinite YouTube recommendations seamlessly
-    if (!isPlaylistQueueActive || upNextQueue.length === 0) {
-      fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
-    } else if (upNextQueue.length <= 1) {
-      fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
-    } else {
-      maintainMinimumQueue(10, currentSession).catch(() => {});
+    if (!isPrevious) {
+      if (!isPlaylistQueueActive || upNextQueue.length === 0) {
+        fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
+      } else if (upNextQueue.length <= 1) {
+        fetchRadioQueue(selectedTrack, currentSession).catch(() => {});
+      } else {
+        maintainMinimumQueue(10, currentSession).catch(() => {});
+      }
     }
 
     try {

@@ -70,9 +70,7 @@ export function ArtistScreen({ route, navigation }: Props) {
   const handlePlayTrack = async (item: TrackMetadata) => {
     try {
       setLoadingTrackId(item.id);
-      const idx = tracks.findIndex(t => t.id === item.id);
-      const remaining = idx !== -1 ? tracks.slice(idx + 1) : tracks;
-      await playTrack(item, remaining);
+      await playTrack(item, tracks);
     } catch (err) {
       console.error('[ArtistScreen] Play track error:', err);
     } finally {
@@ -82,7 +80,7 @@ export function ArtistScreen({ route, navigation }: Props) {
 
   const handlePlayAll = async () => {
     if (tracks.length === 0) return;
-    await playTrack(tracks[0], tracks.slice(1));
+    await playTrack(tracks[0], tracks);
     showToast(`Playing ${artistName}`, 'musical-notes');
   };
 
@@ -93,7 +91,7 @@ export function ArtistScreen({ route, navigation }: Props) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    await playTrack(shuffled[0], shuffled.slice(1));
+    await playTrack(shuffled[0], shuffled);
     showToast(`Shuffled ${artistName}`, 'shuffle');
   };
 
