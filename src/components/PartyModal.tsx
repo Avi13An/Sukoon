@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,9 @@ import {
   useWindowDimensions,
   ActivityIndicator,
   Share,
-  KeyboardAvoidingView,
   Platform,
+  Keyboard,
+  findNodeHandle,
 } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,7 +39,30 @@ export function PartyModal({ visible, onClose }: Props) {
   const [joinCode, setJoinCode] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [isHosting, setIsHosting] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
   const translateY = useSharedValue(height);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     const unsub = subscribeToPartyState((state) => {
@@ -113,7 +137,16 @@ export function PartyModal({ visible, onClose }: Props) {
   return (
     <View style={styles.overlay} pointerEvents={visible ? 'auto' : 'none'}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View style={[styles.modal, { height: Math.min(height * 0.85, 580), minHeight: 460, maxHeight: height * 0.88 }, animatedStyle]}>
+      <Animated.View
+        style={[
+          styles.modal,
+          {
+            maxHeight: keyboardHeight > 0 ? '95%' : '88%',
+            paddingBottom: Math.max(keyboardHeight, insets.bottom + 16),
+          },
+          animatedStyle,
+        ]}
+      >
         
         <View style={styles.handle} />
 
@@ -132,20 +165,17 @@ export function PartyModal({ visible, onClose }: Props) {
           </TouchableOpacity>
         </View>
 
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        <ScrollView
+          ref={scrollViewRef}
           style={{ flex: 1 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingHorizontal: 20,
+            paddingBottom: 24,
+          }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{
-              flexGrow: 1,
-              paddingHorizontal: 20,
-              paddingBottom: Math.max(insets.bottom, 24) + 32,
-            }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
           {partyState.isActive ? (
             /* ================= CONNECTED / ACTIVE STATE ================= */
             <View style={styles.activeContainer}>
@@ -256,6 +286,11 @@ export function PartyModal({ visible, onClose }: Props) {
                     placeholderTextColor="#666666"
                     value={joinCode}
                     onChangeText={setJoinCode}
+                    onFocus={() => {
+                      setTimeout(() => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true });
+                      }, 150);
+                    }}
                     autoCapitalize="characters"
                     maxLength={10}
                   />
@@ -284,7 +319,6 @@ export function PartyModal({ visible, onClose }: Props) {
             </View>
           )}
         </ScrollView>
-        </KeyboardAvoidingView>
       </Animated.View>
     </View>
   );
@@ -309,7 +343,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderColor: '#26262a',
-    minHeight: 460,
+    minHeight: 380,
   },
   handle: {
     width: 44,
