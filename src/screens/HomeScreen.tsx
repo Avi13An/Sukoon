@@ -64,43 +64,48 @@ interface ArtistItem {
   artwork: string;
 }
 
-const TOP_ARTISTS: ArtistItem[] = [
-  { 
-    id: 'art-1', 
-    name: 'Arijit Singh', 
-    artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&auto=format&fit=crop&q=80' 
-  },
-  { 
-    id: 'art-2', 
-    name: 'Shreya Ghoshal', 
-    artwork: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&auto=format&fit=crop&q=80' 
-  },
-  { 
-    id: 'art-3', 
-    name: 'Diljit Dosanjh', 
-    artwork: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&auto=format&fit=crop&q=80' 
-  },
-  { 
-    id: 'art-4', 
-    name: 'Atif Aslam', 
-    artwork: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&auto=format&fit=crop&q=80' 
-  },
-  { 
-    id: 'art-5', 
-    name: 'A.R. Rahman', 
-    artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&auto=format&fit=crop&q=80' 
-  },
-  { 
-    id: 'art-6', 
-    name: 'Prateek Kuhad', 
-    artwork: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&auto=format&fit=crop&q=80' 
-  },
-  { 
-    id: 'art-7', 
-    name: 'Anuv Jain', 
-    artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80' 
-  },
+const INDIA_ARTISTS: ArtistItem[] = [
+  { id: 'in-1', name: 'Arijit Singh', artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-2', name: 'Diljit Dosanjh', artwork: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-3', name: 'Shreya Ghoshal', artwork: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-4', name: 'AP Dhillon', artwork: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-5', name: 'Karan Aujla', artwork: 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-6', name: 'Anuv Jain', artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-7', name: 'Sid Sriram', artwork: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-8', name: 'Divine', artwork: 'https://images.unsplash.com/photo-1506157786151-b8491531f063?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-9', name: 'King', artwork: 'https://images.unsplash.com/photo-1526478806334-5fd488fcaabc?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-10', name: 'Jasleen Royal', artwork: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-11', name: 'Prateek Kuhad', artwork: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-12', name: 'Vishal Mishra', artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-13', name: 'Atif Aslam', artwork: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80' },
+  { id: 'in-14', name: 'A.R. Rahman', artwork: 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?w=300&auto=format&fit=crop&q=80' },
 ];
+
+const GLOBAL_ARTISTS: ArtistItem[] = [
+  { id: 'gl-1', name: 'The Weeknd', artwork: 'https://images.unsplash.com/photo-1520523839898-50712825e617?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-2', name: 'Drake', artwork: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-3', name: 'Taylor Swift', artwork: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-4', name: 'Billie Eilish', artwork: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-5', name: 'Post Malone', artwork: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-6', name: 'Dua Lipa', artwork: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-7', name: 'Travis Scott', artwork: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-8', name: 'Bruno Mars', artwork: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-9', name: 'Ed Sheeran', artwork: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-10', name: 'Kendrick Lamar', artwork: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-11', name: 'Ariana Grande', artwork: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-12', name: 'SZA', artwork: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-13', name: 'Justin Bieber', artwork: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80' },
+  { id: 'gl-14', name: 'Coldplay', artwork: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&auto=format&fit=crop&q=80' },
+];
+
+function getRandomizedArtists(pool: ArtistItem[], count = 8): ArtistItem[] {
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
+}
 
 export function HomeScreen() {
   const navigation = useNavigation<any>();
@@ -113,6 +118,14 @@ export function HomeScreen() {
   const [curatedPlaylists, setCuratedPlaylists] = useState<Playlist[]>([]);
   const [isMoodLoading, setIsMoodLoading] = useState(false);
   const [chartRegion, setChartRegion] = useState<'india' | 'global'>('india');
+  const [artistRegion, setArtistRegion] = useState<'india' | 'global'>('india');
+  const [displayedArtists, setDisplayedArtists] = useState<ArtistItem[]>(() => getRandomizedArtists(INDIA_ARTISTS, 8));
+
+  const handleToggleArtistRegion = (region: 'india' | 'global') => {
+    setArtistRegion(region);
+    const pool = region === 'india' ? INDIA_ARTISTS : GLOBAL_ARTISTS;
+    setDisplayedArtists(getRandomizedArtists(pool, 8));
+  };
   const [topSuggestions, setTopSuggestions] = useState<TrackMetadata[]>([]);
   const [lastPlayedSong, setLastPlayedSong] = useState<TrackMetadata | null>(() => getLastPlayedTrack());
   const [recommendations, setRecommendations] = useState<TrackMetadata[]>([]);
@@ -252,6 +265,8 @@ export function HomeScreen() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    const pool = artistRegion === 'india' ? INDIA_ARTISTS : GLOBAL_ARTISTS;
+    setDisplayedArtists(getRandomizedArtists(pool, 8));
     await Promise.all([
       loadData(),
       fetchTrendingCharts('india', true).then(d => setIndiaCharts(d)),
@@ -566,11 +581,47 @@ export function HomeScreen() {
             <View style={styles.sectionHeaderTextWrapper}>
               <Text style={styles.sectionTitle}>Top Artists</Text>
             </View>
+            <View style={styles.chartRegionToggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.regionPill,
+                  artistRegion === 'india' ? styles.regionPillActive : styles.regionPillInactive,
+                ]}
+                onPress={() => handleToggleArtistRegion('india')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionPillText,
+                    artistRegion === 'india' ? styles.regionPillTextActive : styles.regionPillTextInactive,
+                  ]}
+                >
+                  India
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.regionPill,
+                  artistRegion === 'global' ? styles.regionPillActive : styles.regionPillInactive,
+                ]}
+                onPress={() => handleToggleArtistRegion('global')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionPillText,
+                    artistRegion === 'global' ? styles.regionPillTextActive : styles.regionPillTextInactive,
+                  ]}
+                >
+                  Global
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <FlatList
             horizontal
-            data={TOP_ARTISTS}
-            keyExtractor={(item) => item.id}
+            data={displayedArtists}
+            keyExtractor={(item) => `${artistRegion}-${item.id}`}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.horizontalScrollContent}
             renderItem={({ item }) => (

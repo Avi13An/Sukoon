@@ -24,6 +24,43 @@ export const searchTracks = async (query: string): Promise<TrackMetadata[]> => {
   }
 };
 
+export const getArtistTopTracks = async (artistName: string): Promise<TrackMetadata[]> => {
+  try {
+    const cleanArtist = artistName?.trim();
+    if (!cleanArtist || cleanArtist === 'Unknown Artist') return [];
+
+    const searchQueries = [
+      `${cleanArtist} essential hits songs`,
+      `${cleanArtist} greatest hits`,
+      `${cleanArtist} top tracks`,
+    ];
+
+    for (const q of searchQueries) {
+      try {
+        const results = await searchTracks(q);
+        if (Array.isArray(results) && results.length > 0) {
+          const lower = cleanArtist.toLowerCase();
+          const relevant = results.filter(t => 
+            t?.artist?.toLowerCase().includes(lower) ||
+            t?.title?.toLowerCase().includes(lower)
+          );
+          if (relevant.length >= 4) {
+            return relevant;
+          }
+          return results;
+        }
+      } catch (err) {
+        console.warn(`[getArtistTopTracks] Query "${q}" failed:`, err);
+      }
+    }
+    return [];
+  } catch (err) {
+    console.error('[getArtistTopTracks] Error:', err);
+    return [];
+  }
+};
+
+
 export const resolveAudioStreamDirect = async (videoId: string): Promise<string | null> => {
   // Strategy 1: Android client profile (yields progressive MP4 itag 18 containing AAC audio & moov sample tables)
   try {

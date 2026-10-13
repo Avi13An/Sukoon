@@ -113,7 +113,7 @@ export function PartyModal({ visible, onClose }: Props) {
   return (
     <View style={styles.overlay} pointerEvents={visible ? 'auto' : 'none'}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View style={[styles.modal, { maxHeight: height * 0.88 }, animatedStyle]}>
+      <Animated.View style={[styles.modal, { height: Math.min(height * 0.85, 580), minHeight: 460, maxHeight: height * 0.88 }, animatedStyle]}>
         
         <View style={styles.handle} />
 
@@ -137,11 +137,11 @@ export function PartyModal({ visible, onClose }: Props) {
           style={{ flex: 1 }}
         >
           <ScrollView
+            style={{ flex: 1 }}
             contentContainerStyle={{
               flexGrow: 1,
-              justifyContent: 'space-between',
               paddingHorizontal: 20,
-              paddingBottom: Math.max(insets.bottom, 24) + 60,
+              paddingBottom: Math.max(insets.bottom, 24) + 32,
             }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -252,7 +252,7 @@ export function PartyModal({ visible, onClose }: Props) {
                 <View style={styles.inputRow}>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g. SK-8492"
+                    placeholder="Enter 6-digit Code"
                     placeholderTextColor="#666666"
                     value={joinCode}
                     onChangeText={setJoinCode}
@@ -309,6 +309,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderColor: '#26262a',
+    minHeight: 460,
   },
   handle: {
     width: 44,

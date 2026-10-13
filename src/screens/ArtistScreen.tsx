@@ -8,12 +8,13 @@ import {
   Image,
   ActivityIndicator,
   useWindowDimensions,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TrackMetadata } from '../utils/storage';
-import { searchTracks } from '../services/musicApi';
+import { searchTracks, getArtistTopTracks } from '../services/musicApi';
 import { playTrack } from '../services/TrackPlayerService';
 import { AddToPlaylistModal } from '../components/AddToPlaylistModal';
 import { MiniPlayer } from '../components/MiniPlayer';
@@ -43,29 +44,37 @@ export function ArtistScreen({ route, navigation }: Props) {
 
   const [tracks, setTracks] = useState<TrackMetadata[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
   const [playlistModalTrack, setPlaylistModalTrack] = useState<TrackMetadata | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchArtistTracks = async () => {
+  const fetchArtistTracks = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    } else {
       setIsLoading(true);
-      try {
-        const results = await searchTracks(`${artistName} top songs hits`);
-        if (isMounted) {
-          setTracks(results || []);
-        }
-      } catch (err) {
-        console.warn('[ArtistScreen] Error fetching tracks:', err);
-      } finally {
-        if (isMounted) setIsLoading(false);
+    }
+    try {
+      let results = await getArtistTopTracks(artistName);
+      if (!results || results.length === 0) {
+        results = await searchTracks(`${artistName} top songs hits`);
       }
-    };
-    fetchArtistTracks();
-    return () => {
-      isMounted = false;
-    };
+      setTracks(results || []);
+    } catch (err) {
+      console.warn('[ArtistScreen] Error fetching tracks:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
   }, [artistName]);
+
+  useEffect(() => {
+    fetchArtistTracks();
+  }, [fetchArtistTracks]);
+
+  const handleRefresh = useCallback(() => {
+    fetchArtistTracks(true);
+  }, [fetchArtistTracks]);
 
   const handlePlayTrack = async (item: TrackMetadata) => {
     try {
@@ -180,6 +189,14 @@ export function ArtistScreen({ route, navigation }: Props) {
           ListHeaderComponent={renderHeader}
           contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor="#00ffcc"
+              colors={['#00ffcc']}
+            />
+          }
           renderItem={({ item, index }) => {
             const isPlayingThis = loadingTrackId === item.id;
             const artwork =
