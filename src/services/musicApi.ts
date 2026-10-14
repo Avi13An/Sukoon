@@ -29,31 +29,72 @@ export const getArtistTopTracks = async (artistName: string): Promise<TrackMetad
     const cleanArtist = artistName?.trim();
     if (!cleanArtist || cleanArtist === 'Unknown Artist') return [];
 
-    const searchQueries = [
-      `${cleanArtist} essential hits songs`,
-      `${cleanArtist} greatest hits`,
-      `${cleanArtist} top tracks`,
+    const target = cleanArtist.toLowerCase();
+    const filterStrict = (tracks: TrackMetadata[]) => {
+      return tracks.filter((track) => {
+        if (!track || !track.id) return false;
+        const artistField = (track.artist || (track as any).subtitle || '').toLowerCase();
+        const titleField = (track.title || '').toLowerCase();
+        // Must explicitly contain the artist's name in the artist credits or title
+        return artistField.includes(target) || titleField.includes(target);
+      });
+    };
+
+    const collectedTracks: TrackMetadata[] = [];
+    const seenIds = new Set<string>();
+
+    const addUniqueTracks = (tracks: TrackMetadata[]) => {
+      const filtered = filterStrict(tracks);
+      for (const t of filtered) {
+        if (!seenIds.has(t.id)) {
+          seenIds.add(t.id);
+          collectedTracks.push(t);
+        }
+      }
+    };
+
+    // Primary queries specifically targeting the artist's hits / catalog
+    const primaryQueries = [
+      `"${cleanArtist}" hits`,
+      `"${cleanArtist}" original songs`,
     ];
 
-    for (const q of searchQueries) {
+    for (const q of primaryQueries) {
       try {
-        const results = await searchTracks(q);
-        if (Array.isArray(results) && results.length > 0) {
-          const lower = cleanArtist.toLowerCase();
-          const relevant = results.filter(t => 
-            t?.artist?.toLowerCase().includes(lower) ||
-            t?.title?.toLowerCase().includes(lower)
-          );
-          if (relevant.length >= 4) {
-            return relevant;
-          }
-          return results;
+        const raw = await searchTracks(q);
+        if (Array.isArray(raw)) {
+          addUniqueTracks(raw);
+        }
+        if (collectedTracks.length >= 10) {
+          break;
         }
       } catch (err) {
-        console.warn(`[getArtistTopTracks] Query "${q}" failed:`, err);
+        console.warn(`[getArtistTopTracks] Primary query "${q}" failed:`, err);
       }
     }
-    return [];
+
+    // If fewer than 10 tracks after filtering, trigger secondary fallback queries
+    if (collectedTracks.length < 10) {
+      const fallbackQueries = [
+        `${cleanArtist} songs`,
+        `${cleanArtist} top tracks`,
+      ];
+      for (const q of fallbackQueries) {
+        try {
+          const raw = await searchTracks(q);
+          if (Array.isArray(raw)) {
+            addUniqueTracks(raw);
+          }
+          if (collectedTracks.length >= 15) {
+            break;
+          }
+        } catch (err) {
+          console.warn(`[getArtistTopTracks] Fallback query "${q}" failed:`, err);
+        }
+      }
+    }
+
+    return collectedTracks;
   } catch (err) {
     console.error('[getArtistTopTracks] Error:', err);
     return [];

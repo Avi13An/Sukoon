@@ -55,11 +55,25 @@ export function ArtistScreen({ route, navigation }: Props) {
       setIsLoading(true);
     }
     try {
+      const target = artistName.trim().toLowerCase();
       let results = await getArtistTopTracks(artistName);
       if (!results || results.length === 0) {
-        results = await searchTracks(`${artistName} top songs hits`);
+        const raw = await searchTracks(`"${artistName}" songs hits`);
+        results = (raw || []).filter((t) => {
+          const artistField = (t.artist || (t as any).subtitle || '').toLowerCase();
+          const titleField = (t.title || '').toLowerCase();
+          return artistField.includes(target) || titleField.includes(target);
+        });
       }
-      setTracks(results || []);
+
+      // Strictly ensure only tracks matching the artist are presented
+      const strictlyFiltered = (results || []).filter((track) => {
+        const artistField = (track.artist || (track as any).subtitle || '').toLowerCase();
+        const titleField = (track.title || '').toLowerCase();
+        return artistField.includes(target) || titleField.includes(target);
+      });
+
+      setTracks(strictlyFiltered);
     } catch (err) {
       console.warn('[ArtistScreen] Error fetching tracks:', err);
     } finally {

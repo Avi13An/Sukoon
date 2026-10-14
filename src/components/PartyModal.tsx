@@ -12,6 +12,7 @@ import {
   Platform,
   Keyboard,
   findNodeHandle,
+  Animated as RNAnimated,
 } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,7 +40,7 @@ export function PartyModal({ visible, onClose }: Props) {
   const [joinCode, setJoinCode] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [isHosting, setIsHosting] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardOffset = useRef(new RNAnimated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
   const translateY = useSharedValue(height);
 
@@ -48,14 +49,22 @@ export function PartyModal({ visible, onClose }: Props) {
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const showSub = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardHeight(e.endCoordinates.height);
+      RNAnimated.timing(keyboardOffset, {
+        toValue: e.endCoordinates.height,
+        duration: Platform.OS === 'ios' ? e.duration || 250 : 150,
+        useNativeDriver: false,
+      }).start();
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     });
 
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
+    const hideSub = Keyboard.addListener(hideEvent, (e: any) => {
+      RNAnimated.timing(keyboardOffset, {
+        toValue: 0,
+        duration: Platform.OS === 'ios' ? e?.duration || 250 : 150,
+        useNativeDriver: false,
+      }).start();
     });
 
     return () => {
@@ -137,45 +146,41 @@ export function PartyModal({ visible, onClose }: Props) {
   return (
     <View style={styles.overlay} pointerEvents={visible ? 'auto' : 'none'}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View
-        style={[
-          styles.modal,
-          {
-            maxHeight: keyboardHeight > 0 ? '95%' : '88%',
-            paddingBottom: Math.max(keyboardHeight, insets.bottom + 16),
-          },
-          animatedStyle,
-        ]}
-      >
-        
-        <View style={styles.handle} />
-
-        <View style={styles.header}>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.jamIconBadge}>
-              <Ionicons name="sparkles" size={18} color="#00ffcc" />
-            </View>
-            <View>
-              <Text style={styles.title}>Sukoon Jam</Text>
-              <Text style={styles.subtitle}>Real-Time Multi-Device Party Sync</Text>
-            </View>
-          </View>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <Ionicons name="close" size={24} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          ref={scrollViewRef}
-          style={{ flex: 1 }}
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingHorizontal: 20,
-            paddingBottom: 24,
-          }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <RNAnimated.View style={[styles.modalWrapper, { marginBottom: keyboardOffset }]}>
+        <Animated.View
+          style={[
+            styles.modal,
+            animatedStyle,
+          ]}
         >
+          
+          <View style={styles.handle} />
+
+          <View style={styles.header}>
+            <View style={styles.headerTitleRow}>
+              <View style={styles.jamIconBadge}>
+                <Ionicons name="sparkles" size={18} color="#00ffcc" />
+              </View>
+              <View>
+                <Text style={styles.title}>Sukoon Jam</Text>
+                <Text style={styles.subtitle}>Real-Time Multi-Device Party Sync</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={24} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            ref={scrollViewRef}
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={{
+              paddingHorizontal: 20,
+              paddingBottom: Math.max(insets.bottom, 24),
+            }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           {partyState.isActive ? (
             /* ================= CONNECTED / ACTIVE STATE ================= */
             <View style={styles.activeContainer}>
@@ -320,7 +325,8 @@ export function PartyModal({ visible, onClose }: Props) {
           )}
         </ScrollView>
       </Animated.View>
-    </View>
+    </RNAnimated.View>
+  </View>
   );
 }
 
@@ -336,6 +342,9 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
+  modalWrapper: {
+    width: '100%',
+  },
   modal: {
     backgroundColor: '#101012',
     borderTopLeftRadius: 24,
@@ -343,7 +352,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderColor: '#26262a',
-    minHeight: 380,
+    maxHeight: '90%',
   },
   handle: {
     width: 44,
